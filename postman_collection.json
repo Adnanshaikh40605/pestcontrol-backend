@@ -1,0 +1,952 @@
+{
+	"info": {
+		"_postman_id": "pestcontrol-api-collection",
+		"name": "Pest Control API Collection",
+		"description": "Complete collection for testing Pest Control Backend APIs",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Get JWT Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"admin\",\n    \"password\": \"admin123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/token/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"token",
+								""
+							]
+						},
+						"description": "Get JWT access token for authentication"
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh JWT Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh\": \"{{refresh_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/token/refresh/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"token",
+								"refresh",
+								""
+							]
+						},
+						"description": "Refresh JWT access token"
+					},
+					"response": []
+				},
+				{
+					"name": "Verify JWT Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"token\": \"{{access_token}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/token/verify/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"token",
+								"verify",
+								""
+							]
+						},
+						"description": "Verify JWT token validity"
+					},
+					"response": []
+				}
+			],
+			"description": "JWT authentication endpoints"
+		},
+		{
+			"name": "Clients",
+			"item": [
+				{
+					"name": "Get All Clients",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/clients/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"clients",
+								""
+							],
+							"query": [
+								{
+									"key": "city",
+									"value": "Mumbai",
+									"description": "Filter by city"
+								},
+								{
+									"key": "is_active",
+									"value": "true",
+									"description": "Filter by active status"
+								},
+								{
+									"key": "search",
+									"value": "Raj",
+									"description": "Search by name, mobile, or email"
+								}
+							]
+						},
+						"description": "Get all clients with optional filtering and search"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Client by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/clients/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"clients",
+								"1",
+								""
+							]
+						},
+						"description": "Get a specific client by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Create New Client",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"full_name\": \"John Doe\",\n    \"mobile\": \"9876543210\",\n    \"email\": \"john.doe@example.com\",\n    \"city\": \"Mumbai\",\n    \"address\": \"123 Main Street, Andheri West\",\n    \"notes\": \"New customer, prefers morning appointments\",\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/clients/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"clients",
+								""
+							]
+						},
+						"description": "Create a new client"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Client",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"full_name\": \"John Doe Updated\",\n    \"mobile\": \"9876543210\",\n    \"email\": \"john.doe.updated@example.com\",\n    \"city\": \"Mumbai\",\n    \"address\": \"123 Main Street, Andheri West, Mumbai\",\n    \"notes\": \"Updated customer information\",\n    \"is_active\": true\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/clients/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"clients",
+								"1",
+								""
+							]
+						},
+						"description": "Update an existing client"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Client",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/clients/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"clients",
+								"1",
+								""
+							]
+						},
+						"description": "Delete a client (admin only)"
+					},
+					"response": []
+				}
+			],
+			"description": "Client management endpoints"
+		},
+		{
+			"name": "Inquiries",
+			"item": [
+				{
+					"name": "Get All Inquiries",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inquiries/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"inquiries",
+								""
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "New",
+									"description": "Filter by status"
+								},
+								{
+									"key": "city",
+									"value": "Mumbai",
+									"description": "Filter by city"
+								},
+								{
+									"key": "from_date",
+									"value": "2024-01-01",
+									"description": "Filter from date"
+								},
+								{
+									"key": "to_date",
+									"value": "2024-12-31",
+									"description": "Filter to date"
+								}
+							]
+						},
+						"description": "Get all inquiries with optional filtering"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Inquiry by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inquiries/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"inquiries",
+								"1",
+								""
+							]
+						},
+						"description": "Get a specific inquiry by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Create New Inquiry",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Jane Smith\",\n    \"mobile\": \"8765432109\",\n    \"email\": \"jane.smith@example.com\",\n    \"message\": \"Need urgent pest control service for my home\",\n    \"service_interest\": \"Cockroach Control\",\n    \"city\": \"Delhi\",\n    \"status\": \"New\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/inquiries/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"inquiries",
+								""
+							]
+						},
+						"description": "Create a new inquiry"
+					},
+					"response": []
+				},
+				{
+					"name": "Webhook Create Inquiry",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Webhook Customer\",\n    \"mobile\": \"7654321098\",\n    \"email\": \"webhook@example.com\",\n    \"message\": \"Inquiry from website\",\n    \"service_interest\": \"Termite Treatment\",\n    \"city\": \"Bangalore\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/inquiries/webhook/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"inquiries",
+								"webhook",
+								""
+							]
+						},
+						"description": "Create inquiry via webhook (no auth required)"
+					},
+					"response": []
+				},
+				{
+					"name": "Convert Inquiry to Job Card",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"schedule_date\": \"2024-12-20\",\n    \"technician_name\": \"Rajesh Kumar\",\n    \"price_subtotal\": 1500.00,\n    \"tax_percent\": 18\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/inquiries/1/convert/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"inquiries",
+								"1",
+								"convert",
+								""
+							]
+						},
+						"description": "Convert an inquiry to a job card"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Inquiry",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Jane Smith Updated\",\n    \"mobile\": \"8765432109\",\n    \"email\": \"jane.smith.updated@example.com\",\n    \"message\": \"Updated inquiry message\",\n    \"service_interest\": \"Cockroach Control\",\n    \"city\": \"Delhi\",\n    \"status\": \"Contacted\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/inquiries/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"inquiries",
+								"1",
+								""
+							]
+						},
+						"description": "Update an existing inquiry"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Inquiry",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/inquiries/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"inquiries",
+								"1",
+								""
+							]
+						},
+						"description": "Delete an inquiry (admin only)"
+					},
+					"response": []
+				}
+			],
+			"description": "Inquiry management endpoints"
+		},
+		{
+			"name": "Job Cards",
+			"item": [
+				{
+					"name": "Get All Job Cards",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/jobcards/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobcards",
+								""
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "WIP",
+									"description": "Filter by status"
+								},
+								{
+									"key": "payment_status",
+									"value": "Unpaid",
+									"description": "Filter by payment status"
+								},
+								{
+									"key": "city",
+									"value": "Mumbai",
+									"description": "Filter by client city"
+								},
+								{
+									"key": "from",
+									"value": "2024-01-01",
+									"description": "Filter from date"
+								},
+								{
+									"key": "to",
+									"value": "2024-12-31",
+									"description": "Filter to date"
+								},
+								{
+									"key": "search",
+									"value": "JC-0001",
+									"description": "Search by code, client name, mobile, or service type"
+								}
+							]
+						},
+						"description": "Get all job cards with optional filtering and search"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Job Card by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/jobcards/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobcards",
+								"1",
+								""
+							]
+						},
+						"description": "Get a specific job card by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Create New Job Card",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"client\": 1,\n    \"status\": \"Enquiry\",\n    \"service_type\": \"Cockroach Control\",\n    \"schedule_date\": \"2024-12-25\",\n    \"technician_name\": \"Amit Singh\",\n    \"price_subtotal\": 2000.00,\n    \"tax_percent\": 18,\n    \"payment_status\": \"Unpaid\",\n    \"next_service_date\": \"2025-06-25\",\n    \"notes\": \"Customer requested eco-friendly products\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/jobcards/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobcards",
+								""
+							]
+						},
+						"description": "Create a new job card"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Job Card",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"client\": 1,\n    \"status\": \"WIP\",\n    \"service_type\": \"Cockroach Control\",\n    \"schedule_date\": \"2024-12-25\",\n    \"technician_name\": \"Amit Singh\",\n    \"price_subtotal\": 2000.00,\n    \"tax_percent\": 18,\n    \"payment_status\": \"Paid\",\n    \"next_service_date\": \"2025-06-25\",\n    \"notes\": \"Job in progress, customer satisfied\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/jobcards/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobcards",
+								"1",
+								""
+							]
+						},
+						"description": "Update an existing job card"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Job Card",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/jobcards/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobcards",
+								"1",
+								""
+							]
+						},
+						"description": "Delete a job card (admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Job Card Statistics",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/jobcards/statistics/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"jobcards",
+								"statistics",
+								""
+							]
+						},
+						"description": "Get job card statistics and analytics"
+					},
+					"response": []
+				}
+			],
+			"description": "Job card management endpoints"
+		},
+		{
+			"name": "Renewals",
+			"item": [
+				{
+					"name": "Get All Renewals",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/renewals/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"renewals",
+								""
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "Due",
+									"description": "Filter by status"
+								},
+								{
+									"key": "due_date",
+									"value": "2024-12-31",
+									"description": "Filter by due date"
+								},
+								{
+									"key": "upcoming",
+									"value": "true",
+									"description": "Get renewals due in next 30 days"
+								},
+								{
+									"key": "overdue",
+									"value": "true",
+									"description": "Get overdue renewals"
+								}
+							]
+						},
+						"description": "Get all renewals with optional filtering"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Renewal by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/renewals/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"renewals",
+								"1",
+								""
+							]
+						},
+						"description": "Get a specific renewal by ID"
+					},
+					"response": []
+				},
+				{
+					"name": "Create New Renewal",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"jobcard\": 1,\n    \"due_date\": \"2025-01-25\",\n    \"status\": \"Due\",\n    \"remarks\": \"Annual renewal due for pest control service\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/renewals/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"renewals",
+								""
+							]
+						},
+						"description": "Create a new renewal"
+					},
+					"response": []
+				},
+				{
+					"name": "Update Renewal",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"jobcard\": 1,\n    \"due_date\": \"2025-01-25\",\n    \"status\": \"Completed\",\n    \"remarks\": \"Renewal completed successfully\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/renewals/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"renewals",
+								"1",
+								""
+							]
+						},
+						"description": "Update an existing renewal"
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Renewal",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/renewals/1/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"renewals",
+								"1",
+								""
+							]
+						},
+						"description": "Delete a renewal (admin only)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Renewal Summary",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/renewals/upcoming_summary/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"renewals",
+								"upcoming_summary",
+								""
+							]
+						},
+						"description": "Get summary of upcoming renewals"
+					},
+					"response": []
+				}
+			],
+			"description": "Renewal management endpoints"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refresh_token",
+			"value": "",
+			"type": "string"
+		}
+	]
+} 
