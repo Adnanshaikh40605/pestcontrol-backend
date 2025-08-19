@@ -12,6 +12,8 @@ A Django REST API backend for pest control management system.
 
 ## Setup Instructions
 
+### Local Development
+
 1. Clone the repository:
 ```bash
 git clone https://github.com/adnandoh/pestcontrol99-Backend-.git
@@ -50,6 +52,20 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
+### Railway Deployment
+
+For production deployment on Railway:
+
+1. **Quick Deploy**: Use the deployment script:
+   ```bash
+   chmod +x deploy.sh
+   ./deploy.sh
+   ```
+
+2. **Manual Deploy**: Follow the detailed guide in [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md)
+
+3. **Railway Dashboard**: Deploy directly from [railway.app](https://railway.app)
+
 ## API Documentation
 
 See `API_TESTING_GUIDE.md` for detailed API documentation and testing instructions.
@@ -60,6 +76,11 @@ See `API_TESTING_GUIDE.md` for detailed API documentation and testing instructio
 - `core/` - Core Django settings and configuration
 - `requirements.txt` - Python dependencies
 - `manage.py` - Django management script
+- `Procfile` - Railway deployment configuration
+- `railway.json` - Railway-specific settings
+- `runtime.txt` - Python version specification
+- `deploy.sh` - Railway deployment script
+- `RAILWAY_DEPLOYMENT.md` - Detailed deployment guide
 
 ## Contributing
 
