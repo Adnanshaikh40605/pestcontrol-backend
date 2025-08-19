@@ -25,6 +25,7 @@ SECRET_KEY = config('DJANGO_SECRET_KEY', default='django-insecure-&2bk=&v@4*4xc+
 DEBUG = config('DJANGO_DEBUG', default=True, cast=bool)
 
 ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='localhost,127.0.0.1,.railway.app').split(',')
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='https://*.railway.app,https://*.up.railway.app').split(',')
 
 # Application definition
 INSTALLED_APPS = [
@@ -251,3 +252,24 @@ LOGGING = {
         },
     },
 }
+
+# ---- Safe logging for containers ----
+DJANGO_LOG_LEVEL = config('DJANGO_LOG_LEVEL', default='INFO')
+IS_CONTAINER = bool(config('PORT', default=None) or config('RAILWAY_STATIC_URL', default=None) or config('RAILWAY_ENVIRONMENT', default=None))
+
+if IS_CONTAINER:
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "verbose": {"format": "[{asctime}] {levelname} {name} | {message}", "style": "{"},
+        },
+        "handlers": {
+            "console": {"class": "logging.StreamHandler", "formatter": "verbose"},
+        },
+        "root": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL},
+        "loggers": {
+            "django": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
+            "django.server": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
+        },
+    }
