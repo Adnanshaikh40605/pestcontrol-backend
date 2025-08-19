@@ -72,30 +72,25 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'backend.wsgi.application'
 
-# Database
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME', default='pest'),
-        'USER': config('DB_USER', default='postgres'),
-        'PASSWORD': config('DB_PASSWORD', default='adnan12'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
-        'OPTIONS': {
-            'connect_timeout': 60,
-        },
-        'CONN_MAX_AGE': 600,
+# Database Configuration
+if DEBUG and not config('DATABASE_URL', default=None):
+    # Local development with SQLite
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
-
-# Railway PostgreSQL configuration
-if config('DATABASE_URL', default=None):
-    import dj_database_url
-    DATABASES['default'] = dj_database_url.config(
-        default=config('DATABASE_URL'),
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
+else:
+    # Production with Railway PostgreSQL
+    DATABASES = {
+        'default': dj_database_url.config(
+            env='DATABASE_URL',
+            conn_max_age=600,
+            conn_health_checks=True,
+            ssl_require=True,
+        )
+    }
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [

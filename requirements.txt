@@ -7,12 +7,15 @@ django-cors-headers>=4.3.0,<5.0
 
 # Database
 psycopg2-binary>=2.9.9,<3.0  # PostgreSQL adapter
-dj-database-url>=2.1.0,<3.0  # Railway database URL parsing
+dj-database-url>=2.1.0,<3.0  # Database URL parsing
+
+# Google Maps Integration
+googlemaps>=4.10.0,<5.0  # Google Maps API client
 
 # Development & Testing
 pytest>=7.4.3,<8.0
 pytest-django>=4.7.0,<5.0
-pytest-cov>=4.1.0,<5.0
+pytest-cov>=4.1.0,<4.0
 black>=23.12.1,<24.0
 flake8>=6.1.0,<7.0
 isort>=5.13.2,<6.0
