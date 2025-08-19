@@ -1,3 +1,33 @@
+# Exclude frontend from this backend repo
+pestcontrol-frontend/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environments
+.env
+env/
+venv/
+.venv/
+
+# Logs and runtime files
+logs/
+*.log
+
+# Static/media build artifacts
+staticfiles/
+media/
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Node artifacts anywhere (safety)
+**/node_modules/
 # Exclude frontend folder
 pestcontrol-frontend/
 
@@ -29,6 +59,15 @@ MANIFEST
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+
+# PostgreSQL
+*.sql
+pgdata/
+postgres_data/
+
+# Database backups
+backup.sql
+*.dump
 
 # Environment variables
 .env

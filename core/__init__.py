@@ -1,0 +1,5 @@
+"""
+Core app package initialization.
+"""
+
+
