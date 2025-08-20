@@ -26,7 +26,11 @@ from core.auth import CustomTokenObtainPairView
 def health(_):
     return HttpResponse("ok")
 
+def root(request):
+    return HttpResponse("PestControl Backend API - Status: Running", content_type="text/plain")
+
 urlpatterns = [
+    path('', root, name='root'),  # Root path for Railway healthcheck
     path('health/', health, name='health'),
     path('admin/', admin.site.urls),
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
