@@ -21,20 +21,34 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
     TokenVerifyView,
 )
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularRedocView,
+    SpectacularSwaggerView,
+)
 from core.auth import CustomTokenObtainPairView
 
 def health(request):
-    return JsonResponse({"status": "ok", "service": "pestcontrol-backend"})
+    return JsonResponse({"status": "ok", "service": "pestcontrol-backend", "version": "1.0.0"})
 
 def root(request):
-    return HttpResponse("PestControl Backend API - Status: Running", content_type="text/plain")
+    return HttpResponse("PestControl Backend API v1.0.0 - Status: Running", content_type="text/plain")
 
 urlpatterns = [
     path('', root, name='root'),  # Root path for Railway healthcheck
     path('health/', health, name='health'),
     path('admin/', admin.site.urls),
+    
+    # Authentication endpoints
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
+    
+    # API documentation
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    
+    # API endpoints
     path('api/', include('core.urls')),
 ]

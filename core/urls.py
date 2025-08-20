@@ -1,24 +1,14 @@
+"""
+Main URL configuration for core app with API versioning.
+"""
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from .views import (
-    health_check,
-    ClientViewSet,
-    InquiryViewSet,
-    JobCardViewSet,
-    RenewalViewSet,
-)
-
-
-router = DefaultRouter()
-router.register(r'clients', ClientViewSet, basename='client')
-router.register(r'inquiries', InquiryViewSet, basename='inquiry')
-router.register(r'jobcards', JobCardViewSet, basename='jobcard')
-router.register(r'renewals', RenewalViewSet, basename='renewal')
-
 
 urlpatterns = [
-    path('health/', health_check, name='health_check'),
-    path('', include(router.urls)),
+    # API v1 endpoints
+    path('v1/', include('core.urls_v1')),
+    
+    # Default to v1 for backward compatibility
+    path('', include('core.urls_v1')),
 ]
 
 

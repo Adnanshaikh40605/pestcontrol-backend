@@ -20,10 +20,10 @@ import dj_database_url
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('DJANGO_SECRET_KEY', default='django-insecure-&2bk=&v@4*4xc+0_kr9^#wd%b@2vbcseg0!xyfdhx3b(sp*#m8')
+SECRET_KEY = config('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config('DJANGO_DEBUG', default=True, cast=bool)
+DEBUG = config('DJANGO_DEBUG', default=False, cast=bool)
 
 # Railway domain configuration
 RAILWAY_DOMAIN = "pestcontrol-backend-production.up.railway.app"
@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'django_filters',
     'corsheaders',
+    'drf_spectacular',
     'core',
 ]
 
@@ -143,6 +144,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Django REST Framework settings
 REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
@@ -163,14 +165,59 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',
-        'user': '1000/hour'
+        'user': '1000/hour',
+        'login': '5/min'
     }
+}
+
+# Spectacular settings for OpenAPI documentation
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'PestControl99 API',
+    'DESCRIPTION': 'A comprehensive REST API for pest control management system',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': r'/api/v[0-9]',
+    'DEFAULT_GENERATOR_CLASS': 'drf_spectacular.generators.SchemaGenerator',
+    'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
+    'SERVERS': [
+        {
+            'url': 'http://localhost:8000/api',
+            'description': 'Development server'
+        },
+        {
+            'url': 'https://pestcontrol-backend-production.up.railway.app/api',
+            'description': 'Production server (Railway)'
+        }
+    ],
+    'TAGS': [
+        {
+            'name': 'Authentication',
+            'description': 'JWT token authentication endpoints'
+        },
+        {
+            'name': 'Clients',
+            'description': 'Client management operations'
+        },
+        {
+            'name': 'Inquiries',
+            'description': 'Inquiry management operations'
+        },
+        {
+            'name': 'Job Cards',
+            'description': 'Job card management operations'
+        },
+        {
+            'name': 'Renewals',
+            'description': 'Renewal management operations'
+        }
+    ]
 }
 
 # Simple JWT settings
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_TOKEN_LIFETIME', default=60, cast=int)),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_TOKEN_LIFETIME', default=7, cast=int)),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
@@ -179,7 +226,7 @@ SIMPLE_JWT = {
     'SIGNING_KEY': SECRET_KEY,
     'VERIFYING_KEY': None,
     'AUDIENCE': None,
-    'ISSUER': None,
+    'ISSUER': config('JWT_ISSUER', default='pestcontrol-backend'),
 
     'AUTH_HEADER_TYPES': ('Bearer',),
     'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
@@ -193,11 +240,10 @@ SIMPLE_JWT = {
 }
 
 # CORS settings
-CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-]
+CORS_ALLOW_ALL_ORIGINS = False  # Never allow all origins in production
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', 
+    default='http://localhost:3000,http://127.0.0.1:3000'
+).split(',')
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
     'DELETE',
@@ -207,18 +253,40 @@ CORS_ALLOW_METHODS = [
     'POST',
     'PUT',
 ]
+CORS_ALLOWED_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
-# Security settings
+# Security settings - Apply in both DEBUG and production for better security
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
+# Production-specific security settings
 if not DEBUG:
-    SECURE_BROWSER_XSS_FILTER = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_PRELOAD = True
     SECURE_REDIRECT_EXEMPT = []
-    SECURE_SSL_REDIRECT = True
+    # Disable SSL redirect for Railway (Railway handles HTTPS at proxy level)
+    SECURE_SSL_REDIRECT = False
+    # Trust Railway's proxy headers for HTTPS detection
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    X_FRAME_OPTIONS = 'DENY'
+    SESSION_COOKIE_HTTPONLY = True
+    CSRF_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    CSRF_COOKIE_SAMESITE = 'Lax'
 
 # Logging configuration
 LOGGING = {
@@ -280,3 +348,15 @@ if IS_CONTAINER:
             "django.server": {"handlers": ["console"], "level": DJANGO_LOG_LEVEL, "propagate": False},
         },
     }
+
+# Cache configuration - Using local memory cache
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'pestcontrol-cache',
+        'TIMEOUT': 300,  # 5 minutes default timeout
+        'OPTIONS': {
+            'MAX_ENTRIES': 1000,
+        }
+    }
+}
