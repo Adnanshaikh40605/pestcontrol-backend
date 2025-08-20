@@ -25,8 +25,16 @@ SECRET_KEY = config('DJANGO_SECRET_KEY', default='django-insecure-&2bk=&v@4*4xc+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DJANGO_DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='localhost,127.0.0.1,.railway.app').split(',')
-CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='https://*.railway.app,https://*.up.railway.app').split(',')
+# Railway domain configuration
+RAILWAY_DOMAIN = "pestcontrol-backend-production.up.railway.app"
+
+ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', 
+    default=f'localhost,127.0.0.1,.railway.app,.up.railway.app,{RAILWAY_DOMAIN}'
+).split(',')
+
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', 
+    default=f'https://*.railway.app,https://*.up.railway.app,https://{RAILWAY_DOMAIN}'
+).split(',')
 
 # Application definition
 INSTALLED_APPS = [

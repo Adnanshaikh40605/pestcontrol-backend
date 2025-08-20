@@ -16,15 +16,15 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from rest_framework_simplejwt.views import (
     TokenRefreshView,
     TokenVerifyView,
 )
 from core.auth import CustomTokenObtainPairView
 
-def health(_):
-    return HttpResponse("ok")
+def health(request):
+    return JsonResponse({"status": "ok", "service": "pestcontrol-backend"})
 
 def root(request):
     return HttpResponse("PestControl Backend API - Status: Running", content_type="text/plain")
