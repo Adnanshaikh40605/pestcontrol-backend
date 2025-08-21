@@ -77,12 +77,14 @@ class Inquiry(BaseModel):
         default=InquiryStatus.NEW,
         db_index=True
     )
+    is_read = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['status', 'city']),
             models.Index(fields=['mobile', 'email']),
+            models.Index(fields=['is_read', 'status']),
         ]
         verbose_name = 'Inquiry'
         verbose_name_plural = 'Inquiries'

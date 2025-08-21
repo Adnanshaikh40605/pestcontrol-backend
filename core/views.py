@@ -174,6 +174,53 @@ class InquiryViewSet(BaseModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @decorators.action(detail=True, methods=['post'])
+    def mark_as_read(self, request, pk=None):
+        """Mark inquiry as read."""
+        try:
+            inquiry = self.get_object()
+            inquiry.is_read = True
+            inquiry.save()
+            return response.Response({'status': 'marked as read'})
+        except Exception as e:
+            logger.error(f"Error marking inquiry {pk} as read: {e}")
+            return response.Response(
+                {'error': 'Failed to mark inquiry as read'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @decorators.action(detail=False, methods=['get'])
+    def counts(self, request):
+        """Get inquiry counts by status for notifications."""
+        try:
+            # Get counts for different statuses
+            new_count = Inquiry.objects.filter(status='New').count()
+            contacted_count = Inquiry.objects.filter(status='Contacted').count()
+            total_new = new_count + contacted_count  # Total unhandled inquiries
+            
+            # Get unread counts (for notification badges)
+            unread_new = Inquiry.objects.filter(status='New', is_read=False).count()
+            unread_contacted = Inquiry.objects.filter(status='Contacted', is_read=False).count()
+            unread_total = unread_new + unread_contacted  # Total unread inquiries
+            
+            return response.Response({
+                'new': new_count,
+                'contacted': contacted_count,
+                'total_new': total_new,
+                'unread_new': unread_new,
+                'unread_contacted': unread_contacted,
+                'unread_total': unread_total,  # This is what the badge should show
+                'converted': Inquiry.objects.filter(status='Converted').count(),
+                'closed': Inquiry.objects.filter(status='Closed').count(),
+                'total': Inquiry.objects.count()
+            })
+        except Exception as e:
+            logger.error(f"Error getting inquiry counts: {e}")
+            return response.Response(
+                {'error': 'Failed to get inquiry counts'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class JobCardViewSet(BaseModelViewSet):
     """ViewSet for managing job cards."""
