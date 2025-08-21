@@ -242,8 +242,17 @@ SIMPLE_JWT = {
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = False  # Never allow all origins in production
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', 
-    default='http://localhost:3000,http://127.0.0.1:3000'
+    default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,https://www.pestcontrol99.com,https://pestcontrol-crm-frontend.vercel.app'
 ).split(',')
+
+# Additional CORS patterns for subdomains and variations
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://\w+\.pestcontrol99\.com$",
+    r"^https://\w+\.vercel\.app$",
+    r"^http://localhost:\d+$",
+    r"^http://127\.0\.0\.1:\d+$",
+]
+
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
     'DELETE',
@@ -263,6 +272,16 @@ CORS_ALLOWED_HEADERS = [
     'user-agent',
     'x-csrftoken',
     'x-requested-with',
+    'x-api-key',
+    'x-client-id',
+]
+
+# CORS exposed headers
+CORS_EXPOSE_HEADERS = [
+    'content-type',
+    'content-length',
+    'x-total-count',
+    'x-page-count',
 ]
 
 # Security settings - Apply in both DEBUG and production for better security
