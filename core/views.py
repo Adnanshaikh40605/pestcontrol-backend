@@ -9,6 +9,8 @@ from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from django.views.decorators.cache import cache_page
 from django.utils.decorators import method_decorator
 from django.views.decorators.vary import vary_on_headers
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 
 from .models import Client, Inquiry, JobCard, Renewal
 from .serializers import ClientSerializer, InquirySerializer, JobCardSerializer, RenewalSerializer
@@ -23,6 +25,25 @@ def health_check(request):
         'status': 'ok',
         'service': 'pestcontrol-core',
         'version': '1.0.0'
+    })
+
+
+@csrf_exempt
+@require_http_methods(["GET", "OPTIONS"])
+def cors_test(request):
+    """Test endpoint for CORS debugging."""
+    if request.method == "OPTIONS":
+        response = JsonResponse({'status': 'preflight_ok'})
+        response["Access-Control-Allow-Origin"] = "*"
+        response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return response
+    
+    return JsonResponse({
+        'status': 'cors_test_ok',
+        'method': request.method,
+        'origin': request.META.get('HTTP_ORIGIN', 'No origin'),
+        'headers': dict(request.headers)
     })
 
 

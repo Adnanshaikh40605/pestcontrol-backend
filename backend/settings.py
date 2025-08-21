@@ -241,9 +241,31 @@ SIMPLE_JWT = {
 
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = False  # Never allow all origins in production
+
+# Get CORS origins from environment or use defaults
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', 
     default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,https://www.pestcontrol99.com,https://pestcontrol-crm-frontend.vercel.app'
 ).split(',')
+
+# Ensure all required URLs are included
+REQUIRED_CORS_ORIGINS = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000', 
+    'http://localhost:3001',
+    'https://www.pestcontrol99.com',
+    'https://pestcontrol-crm-frontend.vercel.app'
+]
+
+# Add any missing required origins
+for origin in REQUIRED_CORS_ORIGINS:
+    if origin not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(origin)
+
+# Temporary CORS override for development debugging
+if DEBUG:
+    # Allow all origins in development for easier debugging
+    CORS_ALLOW_ALL_ORIGINS = True
+    print("⚠️  CORS_ALLOW_ALL_ORIGINS set to True for development")
 
 # Additional CORS patterns for subdomains and variations
 CORS_ALLOWED_ORIGIN_REGEXES = [
@@ -283,6 +305,12 @@ CORS_EXPOSE_HEADERS = [
     'x-total-count',
     'x-page-count',
 ]
+
+# Debug CORS settings in development
+if DEBUG:
+    print(f"CORS_ALLOWED_ORIGINS: {CORS_ALLOWED_ORIGINS}")
+    print(f"CORS_ALLOW_CREDENTIALS: {CORS_ALLOW_CREDENTIALS}")
+    print(f"CORS_ALLOW_METHODS: {CORS_ALLOW_METHODS}")
 
 # Security settings - Apply in both DEBUG and production for better security
 SECURE_BROWSER_XSS_FILTER = True
