@@ -262,15 +262,6 @@ for origin in REQUIRED_CORS_ORIGINS:
     if origin not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(origin)
 
-# Temporary CORS override for development debugging
-if DEBUG:
-    # Allow all origins in development for easier debugging
-    CORS_ALLOW_ALL_ORIGINS = True
-    print("⚠️  CORS_ALLOW_ALL_ORIGINS set to True for development")
-    print(f"CORS_ALLOWED_ORIGINS: {CORS_ALLOWED_ORIGINS}")
-    print(f"CORS_ALLOW_CREDENTIALS: {CORS_ALLOW_CREDENTIALS}")
-    print(f"CORS_ALLOW_METHODS: {CORS_ALLOW_METHODS}")
-
 # Additional CORS patterns for subdomains and variations
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://\w+\.pestcontrol99\.com$",
@@ -310,8 +301,11 @@ CORS_EXPOSE_HEADERS = [
     'x-page-count',
 ]
 
-# Debug CORS settings in development
+# Temporary CORS override for development debugging
 if DEBUG:
+    # Allow all origins in development for easier debugging
+    CORS_ALLOW_ALL_ORIGINS = True
+    print("⚠️  CORS_ALLOW_ALL_ORIGINS set to True for development")
     print(f"CORS_ALLOWED_ORIGINS: {CORS_ALLOWED_ORIGINS}")
     print(f"CORS_ALLOW_CREDENTIALS: {CORS_ALLOW_CREDENTIALS}")
     print(f"CORS_ALLOW_METHODS: {CORS_ALLOW_METHODS}")
