@@ -102,13 +102,27 @@ class ClientViewSet(BaseModelViewSet):
     def create(self, request, *args, **kwargs):
         """Create a new client using service layer."""
         try:
+            logger.info(f"Creating client with data: {request.data}")
             client = ClientService.create_client(request.data)
             serializer = self.get_serializer(client)
             return response.Response(serializer.data, status=status.HTTP_201_CREATED)
         except ValidationError as e:
+            logger.warning(f"Client creation validation error: {e}")
+            error_details = {}
+            if hasattr(e, 'message_dict'):
+                error_details = e.message_dict
+            else:
+                error_details = {'error': str(e)}
+            
             return response.Response(
-                {'error': 'Validation failed', 'details': str(e)},
+                {'error': 'Validation failed', 'details': error_details},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error creating client: {e}")
+            return response.Response(
+                {'error': 'Failed to create client', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
     def destroy(self, request, *args, **kwargs):
@@ -120,6 +134,38 @@ class ClientViewSet(BaseModelViewSet):
             {'error': 'Client not found'}, 
             status=status.HTTP_404_NOT_FOUND
         )
+    
+    @decorators.action(detail=False, methods=['post'])
+    def create_or_get(self, request):
+        """Create a new client or get existing one if mobile number already exists."""
+        try:
+            logger.info(f"Creating or getting client with data: {request.data}")
+            client, created = ClientService.create_or_get_client(request.data)
+            serializer = self.get_serializer(client)
+            
+            response_data = serializer.data
+            response_data['created'] = created
+            response_data['message'] = 'Client created successfully' if created else 'Existing client found'
+            
+            return response.Response(response_data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        except ValidationError as e:
+            logger.warning(f"Client creation/get validation error: {e}")
+            error_details = {}
+            if hasattr(e, 'message_dict'):
+                error_details = e.message_dict
+            else:
+                error_details = {'error': str(e)}
+            
+            return response.Response(
+                {'error': 'Validation failed', 'details': error_details},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error creating/getting client: {e}")
+            return response.Response(
+                {'error': 'Failed to create or get client', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class InquiryViewSet(BaseModelViewSet):
@@ -163,14 +209,15 @@ class InquiryViewSet(BaseModelViewSet):
             serializer = JobCardSerializer(jobcard)
             return response.Response(serializer.data, status=status.HTTP_201_CREATED)
         except ValidationError as e:
+            logger.warning(f"Validation error converting inquiry {pk}: {e}")
             return response.Response(
-                {'error': str(e)},
+                {'error': 'Validation failed', 'details': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
         except Exception as e:
             logger.error(f"Error converting inquiry {pk}: {e}")
             return response.Response(
-                {'error': 'Failed to convert inquiry'},
+                {'error': 'Failed to convert inquiry', 'details': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -221,6 +268,31 @@ class InquiryViewSet(BaseModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @decorators.action(detail=True, methods=['get'])
+    def check_client_exists(self, request, pk=None):
+        """Check if a client exists for the inquiry's mobile number."""
+        try:
+            inquiry = self.get_object()
+            exists, client = ClientService.check_client_exists(inquiry.mobile)
+            
+            if exists:
+                return response.Response({
+                    'exists': True,
+                    'client': ClientSerializer(client).data,
+                    'message': f'A client with mobile number {inquiry.mobile} already exists.'
+                })
+            else:
+                return response.Response({
+                    'exists': False,
+                    'message': f'No client found with mobile number {inquiry.mobile}.'
+                })
+        except Exception as e:
+            logger.error(f"Error checking client existence for inquiry {pk}: {e}")
+            return response.Response(
+                {'error': 'Failed to check client existence'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class JobCardViewSet(BaseModelViewSet):
     """ViewSet for managing job cards."""
@@ -250,13 +322,27 @@ class JobCardViewSet(BaseModelViewSet):
     def create(self, request, *args, **kwargs):
         """Create a new job card using service layer."""
         try:
+            logger.info(f"Creating job card with data: {request.data}")
             jobcard = JobCardService.create_jobcard(request.data)
             serializer = self.get_serializer(jobcard)
             return response.Response(serializer.data, status=status.HTTP_201_CREATED)
         except ValidationError as e:
+            logger.error(f"Job card creation validation error: {e}")
+            error_details = {}
+            if hasattr(e, 'message_dict'):
+                error_details = e.message_dict
+            else:
+                error_details = {'error': str(e)}
+            
             return response.Response(
-                {'error': 'Validation failed', 'details': str(e)},
+                {'error': 'Validation failed', 'details': error_details},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error creating job card: {e}")
+            return response.Response(
+                {'error': 'Failed to create job card', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     @method_decorator(cache_page(60))  # Cache for 1 minute
