@@ -10,11 +10,58 @@ import re
 
 
 class ClientService:
-    """Service class for Client-related business logic."""
+    """
+    Service class for Client-related business logic.
+    
+    This service handles all client operations including creation, validation,
+    and business rule enforcement. It provides a clean separation between
+    the API layer and the database layer.
+    
+    Key Features:
+    - Client creation with validation
+    - Mobile number conflict resolution
+    - Business rule enforcement
+    - Audit logging integration
+    
+    Example:
+        client_data = {
+            'full_name': 'John Doe',
+            'mobile': '9876543210',
+            'email': 'john@example.com',
+            'city': 'Mumbai'
+        }
+        client, created = ClientService.create_or_get_client(client_data)
+    """
     
     @staticmethod
     def create_client(data: Dict[str, Any]) -> Client:
-        """Create a new client with validation."""
+        """
+        Create a new client with comprehensive validation.
+        
+        Args:
+            data (Dict[str, Any]): Client data dictionary containing:
+                - full_name (str): Client's full name
+                - mobile (str): Mobile number (will be cleaned)
+                - email (str, optional): Email address
+                - city (str): City name
+                - address (str, optional): Address
+                - notes (str, optional): Additional notes
+        
+        Returns:
+            Client: The created client instance
+            
+        Raises:
+            ValidationError: If validation fails
+            Exception: For unexpected errors
+            
+        Example:
+            client_data = {
+                'full_name': 'John Doe',
+                'mobile': '9876543210',
+                'city': 'Mumbai'
+            }
+            client = ClientService.create_client(client_data)
+        """
         import logging
         logger = logging.getLogger(__name__)
         
@@ -62,46 +109,48 @@ class ClientService:
             raise ValidationError(f"Failed to create client: {str(e)}")
     
     @staticmethod
+    @transaction.atomic
     def get_or_create_client(name: str, mobile: str, email: str = None, city: str = None) -> tuple[Client, bool]:
-        """Get existing client or create new one."""
+        """Get existing client or create new one with proper locking to prevent race conditions."""
         import logging
         logger = logging.getLogger(__name__)
         
+        # Clean mobile number for consistent lookup
+        cleaned_mobile = re.sub(r'[\s\-\(\)]', '', str(mobile))
+        logger.debug(f"Looking for client with mobile: {cleaned_mobile}")
+        
+        # Use select_for_update to prevent race conditions
         try:
-            # Clean mobile number for consistent lookup
-            cleaned_mobile = re.sub(r'[\s\-\(\)]', '', str(mobile))
-            logger.debug(f"Looking for client with mobile: {cleaned_mobile}")
-            
-            # Try to find existing client with cleaned mobile
-            client = Client.objects.get(mobile=cleaned_mobile)
+            # First, try to get existing client with row-level locking
+            client = Client.objects.select_for_update().get(mobile=cleaned_mobile)
             logger.debug(f"Found existing client: {client}")
             return client, False
         except Client.DoesNotExist:
             logger.debug(f"No existing client found, attempting to create new client with mobile: {cleaned_mobile}")
-            # Try to create new client, but handle the case where it might already exist
+            
+            # Create new client with proper validation
+            client_data = {
+                'full_name': name,
+                'mobile': cleaned_mobile,
+                'email': email,
+                'city': city or 'Unknown'
+            }
+            
             try:
-                client_data = {
-                    'full_name': name,
-                    'mobile': cleaned_mobile,
-                    'email': email,
-                    'city': city or 'Unknown'
-                }
                 client = ClientService.create_client(client_data)
                 logger.debug(f"Successfully created new client: {client}")
                 return client, True
             except ValidationError as e:
-                logger.warning(f"Client creation failed with validation error: {e}")
                 # If creation fails due to unique constraint, try to get the existing client again
                 if 'mobile' in str(e) and 'already exists' in str(e):
                     logger.debug(f"Mobile number conflict detected, trying to find existing client again")
                     try:
-                        client = Client.objects.get(mobile=cleaned_mobile)
+                        client = Client.objects.select_for_update().get(mobile=cleaned_mobile)
                         logger.debug(f"Found existing client after conflict: {client}")
                         return client, False
                     except Client.DoesNotExist:
-                        # If we still can't find it, re-raise the original error
                         logger.error(f"Client creation failed and cannot find existing client with mobile: {cleaned_mobile}")
-                        raise e
+                        raise ValidationError(f"Unable to create or find client with mobile number {cleaned_mobile}")
                 else:
                     raise e
     
@@ -128,8 +177,9 @@ class ClientService:
             return False, None
     
     @staticmethod
+    @transaction.atomic
     def create_or_get_client(data: Dict[str, Any]) -> tuple[Client, bool]:
-        """Create a new client or get existing one if mobile number already exists."""
+        """Create a new client or get existing one if mobile number already exists with proper locking."""
         import logging
         logger = logging.getLogger(__name__)
         
@@ -138,9 +188,9 @@ class ClientService:
             cleaned_mobile = re.sub(r'[\s\-\(\)]', '', str(data['mobile']))
             data['mobile'] = cleaned_mobile
         
-        # Check if client already exists
+        # Use select_for_update to prevent race conditions
         try:
-            existing_client = Client.objects.get(mobile=data['mobile'])
+            existing_client = Client.objects.select_for_update().get(mobile=data['mobile'])
             logger.info(f"Client with mobile {data['mobile']} already exists: {existing_client}")
             return existing_client, False
         except Client.DoesNotExist:
@@ -154,12 +204,12 @@ class ClientService:
                 if 'mobile' in str(e) and 'already exists' in str(e):
                     logger.debug(f"Mobile number conflict detected, trying to find existing client again")
                     try:
-                        existing_client = Client.objects.get(mobile=data['mobile'])
+                        existing_client = Client.objects.select_for_update().get(mobile=data['mobile'])
                         logger.info(f"Found existing client after conflict: {existing_client}")
                         return existing_client, False
                     except Client.DoesNotExist:
                         logger.error(f"Client creation failed and cannot find existing client with mobile: {data['mobile']}")
-                        raise e
+                        raise ValidationError(f"Unable to create or find client with mobile number {data['mobile']}")
                 else:
                     raise e
 
@@ -204,13 +254,13 @@ class InquiryService:
                         raise ValidationError(f"A client with mobile number {inquiry.mobile} already exists. Please use the existing client or update the mobile number.")
                     raise e
             
-            # Create job card
+            # Create job card with proper defaults
             jobcard_data = {
                 'client': client,
                 'status': JobCard.JobStatus.ENQUIRY,
                 'service_type': inquiry.service_interest,
                 'schedule_date': conversion_data.get('schedule_date', timezone.now().date()),
-                'technician_name': conversion_data.get('technician_name', ''),
+                'technician_name': conversion_data.get('technician_name', 'TBD'),  # Default to 'TBD' instead of empty string
                 'price_subtotal': conversion_data.get('price_subtotal', 0),
                 'tax_percent': conversion_data.get('tax_percent', 18),
                 'payment_status': JobCard.PaymentStatus.UNPAID,
@@ -246,14 +296,15 @@ class JobCardService:
                     raise ValidationError(f"Client with ID {data['client']} does not exist.")
             
             # Validate required fields
-            required_fields = ['client', 'service_type', 'schedule_date', 'price_subtotal']
+            required_fields = ['client', 'service_type', 'schedule_date']
+            
             for field in required_fields:
                 if not data.get(field):
                     raise ValidationError(f"{field.replace('_', ' ').title()} is required.")
             
-            # Validate price is positive
-            if data.get('price_subtotal') and data['price_subtotal'] <= 0:
-                raise ValidationError("Price must be greater than zero.")
+            # Set default price to 0 if not provided
+            if not data.get('price_subtotal'):
+                data['price_subtotal'] = 0
             
             # Validate tax percentage if provided
             if data.get('tax_percent') and (data['tax_percent'] < 0 or data['tax_percent'] > 100):
@@ -312,26 +363,110 @@ class RenewalService:
     @staticmethod
     def create_renewal(data: Dict[str, Any]) -> Renewal:
         """Create a new renewal with validation."""
+        # Handle jobcard field - convert ID to instance if needed
+        if 'jobcard' in data and isinstance(data['jobcard'], (int, str)):
+            try:
+                data['jobcard'] = JobCard.objects.get(id=data['jobcard'])
+            except JobCard.DoesNotExist:
+                raise ValidationError("JobCard with the given ID does not exist.")
+        
         renewal = Renewal(**data)
         renewal.full_clean()  # Run model validation
         renewal.save()
         return renewal
     
     @staticmethod
-    def get_upcoming_summary() -> Dict[str, int]:
-        """Get summary of upcoming renewals."""
+    def generate_renewals_for_jobcard(jobcard: JobCard) -> list[Renewal]:
+        """Generate renewals for a jobcard based on customer type and contract duration."""
+        from datetime import timedelta
+        from dateutil.relativedelta import relativedelta
+        
+        renewals = []
+        
+        if jobcard.job_type == JobCard.JobType.CUSTOMER:
+            # For customers, create renewal based on next_service_date
+            if jobcard.next_service_date:
+                renewal_date = timezone.make_aware(
+                    timezone.datetime.combine(jobcard.next_service_date, timezone.datetime.min.time())
+                )
+                renewal = Renewal(
+                    jobcard=jobcard,
+                    due_date=renewal_date,
+                    renewal_type=Renewal.RenewalType.CONTRACT_RENEWAL,
+                    remarks=f"Service renewal for customer {jobcard.client.full_name}"
+                )
+                renewal.save()
+                renewals.append(renewal)
+        
+        elif jobcard.job_type == JobCard.JobType.SOCIETY and jobcard.contract_duration:
+            # For societies, create contract renewal and monthly reminders
+            contract_months = int(jobcard.contract_duration)
+            start_date = jobcard.schedule_date
+            
+            # Create contract renewal (main renewal)
+            contract_end_date = start_date + relativedelta(months=contract_months)
+            contract_renewal_date = timezone.make_aware(
+                timezone.datetime.combine(contract_end_date - timedelta(days=1), timezone.datetime.min.time())
+            )
+            
+            contract_renewal = Renewal(
+                jobcard=jobcard,
+                due_date=contract_renewal_date,
+                renewal_type=Renewal.RenewalType.CONTRACT_RENEWAL,
+                remarks=f"Contract renewal for society {jobcard.client.full_name} ({contract_months} months contract)"
+            )
+            contract_renewal.save()
+            renewals.append(contract_renewal)
+            
+            # Create monthly reminders
+            current_date = start_date
+            for month in range(1, contract_months + 1):
+                monthly_date = start_date + relativedelta(months=month)
+                reminder_date = timezone.make_aware(
+                    timezone.datetime.combine(monthly_date - timedelta(days=1), timezone.datetime.min.time())
+                )
+                
+                monthly_reminder = Renewal(
+                    jobcard=jobcard,
+                    due_date=reminder_date,
+                    renewal_type=Renewal.RenewalType.MONTHLY_REMINDER,
+                    remarks=f"Monthly service reminder for society {jobcard.client.full_name} (Month {month})"
+                )
+                monthly_reminder.save()
+                renewals.append(monthly_reminder)
+        
+        return renewals
+    
+    @staticmethod
+    def get_active_renewals(include_paused: bool = False):
+        """Get renewals that are not paused (unless specifically requested)."""
+        renewals = Renewal.objects.select_related('jobcard', 'jobcard__client').filter(
+            status=Renewal.RenewalStatus.DUE
+        )
+        
+        if not include_paused:
+            renewals = renewals.filter(jobcard__is_paused=False)
+        
+        return renewals
+    
+    @staticmethod
+    def get_upcoming_summary(include_paused: bool = False) -> Dict[str, int]:
+        """Get summary of upcoming renewals with pause functionality."""
         from datetime import timedelta
         
         now = timezone.now()
         week = now + timedelta(days=7)
         month = now + timedelta(days=30)
         
-        renewals = Renewal.objects.filter(status=Renewal.RenewalStatus.DUE)
+        renewals = RenewalService.get_active_renewals(include_paused=include_paused)
         
         return {
             'due_this_week': renewals.filter(due_date__lte=week, due_date__gte=now).count(),
             'due_this_month': renewals.filter(due_date__lte=month, due_date__gte=now).count(),
             'overdue': renewals.filter(due_date__lt=now).count(),
+            'high_urgency': renewals.filter(urgency_level=Renewal.UrgencyLevel.HIGH).count(),
+            'medium_urgency': renewals.filter(urgency_level=Renewal.UrgencyLevel.MEDIUM).count(),
+            'normal_urgency': renewals.filter(urgency_level=Renewal.UrgencyLevel.NORMAL).count(),
         }
     
     @staticmethod
@@ -344,14 +479,87 @@ class RenewalService:
             return True
         except Renewal.DoesNotExist:
             return False
+    
+    @staticmethod
+    def update_urgency_levels():
+        """Update urgency levels for all due renewals."""
+        due_renewals = Renewal.objects.filter(status=Renewal.RenewalStatus.DUE)
+        updated_count = 0
+        for renewal in due_renewals:
+            old_urgency = renewal.urgency_level
+            renewal.update_urgency_level()
+            if old_urgency != renewal.urgency_level:
+                renewal.save(update_fields=['urgency_level'])
+                updated_count += 1
+        return updated_count
+    
+    @staticmethod
+    def update_urgency_levels_for_jobcard(jobcard_id: int):
+        """Update urgency levels for all renewals of a specific jobcard."""
+        renewals = Renewal.objects.filter(jobcard_id=jobcard_id, status=Renewal.RenewalStatus.DUE)
+        updated_count = 0
+        for renewal in renewals:
+            old_urgency = renewal.urgency_level
+            renewal.update_urgency_level()
+            if old_urgency != renewal.urgency_level:
+                renewal.save(update_fields=['urgency_level'])
+                updated_count += 1
+        return updated_count
+    
+    @staticmethod
+    def toggle_jobcard_pause(jobcard_id: int, is_paused: bool) -> bool:
+        """Toggle pause status for a jobcard and its renewals."""
+        try:
+            jobcard = JobCard.objects.get(id=jobcard_id)
+            jobcard.is_paused = is_paused
+            jobcard.save()
+            return True
+        except JobCard.DoesNotExist:
+            return False
 
 
 class AuditService:
-    """Service for audit logging (placeholder for future implementation)."""
+    """Service for comprehensive audit logging."""
     
     @staticmethod
-    def log_action(user, action: str, model: str, object_id: int, changes: Dict = None):
-        """Log user actions for audit trail."""
-        # TODO: Implement audit logging
-        # This could be implemented using django-audit-log or custom solution
-        pass
+    def log_action(user, action: str, model: str, object_id: int, changes: Dict = None, ip_address: str = None):
+        """Log user actions for audit trail with comprehensive details."""
+        import logging
+        from django.utils import timezone
+        
+        logger = logging.getLogger('audit')
+        
+        audit_data = {
+            'timestamp': timezone.now().isoformat(),
+            'user_id': user.id if user and hasattr(user, 'id') else None,
+            'username': user.username if user and hasattr(user, 'username') else 'Anonymous',
+            'action': action,
+            'model': model,
+            'object_id': object_id,
+            'changes': changes or {},
+            'ip_address': ip_address,
+        }
+        
+        # Log to audit logger
+        logger.info(f"AUDIT: {action} on {model} (ID: {object_id}) by {audit_data['username']}", 
+                   extra=audit_data)
+    
+    @staticmethod
+    def log_client_action(user, action: str, client_id: int, changes: Dict = None, ip_address: str = None):
+        """Log client-specific actions."""
+        AuditService.log_action(user, action, 'Client', client_id, changes, ip_address)
+    
+    @staticmethod
+    def log_inquiry_action(user, action: str, inquiry_id: int, changes: Dict = None, ip_address: str = None):
+        """Log inquiry-specific actions."""
+        AuditService.log_action(user, action, 'Inquiry', inquiry_id, changes, ip_address)
+    
+    @staticmethod
+    def log_jobcard_action(user, action: str, jobcard_id: int, changes: Dict = None, ip_address: str = None):
+        """Log job card-specific actions."""
+        AuditService.log_action(user, action, 'JobCard', jobcard_id, changes, ip_address)
+    
+    @staticmethod
+    def log_renewal_action(user, action: str, renewal_id: int, changes: Dict = None, ip_address: str = None):
+        """Log renewal-specific actions."""
+        AuditService.log_action(user, action, 'Renewal', renewal_id, changes, ip_address)

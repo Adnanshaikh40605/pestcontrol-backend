@@ -3,8 +3,6 @@ from django.http import JsonResponse
 from django.core.exceptions import ValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, filters, permissions, decorators, response, status
-from rest_framework.authentication import SessionAuthentication
-from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from django.views.decorators.cache import cache_page
 from django.utils.decorators import method_decorator
@@ -23,33 +21,17 @@ def health_check(request):
     """Health check endpoint for monitoring."""
     return JsonResponse({
         'status': 'ok',
-        'service': 'pestcontrol-core',
-        'version': '1.0.0'
+        'service': 'pestcontrol-backend',
+        'version': '1.0.0',
+        'endpoint': 'core'
     })
 
 
-@csrf_exempt
-@require_http_methods(["GET", "OPTIONS"])
-def cors_test(request):
-    """Test endpoint for CORS debugging."""
-    if request.method == "OPTIONS":
-        response = JsonResponse({'status': 'preflight_ok'})
-        response["Access-Control-Allow-Origin"] = "*"
-        response["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        response["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        return response
-    
-    return JsonResponse({
-        'status': 'cors_test_ok',
-        'method': request.method,
-        'origin': request.META.get('HTTP_ORIGIN', 'No origin'),
-        'headers': dict(request.headers)
-    })
+# CORS test endpoint removed for production security
+# This endpoint was only for debugging and should not be in production
 
 
-class LoginRateThrottle(UserRateThrottle):
-    """Custom throttle for login endpoints."""
-    scope = 'login'
+# LoginRateThrottle moved to core.auth module to avoid duplication
 
 
 class BaseModelViewSet(viewsets.ModelViewSet):
@@ -88,7 +70,7 @@ class BaseModelViewSet(viewsets.ModelViewSet):
 
 class ClientViewSet(BaseModelViewSet):
     """ViewSet for managing clients."""
-    queryset = Client.objects.select_related().all()
+    queryset = Client.objects.all()
     serializer_class = ClientSerializer
     filterset_fields = ['city', 'is_active']
     search_fields = ['full_name', 'mobile', 'email']
@@ -170,7 +152,7 @@ class ClientViewSet(BaseModelViewSet):
 
 class InquiryViewSet(BaseModelViewSet):
     """ViewSet for managing inquiries."""
-    queryset = Inquiry.objects.select_related().all()
+    queryset = Inquiry.objects.all()
     serializer_class = InquirySerializer
     filterset_fields = ['status', 'city']
     search_fields = ['name', 'mobile', 'email', 'service_interest']
@@ -298,7 +280,7 @@ class JobCardViewSet(BaseModelViewSet):
     """ViewSet for managing job cards."""
     queryset = JobCard.objects.select_related('client').prefetch_related('renewals').all()
     serializer_class = JobCardSerializer
-    filterset_fields = ['status', 'payment_status', 'client__city']
+    filterset_fields = ['status', 'payment_status', 'client__city', 'job_type', 'contract_duration', 'is_paused']
     search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type']
 
     def get_queryset(self):
@@ -316,6 +298,11 @@ class JobCardViewSet(BaseModelViewSet):
             qs = qs.filter(schedule_date__gte=date_from)
         if date_to:
             qs = qs.filter(schedule_date__lte=date_to)
+        
+        # Filter by job type for Society Job Cards page
+        job_type = self.request.query_params.get('job_type')
+        if job_type:
+            qs = qs.filter(job_type=job_type)
             
         return qs
     
@@ -363,18 +350,48 @@ class JobCardViewSet(BaseModelViewSet):
             {'error': 'Failed to update payment status'},
             status=status.HTTP_400_BAD_REQUEST
         )
+    
+    @decorators.action(detail=True, methods=['patch'])
+    def toggle_pause(self, request, pk=None):
+        """Toggle pause status for a jobcard."""
+        try:
+            is_paused = request.data.get('is_paused', False)
+            success = RenewalService.toggle_jobcard_pause(pk, is_paused)
+            
+            if success:
+                status_text = 'paused' if is_paused else 'resumed'
+                return response.Response({
+                    'message': f'JobCard {status_text} successfully',
+                    'is_paused': is_paused
+                })
+            else:
+                return response.Response(
+                    {'error': 'JobCard not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        except Exception as e:
+            logger.error(f"Error toggling pause for jobcard {pk}: {e}")
+            return response.Response(
+                {'error': 'Failed to toggle pause status'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class RenewalViewSet(BaseModelViewSet):
     """ViewSet for managing renewals."""
     queryset = Renewal.objects.select_related('jobcard', 'jobcard__client').all()
     serializer_class = RenewalSerializer
-    filterset_fields = ['status']
+    filterset_fields = ['status', 'urgency_level', 'renewal_type']
     search_fields = ['jobcard__code', 'jobcard__client__full_name']
 
     def get_queryset(self):
-        """Enhanced queryset with custom date filtering."""
+        """Enhanced queryset with custom filtering for pause functionality and urgency levels."""
         qs = super().get_queryset()
+        
+        # Filter out paused renewals by default (unless explicitly requested)
+        include_paused = self.request.query_params.get('include_paused', 'false').lower() == 'true'
+        if not include_paused:
+            qs = qs.filter(jobcard__is_paused=False)
         
         # Custom date range filters used by frontend
         due_date_gte = self.request.query_params.get('due_date_gte')
@@ -387,6 +404,11 @@ class RenewalViewSet(BaseModelViewSet):
             qs = qs.filter(due_date__lte=due_date_lte)
         if due_date_lt:
             qs = qs.filter(due_date__lt=due_date_lt)
+        
+        # Filter by urgency level
+        urgency_level = self.request.query_params.get('urgency_level')
+        if urgency_level:
+            qs = qs.filter(urgency_level=urgency_level)
             
         return qs
     
@@ -418,6 +440,62 @@ class RenewalViewSet(BaseModelViewSet):
             {'error': 'Renewal not found'},
             status=status.HTTP_404_NOT_FOUND
         )
+    
+    @decorators.action(detail=False, methods=['get'])
+    def active(self, request):
+        """Get active renewals (non-paused) with urgency level filtering."""
+        try:
+            urgency_level = request.query_params.get('urgency_level')
+            renewals = RenewalService.get_active_renewals(urgency_level)
+            serializer = self.get_serializer(renewals, many=True)
+            return response.Response(serializer.data)
+        except Exception as e:
+            logger.error(f"Error getting active renewals: {e}")
+            return response.Response(
+                {'error': 'Failed to get active renewals'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @decorators.action(detail=False, methods=['post'])
+    def update_urgency_levels(self, request):
+        """Update urgency levels for all renewals."""
+        try:
+            updated_count = RenewalService.update_urgency_levels()
+            return response.Response({
+                'message': f'Updated urgency levels for {updated_count} renewals'
+            })
+        except Exception as e:
+            logger.error(f"Error updating urgency levels: {e}")
+            return response.Response(
+                {'error': 'Failed to update urgency levels'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @decorators.action(detail=True, methods=['patch'])
+    def toggle_pause(self, request, pk=None):
+        """Toggle pause status for a jobcard (affects all its renewals)."""
+        try:
+            renewal = self.get_object()
+            is_paused = request.data.get('is_paused', False)
+            success = RenewalService.toggle_jobcard_pause(renewal.jobcard.id, is_paused)
+            
+            if success:
+                status_text = 'paused' if is_paused else 'resumed'
+                return response.Response({
+                    'message': f'JobCard {status_text} successfully',
+                    'is_paused': is_paused
+                })
+            else:
+                return response.Response(
+                    {'error': 'Failed to toggle pause status'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except Exception as e:
+            logger.error(f"Error toggling pause for renewal {pk}: {e}")
+            return response.Response(
+                {'error': 'Failed to toggle pause status'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 

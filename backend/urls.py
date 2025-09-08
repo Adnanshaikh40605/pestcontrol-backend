@@ -29,7 +29,12 @@ from drf_spectacular.views import (
 from core.auth import CustomTokenObtainPairView
 
 def health(request):
-    return JsonResponse({"status": "ok", "service": "pestcontrol-backend", "version": "1.0.0"})
+    return JsonResponse({
+        "status": "ok", 
+        "service": "pestcontrol-backend", 
+        "version": "1.0.0",
+        "endpoint": "main"
+    })
 
 def root(request):
     return HttpResponse("PestControl Backend API v1.0.0 - Status: Running", content_type="text/plain")

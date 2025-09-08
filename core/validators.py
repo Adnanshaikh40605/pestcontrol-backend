@@ -35,6 +35,18 @@ def validate_positive_decimal(value):
         )
 
 
+def validate_non_negative_decimal(value):
+    """
+    Validate that a decimal value is non-negative (>= 0).
+    This allows zero values, which is useful for society job cards.
+    """
+    if value is not None and value < 0:
+        raise ValidationError(
+            _('Value must be zero or positive.'),
+            code='negative_value'
+        )
+
+
 def validate_tax_percent(value):
     """
     Validate tax percentage (0-100).

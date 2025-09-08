@@ -35,7 +35,7 @@ ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS',
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', 
     default=f'https://*.railway.app,https://*.up.railway.app,https://{RAILWAY_DOMAIN}'
 ).split(',')
-
+# adnan
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',

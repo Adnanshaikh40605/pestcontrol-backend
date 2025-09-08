@@ -5,7 +5,6 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     health_check,
-    cors_test,
     ClientViewSet,
     InquiryViewSet,
     JobCardViewSet,
@@ -21,6 +20,5 @@ router.register(r'renewals', RenewalViewSet, basename='renewal')
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),
-    path('cors-test/', cors_test, name='cors_test'),
     path('', include(router.urls)),
 ]
