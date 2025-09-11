@@ -3,6 +3,7 @@ from django.http import JsonResponse
 from django.core.exceptions import ValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, filters, permissions, decorators, response, status
+from rest_framework.decorators import action
 from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from django.views.decorators.cache import cache_page
 from django.utils.decorators import method_decorator
@@ -37,8 +38,10 @@ def health_check(request):
 class BaseModelViewSet(viewsets.ModelViewSet):
     """Base viewset with common functionality."""
     permission_classes = [permissions.IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     throttle_classes = [UserRateThrottle, AnonRateThrottle]
+    ordering_fields = ['created_at', 'updated_at']
+    ordering = ['-created_at']  # Default ordering (latest first)
     
     def handle_exception(self, exc):
         """Custom exception handling."""
@@ -74,6 +77,8 @@ class ClientViewSet(BaseModelViewSet):
     serializer_class = ClientSerializer
     filterset_fields = ['city', 'is_active']
     search_fields = ['full_name', 'mobile', 'email']
+    ordering_fields = ['created_at', 'updated_at', 'full_name', 'city', 'mobile']
+    ordering = ['-created_at']  # Default: latest clients first
     
     @method_decorator(cache_page(300))  # Cache for 5 minutes
     @method_decorator(vary_on_headers('Authorization'))
@@ -156,6 +161,8 @@ class InquiryViewSet(BaseModelViewSet):
     serializer_class = InquirySerializer
     filterset_fields = ['status', 'city']
     search_fields = ['name', 'mobile', 'email', 'service_interest']
+    ordering_fields = ['created_at', 'updated_at', 'name', 'status', 'city']
+    ordering = ['-created_at']  # Default: latest inquiries first
 
     def get_permissions(self):
         """Allow unauthenticated public creation of inquiries."""
@@ -282,6 +289,11 @@ class JobCardViewSet(BaseModelViewSet):
     serializer_class = JobCardSerializer
     filterset_fields = ['status', 'payment_status', 'client__city', 'job_type', 'contract_duration', 'is_paused']
     search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type']
+    ordering_fields = [
+        'created_at', 'updated_at', 'schedule_date', 'status', 'payment_status', 
+        'client__full_name', 'client__city', 'job_type', 'contract_duration'
+    ]
+    ordering = ['-created_at']  # Default: latest job cards first
 
     def get_queryset(self):
         """Enhanced queryset with custom filtering."""
@@ -376,6 +388,62 @@ class JobCardViewSet(BaseModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['get'], url_path='reference-report')
+    def reference_report(self, request):
+        """Get reference statistics for job cards."""
+        try:
+            from django.db.models import Count
+            
+            # Get all job cards with reference field
+            job_cards = JobCard.objects.filter(reference__isnull=False).exclude(reference='')
+            
+            # Count references
+            reference_counts = job_cards.values('reference').annotate(
+                count=Count('reference')
+            ).order_by('-count')
+            
+            # Define all possible reference options
+            all_references = [
+                'Google', 'Facebook', 'YouTube', 'LinkedIn', 'SMS', 'website',
+                'Play Store', 'Instagram', 'WhatsApp', 'Justdial', 'poster',
+                'other', 'previous client', 'friend reference', 'no parking board', 'holding'
+            ]
+            
+            # Create a dictionary with all references and their counts
+            reference_data = {}
+            for ref in all_references:
+                reference_data[ref] = 0
+            
+            # Update with actual counts
+            for item in reference_counts:
+                ref_name = item['reference']
+                if ref_name in reference_data:
+                    reference_data[ref_name] = item['count']
+            
+            # Convert to list format for frontend
+            result = []
+            for ref_name, count in reference_data.items():
+                result.append({
+                    'reference_name': ref_name,
+                    'reference_count': count
+                })
+            
+            # Sort by count descending
+            result.sort(key=lambda x: x['reference_count'], reverse=True)
+            
+            return response.Response({
+                'results': result,
+                'total_job_cards': job_cards.count(),
+                'total_with_reference': sum(item['reference_count'] for item in result)
+            })
+            
+        except Exception as e:
+            logger.error(f"Error generating reference report: {e}")
+            return response.Response(
+                {'error': 'Failed to generate reference report'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class RenewalViewSet(BaseModelViewSet):
     """ViewSet for managing renewals."""
@@ -383,6 +451,8 @@ class RenewalViewSet(BaseModelViewSet):
     serializer_class = RenewalSerializer
     filterset_fields = ['status', 'urgency_level', 'renewal_type']
     search_fields = ['jobcard__code', 'jobcard__client__full_name']
+    ordering_fields = ['created_at', 'updated_at', 'due_date', 'status', 'urgency_level']
+    ordering = ['due_date']  # Default: sort by due date (earliest first for renewals)
 
     def get_queryset(self):
         """Enhanced queryset with custom filtering for pause functionality and urgency levels."""

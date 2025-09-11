@@ -336,6 +336,14 @@ class JobCard(BaseModel):
         verbose_name="Is Paused",
         help_text="Whether the job is currently paused"
     )
+    reference = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Reference",
+        help_text="Source of reference for this job card"
+    )
 
     class Meta:
         ordering = ['-created_at']

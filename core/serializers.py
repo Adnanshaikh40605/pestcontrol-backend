@@ -34,7 +34,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'id', 'code', 'client', 'client_name', 'client_mobile', 'client_city',
             'job_type', 'contract_duration', 'status', 'service_type', 'schedule_date', 
             'technician_name', 'price_subtotal', 'tax_percent', 'grand_total', 
-            'payment_status', 'next_service_date', 'notes', 'is_paused', 'created_at', 'updated_at'
+            'payment_status', 'next_service_date', 'notes', 'is_paused', 'reference', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'code', 'grand_total', 'created_at', 'updated_at']
 
