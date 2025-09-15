@@ -142,7 +142,7 @@ class Command(BaseCommand):
             schedule_date = timezone.now().date() + timedelta(days=random_days)
             
             # Random price between 500 and 5000
-            price_subtotal = Decimal(random.randint(500, 5000))
+            price = str(random.randint(500, 5000))
             
             job_card = JobCard.objects.create(
                 client=random.choice(clients),
@@ -150,8 +150,7 @@ class Command(BaseCommand):
                 service_type=random.choice(service_types),
                 schedule_date=schedule_date,
                 technician_name=random.choice(technician_names),
-                price_subtotal=price_subtotal,
-                tax_percent=random.choice([18, 12, 5, 0]),
+                price=price,
                 payment_status=random.choice(payment_statuses),
                 next_service_date=schedule_date + timedelta(days=random.randint(30, 180)),
                 notes=f'Sample job card {i+1} for testing purposes'

@@ -4,7 +4,6 @@ from .validators import (
     validate_mobile_number, 
     validate_positive_decimal, 
     validate_non_negative_decimal,
-    validate_tax_percent,
     validate_job_code
 )
 
@@ -288,26 +287,11 @@ class JobCard(BaseModel):
         verbose_name="Technician Name",
         help_text="Name of the technician assigned to this job"
     )
-    price_subtotal = models.DecimalField(
-        max_digits=15, 
-        decimal_places=2,
-        validators=[validate_non_negative_decimal],
-        verbose_name="Price Subtotal",
-        help_text="Subtotal amount before tax"
-    )
-    tax_percent = models.PositiveIntegerField(
-        default=18,
-        validators=[validate_tax_percent],
-        verbose_name="Tax Percentage",
-        help_text="Tax percentage to be applied (default: 18%)"
-    )
-    grand_total = models.DecimalField(
-        max_digits=15, 
-        decimal_places=2, 
-        default=0,
-        validators=[validate_non_negative_decimal],
-        verbose_name="Grand Total",
-        help_text="Total amount including tax (auto-calculated)"
+    price = models.CharField(
+        max_length=50,
+        default='',
+        verbose_name="Service Price",
+        help_text="Service price as entered by user"
     )
     payment_status = models.CharField(
         max_length=20, 
@@ -364,8 +348,6 @@ class JobCard(BaseModel):
     def clean(self):
         """Custom validation for the model with comprehensive business rules."""
         super().clean()
-        if self.tax_percent is not None:
-            validate_tax_percent(self.tax_percent)
         
         # Business rule: Service type must be provided
         if not self.service_type or not self.service_type.strip():
@@ -379,9 +361,9 @@ class JobCard(BaseModel):
         if not self.technician_name or not self.technician_name.strip():
             raise ValidationError({'technician_name': 'Technician name is required.'})
         
-        # Business rule: Price must be non-negative
-        if self.price_subtotal is not None and self.price_subtotal < 0:
-            raise ValidationError({'price_subtotal': 'Price cannot be negative.'})
+        # Business rule: Price must be provided
+        if not self.price or not self.price.strip():
+            raise ValidationError({'price': 'Price is required.'})
         
         # Business rule: Contract duration validation for Society jobs
         if self.job_type == self.JobType.SOCIETY and not self.contract_duration:
@@ -392,13 +374,6 @@ class JobCard(BaseModel):
             raise ValidationError({'next_service_date': 'Next service date must be after schedule date.'})
 
     def save(self, *args, **kwargs):
-        # Calculate grand total
-        if self.price_subtotal is not None and self.tax_percent is not None:
-            # grand_total = subtotal + (subtotal * tax_percent / 100)
-            self.grand_total = self.price_subtotal + (
-                self.price_subtotal * self.tax_percent / 100
-            )
-
         creating = self.pk is None
         super().save(*args, **kwargs)
 

@@ -18,7 +18,7 @@ class InquiryAdmin(admin.ModelAdmin):
 
 @admin.register(JobCard)
 class JobCardAdmin(admin.ModelAdmin):
-    list_display = ('code', 'client', 'status', 'payment_status', 'grand_total', 'schedule_date')
+    list_display = ('code', 'client', 'status', 'payment_status', 'price', 'schedule_date')
     search_fields = ('code', 'client__full_name', 'client__mobile')
     list_filter = ('status', 'payment_status')
 
