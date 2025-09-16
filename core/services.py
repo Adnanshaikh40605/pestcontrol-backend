@@ -284,34 +284,124 @@ class JobCardService:
     
     @staticmethod
     def create_jobcard(data: Dict[str, Any]) -> JobCard:
-        """Create a new job card with validation."""
+        """
+        Create a new job card with client get_or_create pattern.
+        
+        This method handles two scenarios:
+        1. If 'client' is provided as an ID, it uses the existing client
+        2. If 'client_data' is provided, it uses get_or_create to find or create a client by mobile number
+        
+        Args:
+            data (Dict[str, Any]): JobCard data with optional client_data for client creation
+            
+        Returns:
+            JobCard: The created job card instance
+            
+        Raises:
+            ValidationError: If validation fails or client creation fails
+        """
+        import logging
+        from django.db import IntegrityError, transaction
+        
+        logger = logging.getLogger(__name__)
+        
         try:
-            # Handle client ID - convert to Client instance if it's an ID
+            client = None
+            
+            # Scenario 1: Client ID is provided (existing client)
             if 'client' in data and isinstance(data['client'], int):
                 try:
                     client = Client.objects.get(id=data['client'])
-                    data['client'] = client
+                    logger.info(f"Using existing client ID: {data['client']}")
                 except Client.DoesNotExist:
                     raise ValidationError(f"Client with ID {data['client']} does not exist.")
             
-            # Validate required fields
-            required_fields = ['client', 'service_type', 'schedule_date']
+            # Scenario 2: Client data is provided (get_or_create pattern)
+            elif 'client_data' in data and data['client_data']:
+                client_data = data['client_data']
+                mobile = client_data.get('mobile')
+                
+                if not mobile:
+                    raise ValidationError("Mobile number is required in client_data for client creation.")
+                
+                # Clean mobile number
+                cleaned_mobile = re.sub(r'[\s\-\(\)]', '', str(mobile))
+                
+                # Validate mobile number format
+                if not cleaned_mobile.isdigit() or len(cleaned_mobile) != 10:
+                    raise ValidationError("Mobile number must be exactly 10 digits.")
+                
+                # Use get_or_create with proper error handling for race conditions
+                try:
+                    with transaction.atomic():
+                        client, created = Client.objects.get_or_create(
+                            mobile=cleaned_mobile,
+                            defaults={
+                                'full_name': client_data.get('full_name', ''),
+                                'email': client_data.get('email', ''),
+                                'city': client_data.get('city', ''),
+                                'address': client_data.get('address', ''),
+                                'notes': client_data.get('notes', ''),
+                                'is_active': True
+                            }
+                        )
+                        
+                        if created:
+                            logger.info(f"Created new client with mobile: {cleaned_mobile}")
+                        else:
+                            logger.info(f"Found existing client with mobile: {cleaned_mobile}")
+                            
+                except IntegrityError as e:
+                    # Handle race condition where another request created the client
+                    logger.warning(f"IntegrityError during client creation: {e}")
+                    
+                    # Try to get the existing client
+                    try:
+                        client = Client.objects.get(mobile=cleaned_mobile)
+                        logger.info(f"Retrieved existing client after IntegrityError: {cleaned_mobile}")
+                    except Client.DoesNotExist:
+                        # This shouldn't happen, but handle it gracefully
+                        raise ValidationError("Failed to create or retrieve client due to database constraint.")
             
+            else:
+                raise ValidationError("Either 'client' (ID) or 'client_data' must be provided.")
+            
+            # Validate that we have a client
+            if not client:
+                raise ValidationError("No valid client found or created.")
+            
+            # Remove client_data from jobcard data as it's not a JobCard field
+            jobcard_data = {k: v for k, v in data.items() if k != 'client_data'}
+            jobcard_data['client'] = client
+            
+            # Validate required fields
+            required_fields = ['service_type', 'schedule_date']
             for field in required_fields:
-                if not data.get(field):
+                if not jobcard_data.get(field):
                     raise ValidationError(f"{field.replace('_', ' ').title()} is required.")
             
-            # Set default price to empty string if not provided
-            if not data.get('price'):
-                data['price'] = ''
+            # Set default values
+            if not jobcard_data.get('price'):
+                jobcard_data['price'] = ''
             
-            jobcard = JobCard(**data)
+            if not jobcard_data.get('technician_name'):
+                jobcard_data['technician_name'] = 'TBD'
+            
+            # Create and save jobcard
+            jobcard = JobCard(**jobcard_data)
             jobcard.full_clean()  # Run model validation
             jobcard.save()
+            
+            logger.info(f"Successfully created jobcard {jobcard.code} for client {client.full_name}")
             return jobcard
+            
         except ValidationError:
             raise
+        except IntegrityError as e:
+            logger.error(f"IntegrityError during jobcard creation: {e}")
+            raise ValidationError("Failed to create job card due to database constraint.")
         except Exception as e:
+            logger.error(f"Unexpected error during jobcard creation: {e}")
             raise ValidationError(f"Failed to create job card: {str(e)}")
     
     @staticmethod

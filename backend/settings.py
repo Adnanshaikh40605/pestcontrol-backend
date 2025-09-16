@@ -86,11 +86,15 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database Configuration
 if DEBUG and not config('DATABASE_URL', default=None):
-    # Local development with SQLite
+    # Local development with PostgreSQL
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': 'pest',
+            'USER': 'postgres',
+            'PASSWORD': 'adnan12',
+            'HOST': 'localhost',
+            'PORT': '5432',
         }
     }
 else:

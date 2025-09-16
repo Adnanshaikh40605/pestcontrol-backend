@@ -319,12 +319,40 @@ class JobCardViewSet(BaseModelViewSet):
         return qs
     
     def create(self, request, *args, **kwargs):
-        """Create a new job card using service layer."""
+        """
+        Create a new job card with enhanced client handling.
+        
+        Supports two creation modes:
+        1. With existing client ID: {"client": 123, "service_type": "...", ...}
+        2. With client data: {"client_data": {"mobile": "1234567890", "full_name": "..."}, "service_type": "...", ...}
+        
+        The second mode uses get_or_create pattern to find existing client by mobile number
+        or create a new one if it doesn't exist.
+        """
         try:
             logger.info(f"Creating job card with data: {request.data}")
+            
+            # Validate that either client ID or client_data is provided
+            if not request.data.get('client') and not request.data.get('client_data'):
+                return response.Response(
+                    {'error': 'Either client ID or client_data must be provided'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             jobcard = JobCardService.create_jobcard(request.data)
             serializer = self.get_serializer(jobcard)
-            return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+            
+            # Add client creation info to response
+            response_data = serializer.data
+            if 'client_data' in request.data:
+                response_data['client_created'] = True
+                response_data['message'] = 'Job card created successfully with client data'
+            else:
+                response_data['client_created'] = False
+                response_data['message'] = 'Job card created successfully with existing client'
+            
+            return response.Response(response_data, status=status.HTTP_201_CREATED)
+            
         except ValidationError as e:
             logger.error(f"Job card creation validation error: {e}")
             error_details = {}
@@ -441,6 +469,60 @@ class JobCardViewSet(BaseModelViewSet):
             logger.error(f"Error generating reference report: {e}")
             return response.Response(
                 {'error': 'Failed to generate reference report'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['get'], url_path='check-client')
+    def check_client(self, request):
+        """
+        Check if a client exists by mobile number.
+        
+        Query parameters:
+        - mobile: Mobile number to check
+        
+        Returns:
+        - exists: Boolean indicating if client exists
+        - client: Client data if exists
+        - message: Descriptive message
+        """
+        try:
+            mobile = request.query_params.get('mobile')
+            
+            if not mobile:
+                return response.Response(
+                    {'error': 'Mobile number is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Clean mobile number
+            import re
+            cleaned_mobile = re.sub(r'[\s\-\(\)]', '', str(mobile))
+            
+            if not cleaned_mobile.isdigit() or len(cleaned_mobile) != 10:
+                return response.Response(
+                    {'error': 'Mobile number must be exactly 10 digits'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if client exists
+            try:
+                client = Client.objects.get(mobile=cleaned_mobile)
+                return response.Response({
+                    'exists': True,
+                    'client': ClientSerializer(client).data,
+                    'message': f'Client found with mobile number {cleaned_mobile}'
+                })
+            except Client.DoesNotExist:
+                return response.Response({
+                    'exists': False,
+                    'client': None,
+                    'message': f'No client found with mobile number {cleaned_mobile}'
+                })
+                
+        except Exception as e:
+            logger.error(f"Error checking client existence: {e}")
+            return response.Response(
+                {'error': 'Failed to check client existence'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

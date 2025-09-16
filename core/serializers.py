@@ -27,16 +27,42 @@ class JobCardSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source='client.full_name', read_only=True)
     client_mobile = serializers.CharField(source='client.mobile', read_only=True)
     client_city = serializers.CharField(source='client.city', read_only=True)
+    
+    # Nested client data for creation
+    client_data = serializers.DictField(write_only=True, required=False, help_text="Client details for creation if client doesn't exist")
 
     class Meta:
         model = JobCard
         fields = [
-            'id', 'code', 'client', 'client_name', 'client_mobile', 'client_city',
+            'id', 'code', 'client', 'client_name', 'client_mobile', 'client_city', 'client_data',
             'job_type', 'contract_duration', 'status', 'service_type', 'schedule_date', 
             'technician_name', 'price', 
             'payment_status', 'next_service_date', 'notes', 'is_paused', 'reference', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'code', 'created_at', 'updated_at']
+    
+    def validate(self, data):
+        """Custom validation for JobCard creation with client data."""
+        # If client_data is provided, validate it
+        if 'client_data' in data and data['client_data']:
+            client_data = data['client_data']
+            
+            # Validate required client fields
+            required_client_fields = ['full_name', 'mobile', 'city']
+            for field in required_client_fields:
+                if not client_data.get(field):
+                    raise serializers.ValidationError({
+                        'client_data': {field: f"{field.replace('_', ' ').title()} is required for client creation."}
+                    })
+            
+            # Validate mobile number format
+            mobile = client_data.get('mobile', '')
+            if mobile and not mobile.isdigit() or len(mobile) != 10:
+                raise serializers.ValidationError({
+                    'client_data': {'mobile': 'Mobile number must be exactly 10 digits.'}
+                })
+        
+        return data
 
 
 class RenewalSerializer(serializers.ModelSerializer):
