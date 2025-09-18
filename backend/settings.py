@@ -258,7 +258,10 @@ REQUIRED_CORS_ORIGINS = [
     'http://localhost:3001',
     'https://www.pestcontrol99.com',
     'https://pestcontrol-crm-frontend.vercel.app',
-    'https://pestcontrol-crm.vercel.app'
+    'https://pestcontrol-crm.vercel.app',
+    'http://localhost:5173',
+    
+
 ]
 
 # Add any missing required origins

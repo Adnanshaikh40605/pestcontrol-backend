@@ -86,7 +86,8 @@ class ClientService:
                     raise ValidationError(f"{field.replace('_', ' ').title()} is required.")
             
             # Validate mobile number format
-            if data.get('mobile') and not re.match(r'^\d{10}$', data['mobile']):
+            mobile_pattern = r'^\d{10}$'
+            if data.get('mobile') and not re.match(mobile_pattern, data['mobile']):
                 raise ValidationError("Mobile number must be exactly 10 digits.")
             
             # Validate email if provided
@@ -302,6 +303,7 @@ class JobCardService:
         """
         import logging
         from django.db import IntegrityError, transaction
+        from django.core.exceptions import ValidationError
         
         logger = logging.getLogger(__name__)
         
