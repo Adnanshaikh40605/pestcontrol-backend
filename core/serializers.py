@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Client, Inquiry, JobCard, Renewal
+from .models import Client, Inquiry, JobCard, Renewal, DeviceToken, NotificationLog, NotificationSubscription
 
 
 class ClientSerializer(serializers.ModelSerializer):
@@ -88,5 +88,117 @@ class RenewalSerializer(serializers.ModelSerializer):
             'Normal': '#44aa44'   # Green
         }
         return color_map.get(obj.urgency_level, '#44aa44')
+
+
+class DeviceTokenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeviceToken
+        fields = [
+            'id', 'token', 'device_type', 'user_agent', 'is_active', 
+            'last_used', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'last_used', 'created_at', 'updated_at']
+    
+    def validate_token(self, value):
+        """Validate device token format."""
+        if not value or len(value.strip()) < 50:
+            raise serializers.ValidationError("Device token appears to be invalid or too short.")
+        return value.strip()
+
+
+class NotificationLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationLog
+        fields = [
+            'id', 'title', 'body', 'notification_type', 'status', 
+            'target_tokens', 'topic', 'data_payload', 'success_count', 
+            'failure_count', 'error_message', 'firebase_message_id', 
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'success_count', 'failure_count', 'error_message', 
+            'firebase_message_id', 'created_at', 'updated_at'
+        ]
+
+
+class NotificationSubscriptionSerializer(serializers.ModelSerializer):
+    device_token_info = serializers.CharField(source='device_token.token', read_only=True)
+    device_type = serializers.CharField(source='device_token.device_type', read_only=True)
+    
+    class Meta:
+        model = NotificationSubscription
+        fields = [
+            'id', 'device_token', 'device_token_info', 'device_type', 
+            'topic', 'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def validate_topic(self, value):
+        """Validate topic name format."""
+        import re
+        if not re.match(r'^[a-z0-9_-]+$', value.lower()):
+            raise serializers.ValidationError(
+                "Topic name can only contain lowercase letters, numbers, hyphens, and underscores."
+            )
+        return value.lower()
+
+
+class SendNotificationSerializer(serializers.Serializer):
+    """Serializer for sending notifications."""
+    title = serializers.CharField(max_length=255, help_text="Notification title")
+    body = serializers.CharField(help_text="Notification body/message")
+    device_tokens = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="List of device tokens to send notification to"
+    )
+    topic = serializers.CharField(
+        max_length=100,
+        required=False,
+        help_text="Topic name for topic notifications"
+    )
+    data = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Additional data payload"
+    )
+    image_url = serializers.URLField(
+        required=False,
+        help_text="URL of notification image"
+    )
+    click_action = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text="Action to perform when notification is clicked"
+    )
+    
+    def validate(self, data):
+        """Validate that either device_tokens or topic is provided."""
+        if not data.get('device_tokens') and not data.get('topic'):
+            raise serializers.ValidationError(
+                "Either device_tokens or topic must be provided."
+            )
+        return data
+
+
+class SubscribeToTopicSerializer(serializers.Serializer):
+    """Serializer for subscribing to topics."""
+    device_tokens = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="List of device tokens to subscribe"
+    )
+    topic = serializers.CharField(
+        max_length=100,
+        help_text="Topic name to subscribe to"
+    )
+    
+    def validate_topic(self, value):
+        """Validate topic name format."""
+        import re
+        if not re.match(r'^[a-z0-9_-]+$', value.lower()):
+            raise serializers.ValidationError(
+                "Topic name can only contain lowercase letters, numbers, hyphens, and underscores."
+            )
+        return value.lower()
 
 

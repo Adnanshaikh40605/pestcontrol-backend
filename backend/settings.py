@@ -49,7 +49,6 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'django_filters',
     'corsheaders',
-    'drf_spectacular',
     'core',
 ]
 
@@ -70,7 +69,7 @@ ROOT_URLCONF = 'backend.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -148,7 +147,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Django REST Framework settings
 REST_FRAMEWORK = {
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    ],
+    # 'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema',  # Disabled due to Python 3.13 compatibility
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
@@ -174,49 +177,6 @@ REST_FRAMEWORK = {
     }
 }
 
-# Spectacular settings for OpenAPI documentation
-SPECTACULAR_SETTINGS = {
-    'TITLE': 'PestControl99 API',
-    'DESCRIPTION': 'A comprehensive REST API for pest control management system',
-    'VERSION': '1.0.0',
-    'SERVE_INCLUDE_SCHEMA': False,
-    'COMPONENT_SPLIT_REQUEST': True,
-    'SCHEMA_PATH_PREFIX': r'/api/v[0-9]',
-    'DEFAULT_GENERATOR_CLASS': 'drf_spectacular.generators.SchemaGenerator',
-    'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
-    'SERVERS': [
-        {
-            'url': 'http://localhost:8000/api',
-            'description': 'Development server'
-        },
-        {
-            'url': 'https://pestcontrol-backend-production.up.railway.app/api',
-            'description': 'Production server (Railway)'
-        }
-    ],
-    'TAGS': [
-        {
-            'name': 'Authentication',
-            'description': 'JWT token authentication endpoints'
-        },
-        {
-            'name': 'Clients',
-            'description': 'Client management operations'
-        },
-        {
-            'name': 'Inquiries',
-            'description': 'Inquiry management operations'
-        },
-        {
-            'name': 'Job Cards',
-            'description': 'Job card management operations'
-        },
-        {
-            'name': 'Renewals',
-            'description': 'Renewal management operations'
-        }
-    ]
-}
 
 # Simple JWT settings
 SIMPLE_JWT = {
@@ -411,4 +371,31 @@ CACHES = {
             'MAX_ENTRIES': 1000,
         }
     }
+}
+
+# Firebase Configuration
+FIREBASE_CONFIG = {
+    'project_id': config('FIREBASE_PROJECT_ID', default='pestcontrol99-notifications'),
+    'private_key_id': config('FIREBASE_PRIVATE_KEY_ID', default=''),
+    'private_key': config('FIREBASE_PRIVATE_KEY', default='').replace('\\n', '\n'),
+    'client_email': config('FIREBASE_CLIENT_EMAIL', default=''),
+    'client_id': config('FIREBASE_CLIENT_ID', default=''),
+    'auth_uri': 'https://accounts.google.com/o/oauth2/auth',
+    'token_uri': 'https://oauth2.googleapis.com/token',
+    'auth_provider_x509_cert_url': 'https://www.googleapis.com/oauth2/v1/certs',
+    'client_x509_cert_url': config('FIREBASE_CLIENT_X509_CERT_URL', default=''),
+}
+
+# Firebase Cloud Messaging settings
+FCM_SERVER_KEY = config('FCM_SERVER_KEY', default='')
+FCM_PROJECT_ID = config('FIREBASE_PROJECT_ID', default='pestcontrol99-notifications')
+
+# Notification settings
+NOTIFICATION_SETTINGS = {
+    'DEFAULT_ICON': 'https://pestcontrol99.com/images/pestlogo.png',
+    'DEFAULT_SOUND': 'default',
+    'DEFAULT_COLOR': '#FF6B35',  # PestControl brand color
+    'BATCH_SIZE': 500,  # Maximum notifications per batch
+    'RETRY_ATTEMPTS': 3,
+    'RETRY_DELAY': 1,  # seconds
 }

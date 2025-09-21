@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "152175473260",
+    "project_id": "pestcontrol99-notifications",
+    "storage_bucket": "pestcontrol99-notifications.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:152175473260:android:1161e4d419453107f2de49",
+        "android_client_info": {
+          "package_name": "pestcontrol99.com"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDEwHc1m7xwsJ4sJM9fWB58X-b57SnIrhs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

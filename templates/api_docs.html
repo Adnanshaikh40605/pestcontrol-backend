@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PestControl99 API Documentation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+            border-left: 4px solid #3498db;
+            padding-left: 15px;
+        }
+        h3 {
+            color: #2c3e50;
+            margin-top: 25px;
+        }
+        .endpoint {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .endpoint-url {
+            font-family: 'Courier New', monospace;
+            background: #2c3e50;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 3px;
+            display: inline-block;
+            margin: 5px 0;
+        }
+        .method {
+            background: #27ae60;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            margin-right: 5px;
+        }
+        .method.post { background: #e74c3c; }
+        .method.put { background: #f39c12; }
+        .method.patch { background: #9b59b6; }
+        .method.delete { background: #e67e22; }
+        .features {
+            background: #e8f4fd;
+            border-left: 3px solid #3498db;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        .features ul {
+            margin: 5px 0;
+            padding-left: 20px;
+        }
+        .note {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .usage {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .browsable-note {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐛 PestControl99 API Documentation</h1>
+        <p><strong>Version:</strong> {{ version }}</p>
+        <p><strong>Description:</strong> {{ description }}</p>
+        
+        <div class="browsable-note">
+            <h3>🎯 Browsable API Available!</h3>
+            <p>All endpoints support Django REST Framework's interactive browsable API with:</p>
+            <ul>
+                <li>Interactive forms for testing</li>
+                <li>Filtering and search capabilities</li>
+                <li>Authentication via browser</li>
+                <li>Detailed documentation</li>
+                <li>JSON/API view toggles</li>
+            </ul>
+        </div>
+
+        <h2>🔐 Authentication Endpoints</h2>
+        <div class="endpoint">
+            <h3>JWT Token Management</h3>
+            <div class="endpoint-url">/api/token/</div>
+            <span class="method post">POST</span> Obtain JWT access and refresh tokens<br><br>
+            <div class="endpoint-url">/api/token/refresh/</div>
+            <span class="method post">POST</span> Refresh JWT access token<br><br>
+            <div class="endpoint-url">/api/token/verify/</div>
+            <span class="method post">POST</span> Verify JWT token validity
+        </div>
+
+        <h2>📋 Core APIs</h2>
+        
+        <div class="endpoint">
+            <h3>👥 Clients Management</h3>
+            <div class="endpoint-url">/api/v1/clients/</div>
+            <span class="method">GET</span><span class="method post">POST</span><span class="method put">PUT</span><span class="method delete">DELETE</span><br>
+            <strong>Description:</strong> Client management - Create, read, update, delete clients<br>
+            <div class="features">
+                <strong>Features:</strong>
+                <ul>
+                    <li>Filtering by city/status</li>
+                    <li>Search by name/mobile/email</li>
+                    <li>Soft delete functionality</li>
+                    <li>Create or get existing client</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="endpoint">
+            <h3>📞 Inquiries Management</h3>
+            <div class="endpoint-url">/api/v1/inquiries/</div>
+            <span class="method">GET</span><span class="method post">POST</span><span class="method put">PUT</span><span class="method patch">PATCH</span><br>
+            <strong>Description:</strong> Inquiry management - Handle customer inquiries<br>
+            <div class="features">
+                <strong>Features:</strong>
+                <ul>
+                    <li>Public creation (no auth required)</li>
+                    <li>Status tracking (New, Contacted, Converted, Closed)</li>
+                    <li>Convert inquiries to job cards</li>
+                    <li>Mark as read/unread</li>
+                    <li>Get inquiry statistics</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="endpoint">
+            <h3>📋 Job Cards Management</h3>
+            <div class="endpoint-url">/api/v1/jobcards/</div>
+            <span class="method">GET</span><span class="method post">POST</span><span class="method put">PUT</span><span class="method patch">PATCH</span><br>
+            <strong>Description:</strong> Job card management - Manage service jobs<br>
+            <div class="features">
+                <strong>Features:</strong>
+                <ul>
+                    <li>Client integration</li>
+                    <li>Payment status tracking</li>
+                    <li>Pause/resume functionality</li>
+                    <li>Statistics and reports</li>
+                    <li>Reference tracking</li>
+                    <li>Check client existence</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="endpoint">
+            <h3>🔄 Renewals Management</h3>
+            <div class="endpoint-url">/api/v1/renewals/</div>
+            <span class="method">GET</span><span class="method post">POST</span><span class="method put">PUT</span><span class="method patch">PATCH</span><br>
+            <strong>Description:</strong> Renewal management - Track contract renewals<br>
+            <div class="features">
+                <strong>Features:</strong>
+                <ul>
+                    <li>Urgency levels (Low, Medium, High, Critical)</li>
+                    <li>Due date tracking</li>
+                    <li>Completion status</li>
+                    <li>Pause handling</li>
+                    <li>Upcoming renewals summary</li>
+                </ul>
+            </div>
+        </div>
+
+        <h2>🔔 Notification APIs</h2>
+        
+        <div class="endpoint">
+            <h3>📱 Device Tokens</h3>
+            <div class="endpoint-url">/api/v1/device-tokens/</div>
+            <span class="method">GET</span><span class="method post">POST</span><br>
+            <strong>Description:</strong> Device token management for push notifications
+        </div>
+
+        <div class="endpoint">
+            <h3>📤 Send Notifications</h3>
+            <div class="endpoint-url">/api/v1/notifications/send/</div>
+            <span class="method post">POST</span><br>
+            <strong>Description:</strong> Send push notifications to devices
+        </div>
+
+        <div class="endpoint">
+            <h3>📊 Notification Logs</h3>
+            <div class="endpoint-url">/api/v1/notification-logs/</div>
+            <span class="method">GET</span><br>
+            <strong>Description:</strong> View notification delivery logs
+        </div>
+
+        <div class="endpoint">
+            <h3>🔔 Notification Subscriptions</h3>
+            <div class="endpoint-url">/api/v1/notification-subscriptions/</div>
+            <span class="method">GET</span><span class="method post">POST</span><br>
+            <strong>Description:</strong> Manage topic-based notification subscriptions
+        </div>
+
+        <h2>🔧 Special Endpoints</h2>
+        
+        <div class="endpoint">
+            <h3>❤️ Health Checks</h3>
+            <div class="endpoint-url">/health/</div>
+            <span class="method">GET</span> System health check<br><br>
+            <div class="endpoint-url">/api/v1/firebase/health/</div>
+            <span class="method">GET</span> Firebase service health check
+        </div>
+
+        <div class="usage">
+            <h3>📖 Usage Guidelines</h3>
+            <ul>
+                <li><strong>Authentication:</strong> Use JWT tokens or session authentication</li>
+                <li><strong>Filtering:</strong> Add query parameters like <code>?city=Mumbai&status=Active</code></li>
+                <li><strong>Search:</strong> Use <code>?q=search_term</code> for text search</li>
+                <li><strong>Ordering:</strong> Use <code>?ordering=field_name</code> or <code>?ordering=-field_name</code> for descending</li>
+            </ul>
+        </div>
+
+        <div class="note">
+            <h3>💡 Pro Tip</h3>
+            <p>Visit any endpoint URL in your browser to access the interactive browsable API interface. You can test all operations directly from the browser!</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 from .validators import (
     validate_mobile_number, 
     validate_positive_decimal, 
@@ -478,5 +479,243 @@ class Renewal(BaseModel):
             # Update all related renewals for this jobcard
             from .services import RenewalService
             RenewalService.update_urgency_levels_for_jobcard(self.jobcard.id)
+
+
+class DeviceToken(BaseModel):
+    """
+    Model to store device tokens for push notifications.
+    """
+    class DeviceType(models.TextChoices):
+        ANDROID = 'android', 'Android'
+        IOS = 'ios', 'iOS'
+        WEB = 'web', 'Web'
+    
+    token = models.CharField(
+        max_length=255,
+        unique=True,
+        db_index=True,
+        verbose_name="Device Token",
+        help_text="Firebase device token for push notifications"
+    )
+    device_type = models.CharField(
+        max_length=10,
+        choices=DeviceType.choices,
+        default=DeviceType.ANDROID,
+        db_index=True,
+        verbose_name="Device Type",
+        help_text="Type of device (Android, iOS, Web)"
+    )
+    user_agent = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="User Agent",
+        help_text="User agent string for web devices"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        verbose_name="Is Active",
+        help_text="Whether the device token is active"
+    )
+    last_used = models.DateTimeField(
+        auto_now=True,
+        db_index=True,
+        verbose_name="Last Used",
+        help_text="Last time this token was used"
+    )
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['device_type', 'is_active']),
+            models.Index(fields=['is_active', 'last_used']),
+        ]
+        verbose_name = 'Device Token'
+        verbose_name_plural = 'Device Tokens'
+    
+    def __str__(self) -> str:
+        return f"{self.device_type} - {self.token[:20]}..."
+    
+    def clean(self):
+        """Custom validation for device token."""
+        super().clean()
+        
+        # Business rule: Token must be provided and not empty
+        if not self.token or not self.token.strip():
+            raise ValidationError({'token': 'Device token is required and cannot be empty.'})
+        
+        # Business rule: Token should be reasonably long (Firebase tokens are typically 140+ characters)
+        if len(self.token.strip()) < 50:
+            raise ValidationError({'token': 'Device token appears to be too short.'})
+
+
+class NotificationLog(BaseModel):
+    """
+    Model to log sent notifications for tracking and debugging.
+    """
+    class NotificationType(models.TextChoices):
+        PUSH = 'push', 'Push Notification'
+        TOPIC = 'topic', 'Topic Notification'
+        BULK = 'bulk', 'Bulk Notification'
+    
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        SENT = 'sent', 'Sent'
+        FAILED = 'failed', 'Failed'
+        PARTIAL = 'partial', 'Partially Sent'
+    
+    title = models.CharField(
+        max_length=255,
+        verbose_name="Title",
+        help_text="Notification title"
+    )
+    body = models.TextField(
+        verbose_name="Body",
+        help_text="Notification body/message"
+    )
+    notification_type = models.CharField(
+        max_length=10,
+        choices=NotificationType.choices,
+        default=NotificationType.PUSH,
+        db_index=True,
+        verbose_name="Notification Type",
+        help_text="Type of notification sent"
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+        verbose_name="Status",
+        help_text="Current status of the notification"
+    )
+    target_tokens = models.JSONField(
+        default=list,
+        verbose_name="Target Tokens",
+        help_text="List of device tokens targeted"
+    )
+    topic = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Topic",
+        help_text="Topic name for topic notifications"
+    )
+    data_payload = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Data Payload",
+        help_text="Additional data sent with notification"
+    )
+    success_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Success Count",
+        help_text="Number of successful deliveries"
+    )
+    failure_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Failure Count",
+        help_text="Number of failed deliveries"
+    )
+    error_message = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Error Message",
+        help_text="Error message if notification failed"
+    )
+    firebase_message_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Firebase Message ID",
+        help_text="Firebase message ID for tracking"
+    )
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'notification_type']),
+            models.Index(fields=['topic', 'status']),
+            models.Index(fields=['created_at', 'status']),
+        ]
+        verbose_name = 'Notification Log'
+        verbose_name_plural = 'Notification Logs'
+    
+    def __str__(self) -> str:
+        return f"{self.title} - {self.status}"
+    
+    def clean(self):
+        """Custom validation for notification log."""
+        super().clean()
+        
+        # Business rule: Title must be provided
+        if not self.title or not self.title.strip():
+            raise ValidationError({'title': 'Notification title is required.'})
+        
+        # Business rule: Body must be provided
+        if not self.body or not self.body.strip():
+            raise ValidationError({'body': 'Notification body is required.'})
+        
+        # Business rule: For topic notifications, topic must be provided
+        if self.notification_type == self.NotificationType.TOPIC and not self.topic:
+            raise ValidationError({'topic': 'Topic is required for topic notifications.'})
+        
+        # Business rule: For push notifications, target tokens must be provided
+        if self.notification_type == self.NotificationType.PUSH and not self.target_tokens:
+            raise ValidationError({'target_tokens': 'Target tokens are required for push notifications.'})
+
+
+class NotificationSubscription(BaseModel):
+    """
+    Model to track user subscriptions to notification topics.
+    """
+    device_token = models.ForeignKey(
+        DeviceToken,
+        on_delete=models.CASCADE,
+        related_name='subscriptions',
+        db_index=True,
+        verbose_name="Device Token",
+        help_text="Device token for this subscription"
+    )
+    topic = models.CharField(
+        max_length=100,
+        db_index=True,
+        verbose_name="Topic",
+        help_text="Topic name to subscribe to"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+        verbose_name="Is Active",
+        help_text="Whether the subscription is active"
+    )
+    
+    class Meta:
+        ordering = ['-created_at']
+        unique_together = ['device_token', 'topic']
+        indexes = [
+            models.Index(fields=['topic', 'is_active']),
+            models.Index(fields=['device_token', 'is_active']),
+        ]
+        verbose_name = 'Notification Subscription'
+        verbose_name_plural = 'Notification Subscriptions'
+    
+    def __str__(self) -> str:
+        return f"{self.device_token} -> {self.topic}"
+    
+    def clean(self):
+        """Custom validation for notification subscription."""
+        super().clean()
+        
+        # Business rule: Topic must be provided and not empty
+        if not self.topic or not self.topic.strip():
+            raise ValidationError({'topic': 'Topic name is required and cannot be empty.'})
+        
+        # Business rule: Topic should be lowercase and contain only valid characters
+        import re
+        if not re.match(r'^[a-z0-9_-]+$', self.topic.lower()):
+            raise ValidationError({'topic': 'Topic name can only contain lowercase letters, numbers, hyphens, and underscores.'})
 
 

@@ -72,7 +72,28 @@ class BaseModelViewSet(viewsets.ModelViewSet):
 
 
 class ClientViewSet(BaseModelViewSet):
-    """ViewSet for managing clients."""
+    """
+    API endpoint that allows clients to be viewed, created, updated, or deleted.
+    
+    This endpoint provides full CRUD operations for client management including:
+    - List all clients with filtering and search capabilities
+    - Create new clients with validation
+    - Update existing client information
+    - Soft delete clients (deactivation)
+    - Create or get existing client by mobile number
+    
+    Filtering options:
+    - city: Filter by client city
+    - is_active: Filter by active status
+    
+    Search fields:
+    - full_name: Search by client name
+    - mobile: Search by mobile number
+    - email: Search by email address
+    
+    Ordering options:
+    - created_at, updated_at, full_name, city, mobile
+    """
     queryset = Client.objects.all()
     serializer_class = ClientSerializer
     filterset_fields = ['city', 'is_active']
@@ -156,7 +177,30 @@ class ClientViewSet(BaseModelViewSet):
 
 
 class InquiryViewSet(BaseModelViewSet):
-    """ViewSet for managing inquiries."""
+    """
+    API endpoint that allows inquiries to be viewed, created, updated, or deleted.
+    
+    This endpoint provides full CRUD operations for inquiry management including:
+    - List all inquiries with filtering and search capabilities
+    - Create new inquiries (public endpoint - no authentication required)
+    - Update inquiry status and information
+    - Convert inquiries to job cards
+    - Mark inquiries as read/unread
+    - Get inquiry statistics and counts
+    
+    Filtering options:
+    - status: Filter by inquiry status (New, Contacted, Converted, Closed)
+    - city: Filter by city
+    
+    Search fields:
+    - name: Search by customer name
+    - mobile: Search by mobile number
+    - email: Search by email address
+    - service_interest: Search by service interest
+    
+    Ordering options:
+    - created_at, updated_at, name, status, city
+    """
     queryset = Inquiry.objects.all()
     serializer_class = InquirySerializer
     filterset_fields = ['status', 'city']
@@ -284,7 +328,36 @@ class InquiryViewSet(BaseModelViewSet):
 
 
 class JobCardViewSet(BaseModelViewSet):
-    """ViewSet for managing job cards."""
+    """
+    API endpoint that allows job cards to be viewed, created, updated, or deleted.
+    
+    This endpoint provides full CRUD operations for job card management including:
+    - List all job cards with filtering and search capabilities
+    - Create new job cards with client data or existing client ID
+    - Update job card information and status
+    - Update payment status
+    - Toggle pause/resume functionality
+    - Get job card statistics and reference reports
+    - Check client existence by mobile number
+    
+    Filtering options:
+    - status: Filter by job card status
+    - payment_status: Filter by payment status
+    - client__city: Filter by client city
+    - job_type: Filter by job type (Residential, Commercial, Society)
+    - contract_duration: Filter by contract duration
+    - is_paused: Filter by pause status
+    
+    Search fields:
+    - code: Search by job card code
+    - client__full_name: Search by client name
+    - client__mobile: Search by client mobile
+    - service_type: Search by service type
+    
+    Ordering options:
+    - created_at, updated_at, schedule_date, status, payment_status, 
+      client__full_name, client__city, job_type, contract_duration
+    """
     queryset = JobCard.objects.select_related('client').prefetch_related('renewals').all()
     serializer_class = JobCardSerializer
     filterset_fields = ['status', 'payment_status', 'client__city', 'job_type', 'contract_duration', 'is_paused']
@@ -528,7 +601,31 @@ class JobCardViewSet(BaseModelViewSet):
 
 
 class RenewalViewSet(BaseModelViewSet):
-    """ViewSet for managing renewals."""
+    """
+    API endpoint that allows renewals to be viewed, created, updated, or deleted.
+    
+    This endpoint provides full CRUD operations for renewal management including:
+    - List all renewals with filtering and search capabilities
+    - Create new renewals for job cards
+    - Update renewal information and status
+    - Mark renewals as completed
+    - Toggle pause/resume functionality for job cards
+    - Get upcoming renewals summary
+    - Update urgency levels for all renewals
+    - Get active renewals with urgency filtering
+    
+    Filtering options:
+    - status: Filter by renewal status
+    - urgency_level: Filter by urgency level (Low, Medium, High, Critical)
+    - renewal_type: Filter by renewal type
+    
+    Search fields:
+    - jobcard__code: Search by job card code
+    - jobcard__client__full_name: Search by client name
+    
+    Ordering options:
+    - created_at, updated_at, due_date, status, urgency_level
+    """
     queryset = Renewal.objects.select_related('jobcard', 'jobcard__client').all()
     serializer_class = RenewalSerializer
     filterset_fields = ['status', 'urgency_level', 'renewal_type']
