@@ -1,0 +1,23 @@
+# Firebase Environment Variables for Railway - CORRECTED FORMAT
+# Copy these variables one by one to your Railway deployment
+
+FIREBASE_PROJECT_ID=pestcontrol99-notifications
+
+FIREBASE_PRIVATE_KEY_ID=96ea7389ee0a5319486a1421a9e661755531c201
+
+FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCfId8vrAR55iXp\nfwqsTUZs5RIvSXurzdoq9Nk1CYBVdDfEyHa0bH1Xea4lDbKWNWp280L4WI75KLeE\nfsmCTGES2IOj2p4XA44iC7FhhUQndkXmRwKiDVhjpEm9vqSWAl17ZQSSyTdooF03\nWhqhLebuX7cbItF4/9rsQWyGnrw0vgIttt/3koM/n1u0J/+bTs1/21LCgUjdcEZ5\nVhC7z17Vn1DXCFXz+JcPlDJvfE5lZNS2fMYqsoGNDLF1LdvUyRX7txp20+z4UrcE\nco+x8eW4Kc105OWxpgr1v/8wj8wwUveG2S6O+QOydCUoe4q17WT/NdTuDZL+jDXY\nftsx/gS9AgMBAAECggEAS2lgXLWeq2vrRIOdebjnKnzGCN3Ae1MC1D+TXaSCijyY\nnytGwcr1/UnfQpUCsFdg/Dzc3FcPbjki+umgshxjFmy/uZtFNu/K4Ax9g5MFkNPm\nXTICp+w+Gn5FKePaGHLHfU4KhEtR9EWm1y/elcpseUOnwPbXoQlS5Io+lW9NDorL\nG1SSCKKyC1sfHpOeAacarKp0HqWqxgDHsgyMj3F4oYVJVsXQNLvLusych9UkYIvR\n9qLhUbacjipqn2FTI0SZVLRXRJF5I4EDxypfZxQpkQ8f2thgz8nxDG7IDKVKRTIK\npqCZgOE8tUUeCODYFQk6EbRh0+gKWB2dFnSwd7vSqwKBgQDaDTTqBI3sH2b2VSHK\nYRfydj01ER0MJb0et8ZX9RAUDKLft9lJVTPKz7UhQ4/HHRl2+WgTwAqOw9dEYlWE\njgl8Mn570flDAM55l89II/LEXW6sNS9Iq+UzDvcB7xBV79EJUFM1yI1n9JJnG6SM\n7+wNe5i+zZIiSCkZjCUsdOjYhwKBgQC606aLFYlqxFYyrCAOe+/oSA9Kgx9baYqY\nV2m+Bu3po9MAouPEqQ5DCyj9XEuVGIJoP51e6qJKp+IlnVL7HPWxcLaEFiQQa65E\nfKgKBdNObq1KfNtF+BnmT5fpdRH1FF54q2uZEo+dv7A719szFrY6i6JdnCdcpfOP\nM7O/da99mwKBgQCeCixr4NksZqYtrA5NrIm6xlAegkTXZRLpjLFJVulMXsw98fae\n3A4p1NmnPlybKFAolyQEDJCaYP9JJSxuYrQlPEPIYquTEKaWIp2t38A46q8oSXP3\n6/63PwVwdWEVqDeN1JY6yR0UV4M1ECf3rn0cWJSg1kYwarS/O4BF9IY/SQKBgGMa\n1TTghtXRMtyMfDDSw+/XEe134xFtyiyH6jr4mAohclPbFLIE7+DWsba82AdOShcc\n79Ei7FZn+knzy8oTka2/2cH1sMnZJUeFTOqMLoxjn59s3jCerLaEsFQSWyVD2d1v\nKZO4yeBniAgmuEvAl4g0/DtmE2dNTQdA6O/+cMpTAoGAMci0EFR3VPevwy3sf9+T\nm0uHEemGza5j8xLY90ScOt/S7LKmKIw5zggVieIi9xTXo5GaY7z0bX0g7HIOLgiZ\nvb/Y/wEi2xIOA139370NSajCMylJZUi0KB0NifAWQUs0jDlrvoReKgV50/wKp+1T\nsV1oU1jdlJOgtY8GBXokQbY=\n-----END PRIVATE KEY-----\n
+
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-fbsvc@pestcontrol99-notifications.iam.gserviceaccount.com
+
+FIREBASE_CLIENT_ID=115282059614314172563
+
+FIREBASE_CLIENT_X509_CERT_URL=https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40pestcontrol99-notifications.iam.gserviceaccount.com
+
+FCM_SERVER_KEY=96ea7389ee0a5319486a1421a9e661755531c201
+
+# IMPORTANT NOTES:
+# 1. The FIREBASE_PRIVATE_KEY above has \n characters instead of actual line breaks
+# 2. This is the correct format for Railway environment variables
+# 3. Copy each variable exactly as shown above
+# 4. Do NOT use quotes around the values in Railway
+# 5. Railway will automatically redeploy after adding variables
