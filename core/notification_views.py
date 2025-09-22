@@ -48,20 +48,8 @@ class DeviceTokenViewSet(BaseModelViewSet):
     search_fields = ['token', 'user_agent']
     ordering_fields = ['created_at', 'updated_at', 'last_used', 'device_type']
     ordering = ['-created_at']
+    permission_classes = [permissions.AllowAny]  # Allow unauthenticated access for all actions
     
-    def get_permissions(self):
-        """Allow unauthenticated registration of device tokens."""
-        action = getattr(self, 'action', None)
-        if action in ['create', 'register']:
-            return [permissions.AllowAny()]
-        return super().get_permissions()
-    
-    def get_authenticators(self):
-        """Do not enforce authentication on public endpoints."""
-        action = getattr(self, 'action', None)
-        if action in ['create', 'register']:
-            return []
-        return super().get_authenticators()
     
     def create(self, request, *args, **kwargs):
         """Register a new device token."""
