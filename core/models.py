@@ -354,9 +354,13 @@ class JobCard(BaseModel):
         if not self.service_type or not self.service_type.strip():
             raise ValidationError({'service_type': 'Service type is required.'})
         
-        # Business rule: Schedule date cannot be in the past (except for existing records)
+        # Business rule: Schedule date validation (allow past dates with warning)
         if self.schedule_date and self.schedule_date < timezone.now().date() and not self.pk:
-            raise ValidationError({'schedule_date': 'Schedule date cannot be in the past.'})
+            # Allow past dates but log a warning for audit purposes
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Job card created with past schedule date: {self.schedule_date} (today: {timezone.now().date()})")
+            # Note: We allow past dates for cases like recording completed services, backdating, etc.
         
         # Business rule: Technician name must be provided
         if not self.technician_name or not self.technician_name.strip():
