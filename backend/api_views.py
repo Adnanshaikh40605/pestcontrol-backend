@@ -82,26 +82,37 @@ def api_docs_json(request):
                     "features": ["Urgency levels", "Due date tracking", "Completion status", "Pause handling"]
                 }
             },
-            "Notification APIs": {
+            "Simplified Notification APIs": {
                 "device_tokens": {
                     "url": "/api/v1/device-tokens/",
-                    "methods": ["GET", "POST"],
-                    "description": "Device token management for push notifications"
+                    "methods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+                    "description": "Simple device token management for push notifications",
+                    "features": ["Register device tokens", "Update device info", "Unregister tokens"]
                 },
-                "notifications": {
+                "device_tokens_register": {
+                    "url": "/api/v1/device-tokens/register/",
+                    "methods": ["POST"],
+                    "description": "Public endpoint to register device token (no auth required)"
+                },
+                "device_tokens_unregister": {
+                    "url": "/api/v1/device-tokens/unregister/",
+                    "methods": ["POST"],
+                    "description": "Unregister device token"
+                },
+                "notifications_send": {
                     "url": "/api/v1/notifications/send/",
                     "methods": ["POST"],
-                    "description": "Send push notifications to devices"
+                    "description": "Send push notifications to devices (authenticated)"
+                },
+                "notifications_statistics": {
+                    "url": "/api/v1/notifications/statistics/",
+                    "methods": ["GET"],
+                    "description": "Get notification statistics"
                 },
                 "notification_logs": {
                     "url": "/api/v1/notification-logs/",
                     "methods": ["GET"],
-                    "description": "View notification delivery logs"
-                },
-                "notification_subscriptions": {
-                    "url": "/api/v1/notification-subscriptions/",
-                    "methods": ["GET", "POST"],
-                    "description": "Manage topic-based notification subscriptions"
+                    "description": "View notification delivery logs (authenticated)"
                 }
             },
             "Special Endpoints": {

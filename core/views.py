@@ -223,10 +223,20 @@ class InquiryViewSet(BaseModelViewSet):
         return super().get_authenticators()
     
     def create(self, request, *args, **kwargs):
-        """Create a new inquiry using service layer."""
+        """Create a new inquiry using service layer and send notification."""
         try:
             inquiry = InquiryService.create_inquiry(request.data)
             serializer = self.get_serializer(inquiry)
+            
+            # Send notification after successful inquiry creation
+            try:
+                from .notification_service import NotificationService
+                NotificationService.send_inquiry_notification(request.data)
+                logger.info(f"Notification sent for new inquiry from {request.data.get('name', 'Unknown')}")
+            except Exception as notification_error:
+                # Don't fail the inquiry creation if notification fails
+                logger.error(f"Failed to send notification for inquiry: {notification_error}")
+            
             return response.Response(serializer.data, status=status.HTTP_201_CREATED)
         except ValidationError as e:
             return response.Response(

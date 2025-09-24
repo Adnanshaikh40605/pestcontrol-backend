@@ -21,6 +21,8 @@ logs/
 staticfiles/
 media/
 
+google-services.json/
+
 # OS/editor
 .DS_Store
 .idea/

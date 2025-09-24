@@ -13,7 +13,6 @@ from .views import (
 from .notification_views import (
     DeviceTokenViewSet,
     NotificationLogViewSet,
-    NotificationSubscriptionViewSet,
     NotificationViewSet,
     firebase_health_check,
 )
@@ -25,10 +24,9 @@ router.register(r'inquiries', InquiryViewSet, basename='inquiry')
 router.register(r'jobcards', JobCardViewSet, basename='jobcard')
 router.register(r'renewals', RenewalViewSet, basename='renewal')
 
-# Notification endpoints
+# Simplified notification endpoints
 router.register(r'device-tokens', DeviceTokenViewSet, basename='device-token')
 router.register(r'notification-logs', NotificationLogViewSet, basename='notification-log')
-router.register(r'notification-subscriptions', NotificationSubscriptionViewSet, basename='notification-subscription')
 router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = [
