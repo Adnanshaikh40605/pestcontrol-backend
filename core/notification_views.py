@@ -23,13 +23,14 @@ class DeviceTokenViewSet(BaseModelViewSet):
     
     Provides basic CRUD operations for device token management:
     - Register new device tokens (public endpoint - no authentication required)
-    - List device tokens
+    - List device tokens (public for checking token status)
     - Update device token information
     - Unregister device tokens
     """
     queryset = DeviceToken.objects.all()
     serializer_class = DeviceTokenSerializer
     permission_classes = [permissions.AllowAny]  # Allow unauthenticated access for all actions
+    filterset_fields = ['token', 'is_active']  # Allow filtering by token for status checks
     
     def create(self, request, *args, **kwargs):
         """Register a new device token."""
@@ -94,6 +95,39 @@ class DeviceTokenViewSet(BaseModelViewSet):
             logger.error(f"Error unregistering device token: {e}")
             return response.Response(
                 {'error': 'Failed to unregister device token'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @decorators.action(detail=False, methods=['get'], url_path='check-status')
+    def check_status(self, request):
+        """Check if a device token is registered."""
+        try:
+            token = request.query_params.get('token')
+            
+            if not token:
+                return response.Response(
+                    {'error': 'Device token is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            try:
+                device_token = DeviceToken.objects.get(token=token, is_active=True)
+                return response.Response({
+                    'is_registered': True,
+                    'device_token': DeviceTokenSerializer(device_token).data,
+                    'message': 'Device token is registered and active'
+                })
+            except DeviceToken.DoesNotExist:
+                return response.Response({
+                    'is_registered': False,
+                    'device_token': None,
+                    'message': 'Device token is not registered or inactive'
+                })
+                
+        except Exception as e:
+            logger.error(f"Error checking device token status: {e}")
+            return response.Response(
+                {'error': 'Failed to check device token status'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 

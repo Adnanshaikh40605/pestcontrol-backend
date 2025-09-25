@@ -1,6 +1,7 @@
 # Exclude frontend from this backend repo
 pestcontrol-frontend/
 pest99-app/
+webapp/
 # Python
 __pycache__/
 *.py[cod]
