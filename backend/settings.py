@@ -273,7 +273,7 @@ CORS_EXPOSE_HEADERS = [
 if DEBUG:
     # Allow all origins in development for easier debugging
     CORS_ALLOW_ALL_ORIGINS = True
-    print("⚠️  CORS_ALLOW_ALL_ORIGINS set to True for development")
+    print("WARNING: CORS_ALLOW_ALL_ORIGINS set to True for development")
     print(f"CORS_ALLOWED_ORIGINS: {CORS_ALLOWED_ORIGINS}")
     print(f"CORS_ALLOW_CREDENTIALS: {CORS_ALLOW_CREDENTIALS}")
     print(f"CORS_ALLOW_METHODS: {CORS_ALLOW_METHODS}")

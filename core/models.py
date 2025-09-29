@@ -498,7 +498,7 @@ class DeviceToken(BaseModel):
         help_text="Firebase device token for push notifications"
     )
     device_name = models.CharField(
-        max_length=100,
+        max_length=255,
         blank=True,
         null=True,
         verbose_name="Device Name",
