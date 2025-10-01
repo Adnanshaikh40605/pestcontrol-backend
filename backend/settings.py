@@ -377,6 +377,7 @@ CACHES = {
 
 # Firebase Configuration
 FIREBASE_CONFIG = {
+    'type': 'service_account',
     'project_id': config('FIREBASE_PROJECT_ID', default='pestcontrol99-notifications'),
     'private_key_id': config('FIREBASE_PRIVATE_KEY_ID', default=''),
     'private_key': config('FIREBASE_PRIVATE_KEY', default='').replace('\\n', '\n'),
