@@ -108,38 +108,38 @@ class FirebaseService:
                 )
             )
             
-            # Create message
-            message = messaging.MulticastMessage(
-                notification=notification,
-                data=data or {},
-                android=android_config,
-                apns=apns_config,
-                tokens=device_tokens
-            )
-            
-            # Send notification
-            response = messaging.send_multicast(message, app=app)
-            
-            # Process results
+            # Send to each device individually (fixes the /batch endpoint issue)
             results = []
             success_count = 0
             failure_count = 0
             
-            for i, result in enumerate(response.responses):
-                token = device_tokens[i]
-                if result.success:
+            for token in device_tokens:
+                try:
+                    # Create individual message for each token
+                    message = messaging.Message(
+                        notification=notification,
+                        data=data or {},
+                        android=android_config,
+                        apns=apns_config,
+                        token=token
+                    )
+                    
+                    # Send notification
+                    response = messaging.send(message, app=app)
+                    
                     success_count += 1
                     results.append({
                         'token': token,
                         'success': True,
-                        'message_id': result.message_id
+                        'message_id': response
                     })
-                else:
+                    
+                except Exception as e:
                     failure_count += 1
                     results.append({
                         'token': token,
                         'success': False,
-                        'error': str(result.exception) if result.exception else 'Unknown error'
+                        'error': str(e)
                     })
             
             logger.info(f"Notification sent: {success_count} success, {failure_count} failures")
