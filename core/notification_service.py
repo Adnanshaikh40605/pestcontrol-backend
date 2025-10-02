@@ -20,7 +20,7 @@ class NotificationService:
     @staticmethod
     def register_device_token(token: str, device_name: Optional[str] = None) -> DeviceToken:
         """
-        Register or update a device token.
+        Register or update a device token with improved persistence handling.
         
         Args:
             token: Firebase device token
@@ -40,12 +40,25 @@ class NotificationService:
             )
             
             if not created:
-                # Update existing token
-                device_token.device_name = device_name
-                device_token.is_active = True
-                device_token.save()
+                # Update existing token only if device name is different or token was inactive
+                update_needed = False
+                
+                if device_token.device_name != device_name and device_name:
+                    device_token.device_name = device_name
+                    update_needed = True
+                
+                if not device_token.is_active:
+                    device_token.is_active = True
+                    update_needed = True
+                
+                if update_needed:
+                    device_token.save()
+                    logger.info(f"Device token updated: {device_name or 'Unknown'}")
+                else:
+                    logger.info(f"Device token already registered and active: {device_name or 'Unknown'}")
+            else:
+                logger.info(f"Device token registered: {device_name or 'Unknown'}")
             
-            logger.info(f"Device token {'registered' if created else 'updated'}: {device_name or 'Unknown'}")
             return device_token
             
         except Exception as e:
