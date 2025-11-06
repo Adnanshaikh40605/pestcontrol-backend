@@ -1,8 +1,21 @@
-"""
-API documentation views for the backend application.
-"""
+"""API documentation views for the backend application."""
 from django.shortcuts import render
 from django.http import JsonResponse
+
+
+def reference_statistics_view(request):
+    """
+    Reference report view for displaying system statistics.
+    
+    This view provides a comprehensive overview of system statistics
+    including counts for various entities in the pest control system.
+    """
+    context = {
+        'title': 'Reference Report',
+        'description': 'System statistics and reference data',
+    }
+    
+    return render(request, 'reference_statistics.html', context)
 
 
 def api_docs_view(request):
@@ -73,13 +86,27 @@ def api_docs_json(request):
                     "url": "/api/v1/jobcards/",
                     "methods": ["GET", "POST", "PUT", "PATCH"],
                     "description": "Job card management - Manage service jobs",
-                    "features": ["Client integration", "Payment tracking", "Pause/resume", "Statistics"]
+                    "features": ["Client integration", "Payment tracking", "Pause/resume"]
                 },
                 "renewals": {
                     "url": "/api/v1/renewals/",
                     "methods": ["GET", "POST", "PUT", "PATCH"],
                     "description": "Renewal management - Track contract renewals",
                     "features": ["Urgency levels", "Due date tracking", "Completion status", "Pause handling"]
+                },
+                "dashboard": {
+                    "url": "/api/v1/dashboard/statistics/",
+                    "methods": ["GET"],
+                    "description": "Dashboard statistics - Get comprehensive statistical data",
+                    "features": ["Total counts", "Caching (5 min)", "Rate limiting", "Authentication required"],
+                    "response_format": {
+                        "total_inquiries": "Number",
+                        "total_job_cards": "Number", 
+                        "total_clients": "Number",
+                        "renewals": "Number",
+                        "status": "success",
+                        "timestamp": "ISO datetime"
+                    }
                 }
             },
             "Simplified Notification APIs": {
@@ -104,11 +131,7 @@ def api_docs_json(request):
                     "methods": ["POST"],
                     "description": "Send push notifications to devices (authenticated)"
                 },
-                "notifications_statistics": {
-                    "url": "/api/v1/notifications/statistics/",
-                    "methods": ["GET"],
-                    "description": "Get notification statistics"
-                },
+
                 "notification_logs": {
                     "url": "/api/v1/notification-logs/",
                     "methods": ["GET"],
@@ -121,11 +144,6 @@ def api_docs_json(request):
                     "method": "GET",
                     "description": "System health check"
                 },
-                "firebase_health": {
-                    "url": "/api/v1/firebase/health/",
-                    "method": "GET",
-                    "description": "Firebase service health check"
-                }
             }
         },
         "browsable_api": {

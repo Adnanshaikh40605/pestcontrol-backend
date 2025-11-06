@@ -54,7 +54,7 @@ class Client(BaseModel):
         help_text="Client's email address (optional)"
     )
     city = models.CharField(
-        max_length=100, 
+        max_length=255, 
         db_index=True,
         verbose_name="City",
         help_text="City where the client is located"
@@ -272,7 +272,7 @@ class JobCard(BaseModel):
         help_text="Current status of the job card"
     )
     service_type = models.CharField(
-        max_length=255, 
+        max_length=500, 
         db_index=True,
         verbose_name="Service Type",
         help_text="Type of pest control service to be provided"
@@ -282,14 +282,14 @@ class JobCard(BaseModel):
         verbose_name="Schedule Date",
         help_text="Date when the service is scheduled"
     )
-    technician_name = models.CharField(
-        max_length=255, 
-        db_index=True,
-        verbose_name="Technician Name",
-        help_text="Name of the technician assigned to this job"
+    client_address = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Client Address",
+        help_text="Address where the service will be performed"
     )
     price = models.CharField(
-        max_length=50,
+        max_length=200,
         default='',
         verbose_name="Service Price",
         help_text="Service price as entered by user"
@@ -322,12 +322,18 @@ class JobCard(BaseModel):
         help_text="Whether the job is currently paused"
     )
     reference = models.CharField(
-        max_length=50,
+        max_length=200,
         blank=True,
         null=True,
         db_index=True,
         verbose_name="Reference",
         help_text="Source of reference for this job card"
+    )
+    extra_notes = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Extra Notes",
+        help_text="Additional notes or comments about the job card"
     )
 
     class Meta:
@@ -336,7 +342,6 @@ class JobCard(BaseModel):
             models.Index(fields=['status', 'payment_status']),
             models.Index(fields=['schedule_date', 'status']),
             models.Index(fields=['client', 'status']),
-            models.Index(fields=['technician_name', 'schedule_date']),
             models.Index(fields=['job_type', 'status']),
             models.Index(fields=['contract_duration', 'job_type']),
         ]
@@ -361,10 +366,6 @@ class JobCard(BaseModel):
             logger = logging.getLogger(__name__)
             logger.warning(f"Job card created with past schedule date: {self.schedule_date} (today: {timezone.now().date()})")
             # Note: We allow past dates for cases like recording completed services, backdating, etc.
-        
-        # Business rule: Technician name must be provided
-        if not self.technician_name or not self.technician_name.strip():
-            raise ValidationError({'technician_name': 'Technician name is required.'})
         
         # Business rule: Price must be provided
         if not self.price or not self.price.strip():
@@ -410,11 +411,10 @@ class Renewal(BaseModel):
         verbose_name="Job Card",
         help_text="Job card associated with this renewal"
     )
-    due_date = models.DateTimeField(
-        default=timezone.now, 
+    due_date = models.DateField(
         db_index=True,
         verbose_name="Due Date",
-        help_text="Date and time when the renewal is due"
+        help_text="Date when the renewal is due"
     )
     status = models.CharField(
         max_length=20, 
@@ -459,12 +459,12 @@ class Renewal(BaseModel):
         verbose_name_plural = 'Renewals'
 
     def __str__(self) -> str:
-        return f"Renewal for {self.jobcard.code if self.jobcard_id else self.jobcard_id} on {self.due_date.date()}"
+        return f"Renewal for {self.jobcard.code if self.jobcard_id else self.jobcard_id} on {self.due_date}"
     
     def update_urgency_level(self):
         """Update urgency level based on due date."""
         from datetime import timedelta
-        now = timezone.now()
+        now = timezone.now().date()  # Convert to date for comparison
         
         if self.due_date <= now:
             self.urgency_level = self.UrgencyLevel.HIGH
@@ -472,6 +472,31 @@ class Renewal(BaseModel):
             self.urgency_level = self.UrgencyLevel.MEDIUM
         else:
             self.urgency_level = self.UrgencyLevel.NORMAL
+    
+    def clean(self):
+        """Custom validation for the model with comprehensive business rules."""
+        super().clean()
+        
+        # Business rule: Prevent duplicate renewals for the same job card and due date
+        if self.jobcard_id and self.due_date:
+            existing = Renewal.objects.filter(
+                jobcard=self.jobcard,
+                due_date=self.due_date,
+                renewal_type=self.renewal_type
+            ).exclude(pk=self.pk if self.pk else None)
+            
+            if existing.exists():
+                raise ValidationError({
+                    'due_date': f'A renewal of type {self.renewal_type} already exists for this job card on {self.due_date}.'
+                })
+        
+        # Business rule: Due date must be in the future for new renewals
+        if self.pk is None and self.due_date:
+            if self.due_date < timezone.now().date():
+                # Allow past dates but log a warning
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Renewal created with past due date: {self.due_date} (today: {timezone.now().date()})")
     
     def save(self, *args, **kwargs):
         """Override save to automatically update urgency level and trigger related updates."""
@@ -483,93 +508,3 @@ class Renewal(BaseModel):
             # Update all related renewals for this jobcard
             from .services import RenewalService
             RenewalService.update_urgency_levels_for_jobcard(self.jobcard.id)
-
-
-class DeviceToken(BaseModel):
-    """
-    Simplified device token model for basic push notifications.
-    Only stores what's essential for sending notifications.
-    """
-    token = models.CharField(
-        max_length=255,
-        unique=True,
-        db_index=True,
-        verbose_name="Device Token",
-        help_text="Firebase device token for push notifications"
-    )
-    device_name = models.CharField(
-        max_length=255,
-        blank=True,
-        null=True,
-        verbose_name="Device Name",
-        help_text="Optional name to identify the device (e.g., 'Admin Phone')"
-    )
-    is_active = models.BooleanField(
-        default=True,
-        db_index=True,
-        verbose_name="Is Active",
-        help_text="Whether the device token is active"
-    )
-    
-    class Meta:
-        ordering = ['-created_at']
-        verbose_name = 'Device Token'
-        verbose_name_plural = 'Device Tokens'
-    
-    def __str__(self) -> str:
-        device_name = self.device_name or "Unknown Device"
-        return f"{device_name} - {self.token[:20]}..."
-    
-    def clean(self):
-        """Custom validation for device token."""
-        super().clean()
-        
-        if not self.token or not self.token.strip():
-            raise ValidationError({'token': 'Device token is required and cannot be empty.'})
-        
-        if len(self.token.strip()) < 50:
-            raise ValidationError({'token': 'Device token appears to be too short.'})
-
-
-class NotificationLog(BaseModel):
-    """
-    Simplified notification log for basic tracking.
-    Only logs essential information.
-    """
-    class Status(models.TextChoices):
-        SENT = 'sent', 'Sent'
-        FAILED = 'failed', 'Failed'
-    
-    title = models.CharField(
-        max_length=255,
-        verbose_name="Title",
-        help_text="Notification title"
-    )
-    body = models.TextField(
-        verbose_name="Body",
-        help_text="Notification body/message"
-    )
-    status = models.CharField(
-        max_length=10,
-        choices=Status.choices,
-        default=Status.SENT,
-        db_index=True,
-        verbose_name="Status",
-        help_text="Notification delivery status"
-    )
-    error_message = models.TextField(
-        blank=True,
-        null=True,
-        verbose_name="Error Message",
-        help_text="Error message if notification failed"
-    )
-    
-    class Meta:
-        ordering = ['-created_at']
-        verbose_name = 'Notification Log'
-        verbose_name_plural = 'Notification Logs'
-    
-    def __str__(self) -> str:
-        return f"{self.title} - {self.status}"
-
-

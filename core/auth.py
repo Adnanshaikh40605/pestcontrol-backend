@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth import authenticate
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema, OpenApiExample
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,82 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
 
 
+@extend_schema(
+    summary="Obtain JWT access and refresh tokens",
+    description="Authenticate user credentials and obtain JWT access and refresh tokens. The response includes additional user information for client-side use. Rate limited to 5 attempts per minute.",
+    request={
+        'type': 'object',
+        'properties': {
+            'username': {
+                'type': 'string',
+                'description': 'Username for authentication'
+            },
+            'password': {
+                'type': 'string',
+                'description': 'Password for authentication'
+            }
+        },
+        'required': ['username', 'password']
+    },
+    examples=[
+        OpenApiExample(
+            'Login Request',
+            value={
+                'username': 'admin',
+                'password': 'password123'
+            }
+        )
+    ],
+    responses={
+        200: {
+            'type': 'object',
+            'properties': {
+                'access': {'type': 'string', 'description': 'JWT access token'},
+                'refresh': {'type': 'string', 'description': 'JWT refresh token'},
+                'user_id': {'type': 'integer', 'description': 'User ID'},
+                'username': {'type': 'string', 'description': 'Username'},
+                'email': {'type': 'string', 'description': 'User email'},
+                'is_staff': {'type': 'boolean', 'description': 'Staff status'},
+                'is_superuser': {'type': 'boolean', 'description': 'Superuser status'},
+                'first_name': {'type': 'string', 'description': 'First name'},
+                'last_name': {'type': 'string', 'description': 'Last name'}
+            },
+            'example': {
+                'access': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
+                'refresh': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...',
+                'user_id': 1,
+                'username': 'admin',
+                'email': 'admin@example.com',
+                'is_staff': True,
+                'is_superuser': True,
+                'first_name': 'Admin',
+                'last_name': 'User'
+            }
+        },
+        400: {
+            'type': 'object',
+            'properties': {
+                'non_field_errors': {'type': 'array', 'items': {'type': 'string'}}
+            },
+            'examples': {
+                'missing_credentials': {
+                    'summary': 'Missing Credentials',
+                    'value': {'non_field_errors': ['Username and password are required.']}
+                },
+                'invalid_credentials': {
+                    'summary': 'Invalid Credentials',
+                    'value': {'non_field_errors': ['Invalid credentials.']}
+                },
+                'inactive_user': {
+                    'summary': 'Inactive User',
+                    'value': {'non_field_errors': ['User account is disabled.']}
+                }
+            }
+        },
+        429: OpenApiExample('Rate Limited', value={'detail': 'Request was throttled. Expected available in 60 seconds.'})
+    },
+    tags=['Authentication']
+)
 class CustomTokenObtainPairView(TokenObtainPairView):
     """Enhanced JWT token view with throttling."""
     serializer_class = CustomTokenObtainPairSerializer
@@ -79,5 +156,3 @@ class CustomTokenObtainPairView(TokenObtainPairView):
         else:
             logger.warning(f"Failed token generation attempt: {response.status_code}")
         return response
-
-

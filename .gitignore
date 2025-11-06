@@ -1,7 +1,5 @@
 # Exclude frontend from this backend repo
-pestcontrol-frontend/
-pest99-app/
-webapp/
+pest crm/
 # Python
 __pycache__/
 *.py[cod]

@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'django_filters',
     'corsheaders',
+    'drf_spectacular',  # OpenAPI 3.0 documentation
     'core',
 ]
 
@@ -151,7 +152,7 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
-    # 'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema',  # Disabled due to Python 3.13 compatibility
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',  # OpenAPI 3.0 schema
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
@@ -375,30 +376,110 @@ CACHES = {
     }
 }
 
-# Firebase Configuration
-FIREBASE_CONFIG = {
-    'type': 'service_account',
-    'project_id': config('FIREBASE_PROJECT_ID', default='pestcontrol99-notifications'),
-    'private_key_id': config('FIREBASE_PRIVATE_KEY_ID', default=''),
-    'private_key': config('FIREBASE_PRIVATE_KEY', default='').replace('\\n', '\n'),
-    'client_email': config('FIREBASE_CLIENT_EMAIL', default=''),
-    'client_id': config('FIREBASE_CLIENT_ID', default=''),
-    'auth_uri': 'https://accounts.google.com/o/oauth2/auth',
-    'token_uri': 'https://oauth2.googleapis.com/token',
-    'auth_provider_x509_cert_url': 'https://www.googleapis.com/oauth2/v1/certs',
-    'client_x509_cert_url': config('FIREBASE_CLIENT_X509_CERT_URL', default=''),
+# DRF Spectacular Settings for OpenAPI 3.0 Documentation
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'PestControl Backend API',
+    'DESCRIPTION': '''
+    Comprehensive REST API for PestControl Management System.
+    
+    This API provides complete functionality for managing pest control operations including:
+    - Client management and tracking
+    - Inquiry handling and conversion
+    - Job card creation and management
+    - Renewal tracking and management
+    - Dashboard statistics and reporting
+    
+    ## Authentication
+    This API uses JWT (JSON Web Token) authentication. Include the token in the Authorization header:
+    `Authorization: Bearer <your_access_token>`
+    
+    ## Rate Limiting
+    - Anonymous users: 100 requests/hour
+    - Authenticated users: 1000 requests/hour
+    - Login endpoint: 5 requests/minute
+    
+    ## Caching
+    Many endpoints implement intelligent caching for improved performance:
+    - Client lists: 5 minutes
+    - Dashboard statistics: 5 minutes
+    - Job card statistics: 1 minute
+    
+    ## Error Handling
+    All endpoints return standardized error responses with appropriate HTTP status codes.
+    ''',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'CONTACT': {
+        'name': 'PestControl API Support',
+        'email': 'support@pestcontrol99.com',
+    },
+    'LICENSE': {
+        'name': 'Proprietary License',
+    },
+    'SERVERS': [
+        {
+            'url': 'https://pestcontrol-backend-production.up.railway.app',
+            'description': 'Production Server'
+        },
+        {
+            'url': 'http://localhost:8000',
+            'description': 'Development Server'
+        }
+    ],
+    'TAGS': [
+        {
+            'name': 'Authentication',
+            'description': 'JWT token management endpoints'
+        },
+        {
+            'name': 'Clients',
+            'description': 'Client management operations'
+        },
+        {
+            'name': 'Inquiries',
+            'description': 'Inquiry handling and conversion'
+        },
+        {
+            'name': 'Job Cards',
+            'description': 'Job card creation and management'
+        },
+        {
+            'name': 'Renewals',
+            'description': 'Renewal tracking and management'
+        },
+        {
+            'name': 'Dashboard',
+            'description': 'Statistics and dashboard data'
+        },
+        {
+            'name': 'Health',
+            'description': 'System health monitoring'
+        }
+    ],
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SORT_OPERATIONS': False,
+    'ENUM_NAME_OVERRIDES': {
+        'ValidationErrorEnum': 'core.serializers.ValidationErrorEnum',
+    },
+    'POSTPROCESSING_HOOKS': [
+        # 'drf_spectacular.contrib.djangorestframework_camel_case.camelize_serializer_fields'
+    ],
+    'SCHEMA_PATH_PREFIX': '/api/',
+    'SCHEMA_PATH_PREFIX_TRIM': True,
+    'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
+    'SERVE_AUTHENTICATION': [],
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': False,
+        'defaultModelsExpandDepth': 2,
+        'defaultModelExpandDepth': 2,
+        'displayRequestDuration': True,
+        'docExpansion': 'none',
+        'filter': True,
+        'showExtensions': True,
+        'showCommonExtensions': True,
+        'tryItOutEnabled': True,
+    },
 }
 
-# Firebase Cloud Messaging settings
-FCM_SERVER_KEY = config('FCM_SERVER_KEY', default='')
-FCM_PROJECT_ID = config('FIREBASE_PROJECT_ID', default='pestcontrol99-notifications')
-
-# Notification settings
-NOTIFICATION_SETTINGS = {
-    'DEFAULT_ICON': 'https://pestcontrol99.com/images/pestlogo.png',
-    'DEFAULT_SOUND': 'default',
-    'DEFAULT_COLOR': '#FF6B35',  # PestControl brand color
-    'BATCH_SIZE': 500,  # Maximum notifications per batch
-    'RETRY_ATTEMPTS': 3,
-    'RETRY_DELAY': 1,  # seconds
-}

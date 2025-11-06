@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Client, Inquiry, JobCard, Renewal, DeviceToken, NotificationLog
+from .models import Client, Inquiry, JobCard, Renewal
 
 
 class ClientSerializer(serializers.ModelSerializer):
@@ -27,6 +27,7 @@ class JobCardSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source='client.full_name', read_only=True)
     client_mobile = serializers.CharField(source='client.mobile', read_only=True)
     client_city = serializers.CharField(source='client.city', read_only=True)
+    client_notes = serializers.CharField(source='client.notes', read_only=True, allow_null=True)
     
     # Nested client data for creation
     client_data = serializers.DictField(write_only=True, required=False, help_text="Client details for creation if client doesn't exist")
@@ -34,10 +35,11 @@ class JobCardSerializer(serializers.ModelSerializer):
     class Meta:
         model = JobCard
         fields = [
-            'id', 'code', 'client', 'client_name', 'client_mobile', 'client_city', 'client_data',
+            'id', 'code', 'client', 'client_name', 'client_mobile', 'client_city', 'client_notes', 'client_data',
             'job_type', 'contract_duration', 'status', 'service_type', 'schedule_date', 
-            'technician_name', 'price', 
-            'payment_status', 'next_service_date', 'notes', 'is_paused', 'reference', 'created_at', 'updated_at'
+            'price', 'client_address',
+            'payment_status', 'next_service_date', 'notes', 'is_paused', 'reference', 
+            'extra_notes', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'code', 'created_at', 'updated_at']
     
@@ -48,12 +50,21 @@ class JobCardSerializer(serializers.ModelSerializer):
             client_data = data['client_data']
             
             # Validate required client fields
-            required_client_fields = ['full_name', 'mobile', 'city']
+            # Note: full_name is optional when client already exists (will be determined by get_or_create)
+            # mobile and city are always required
+            required_client_fields = ['mobile', 'city']
             for field in required_client_fields:
                 if not client_data.get(field):
                     raise serializers.ValidationError({
-                        'client_data': {field: f"{field.replace('_', ' ').title()} is required for client creation."}
+                        'client_data': {field: f"{field.replace('_', ' ').title()} is required."}
                     })
+            
+            # full_name is only required if provided (for new client creation)
+            # If not provided, backend will use existing client's name
+            if 'full_name' in client_data and not client_data.get('full_name'):
+                raise serializers.ValidationError({
+                    'client_data': {'full_name': 'Full name cannot be empty if provided.'}
+                })
             
             # Validate mobile number format
             mobile = client_data.get('mobile', '')
@@ -88,40 +99,4 @@ class RenewalSerializer(serializers.ModelSerializer):
             'Normal': '#44aa44'   # Green
         }
         return color_map.get(obj.urgency_level, '#44aa44')
-
-
-class DeviceTokenSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = DeviceToken
-        fields = [
-            'id', 'token', 'device_name', 'is_active', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-    
-    def validate_token(self, value):
-        """Validate device token format."""
-        if not value or len(value.strip()) < 50:
-            raise serializers.ValidationError("Device token appears to be invalid or too short.")
-        return value.strip()
-
-
-class NotificationLogSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = NotificationLog
-        fields = [
-            'id', 'title', 'body', 'status', 'error_message', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
-
-class SendNotificationSerializer(serializers.Serializer):
-    """Simplified serializer for sending notifications."""
-    title = serializers.CharField(max_length=255, help_text="Notification title")
-    body = serializers.CharField(help_text="Notification body/message")
-    device_tokens = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        help_text="List of device tokens to send notification to (if not provided, sends to all active tokens)"
-    )
-
 

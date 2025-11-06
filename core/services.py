@@ -9,6 +9,68 @@ from .models import Client, Inquiry, JobCard, Renewal
 import re
 
 
+class DashboardService:
+    """
+    Service class for Dashboard-related business logic.
+    
+    This service handles all dashboard statistics operations including
+    comprehensive data aggregation for the dashboard API endpoint.
+    
+    Key Features:
+    - Efficient database queries for statistics
+    - Comprehensive data aggregation
+    - Performance optimized counting
+    - Error handling and validation
+    
+    Example:
+        stats = DashboardService.get_dashboard_statistics()
+        # Returns: {
+        #     'total_inquiries': 150,
+        #     'total_job_cards': 89,
+        #     'total_clients': 75,
+        #     'renewals': 45
+        # }
+    """
+    
+    @staticmethod
+    def get_dashboard_statistics() -> Dict[str, int]:
+        """
+        Get comprehensive dashboard statistics.
+        
+        This method efficiently retrieves counts for all major entities
+        in the system using optimized database queries.
+        
+        Returns:
+            Dict[str, int]: Dictionary containing:
+                - total_inquiries: Total count of all inquiries
+                - total_job_cards: Total count of all job cards
+                - total_clients: Total count of all registered clients
+                - renewals: Total count of renewal transactions
+        
+        Raises:
+            Exception: If database query fails
+        """
+        try:
+            # Use efficient count queries to get statistics
+            total_inquiries = Inquiry.objects.count()
+            total_job_cards = JobCard.objects.count()
+            total_clients = Client.objects.count()
+            renewals = Renewal.objects.count()
+            
+            return {
+                'total_inquiries': total_inquiries,
+                'total_job_cards': total_job_cards,
+                'total_clients': total_clients,
+                'renewals': renewals
+            }
+        except Exception as e:
+            # Log the error and re-raise for proper error handling
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error retrieving dashboard statistics: {str(e)}")
+            raise
+
+
 class ClientService:
     """
     Service class for Client-related business logic.
@@ -261,7 +323,6 @@ class InquiryService:
                 'status': JobCard.JobStatus.ENQUIRY,
                 'service_type': inquiry.service_interest,
                 'schedule_date': conversion_data.get('schedule_date', timezone.now().date()),
-                'technician_name': conversion_data.get('technician_name', 'TBD'),  # Default to 'TBD' instead of empty string
                 'price': conversion_data.get('price', ''),
                 'payment_status': JobCard.PaymentStatus.UNPAID,
             }
@@ -286,17 +347,22 @@ class JobCardService:
     @staticmethod
     def create_jobcard(data: Dict[str, Any]) -> JobCard:
         """
-        Create a new job card with client get_or_create pattern.
+        Create a NEW job card with client get_or_create pattern.
+        
+        IMPORTANT: This method ALWAYS creates a new job card. Multiple job cards can be created
+        for the same client (same phone number). Each job card is independent and will have
+        its own unique code and ID.
         
         This method handles two scenarios:
-        1. If 'client' is provided as an ID, it uses the existing client
-        2. If 'client_data' is provided, it uses get_or_create to find or create a client by mobile number
+        1. If 'client' is provided as an ID, it uses the existing client to create a new job card
+        2. If 'client_data' is provided, it uses get_or_create to find or create a client by mobile number,
+           then creates a new job card for that client
         
         Args:
             data (Dict[str, Any]): JobCard data with optional client_data for client creation
             
         Returns:
-            JobCard: The created job card instance
+            JobCard: The newly created job card instance (always a new record)
             
         Raises:
             ValidationError: If validation fails or client creation fails
@@ -309,12 +375,14 @@ class JobCardService:
         
         try:
             client = None
+            client_was_created = False
             
             # Scenario 1: Client ID is provided (existing client)
             if 'client' in data and isinstance(data['client'], int):
                 try:
                     client = Client.objects.get(id=data['client'])
                     logger.info(f"Using existing client ID: {data['client']}")
+                    client_was_created = False
                 except Client.DoesNotExist:
                     raise ValidationError(f"Client with ID {data['client']} does not exist.")
             
@@ -350,8 +418,10 @@ class JobCardService:
                         
                         if created:
                             logger.info(f"Created new client with mobile: {cleaned_mobile}")
+                            client_was_created = True
                         else:
                             logger.info(f"Found existing client with mobile: {cleaned_mobile}")
+                            client_was_created = False
                             
                 except IntegrityError as e:
                     # Handle race condition where another request created the client
@@ -361,6 +431,7 @@ class JobCardService:
                     try:
                         client = Client.objects.get(mobile=cleaned_mobile)
                         logger.info(f"Retrieved existing client after IntegrityError: {cleaned_mobile}")
+                        client_was_created = False
                     except Client.DoesNotExist:
                         # This shouldn't happen, but handle it gracefully
                         raise ValidationError("Failed to create or retrieve client due to database constraint.")
@@ -372,9 +443,55 @@ class JobCardService:
             if not client:
                 raise ValidationError("No valid client found or created.")
             
-            # Remove client_data from jobcard data as it's not a JobCard field
-            jobcard_data = {k: v for k, v in data.items() if k != 'client_data'}
+            # If client already existed (not created), update editable fields if provided in client_data
+            # This ensures email, city, address, notes can be updated even when client exists
+            # IMPORTANT: Client name (full_name) should NOT be updated - it remains as-is
+            if 'client_data' in data and data['client_data'] and not client_was_created:
+                client_data = data['client_data']
+                update_fields = []
+                
+                # Only update email, city, address, notes - NOT full_name
+                # Check each field and only update if value changed
+                if 'email' in client_data and client_data.get('email') is not None:
+                    new_email = client_data.get('email', '').strip()
+                    current_email = client.email or ''
+                    if new_email and new_email != current_email:
+                        client.email = new_email
+                        update_fields.append('email')
+                
+                if 'city' in client_data and client_data.get('city'):
+                    new_city = client_data.get('city', '').strip()
+                    if new_city and client.city != new_city:
+                        client.city = new_city
+                        update_fields.append('city')
+                
+                if 'address' in client_data and client_data.get('address') is not None:
+                    new_address = client_data.get('address', '').strip()
+                    current_address = client.address or ''
+                    if new_address != current_address:
+                        client.address = new_address
+                        update_fields.append('address')
+                
+                if 'notes' in client_data and client_data.get('notes') is not None:
+                    new_notes = client_data.get('notes', '').strip()
+                    current_notes = client.notes or ''
+                    if new_notes != current_notes:
+                        client.notes = new_notes
+                        update_fields.append('notes')
+                
+                if update_fields:
+                    client.save(update_fields=update_fields)
+                    logger.info(f"Updated existing client fields: {', '.join(update_fields)}")
+            
+            # Remove client_data and id from jobcard data
+            # client_data is not a JobCard field
+            # id should never be set during creation to prevent accidental updates
+            jobcard_data = {k: v for k, v in data.items() if k not in ['client_data', 'id']}
             jobcard_data['client'] = client
+            
+            # Explicitly ensure we're creating a new job card (not updating)
+            if 'id' in jobcard_data:
+                del jobcard_data['id']
             
             # Validate required fields
             required_fields = ['service_type', 'schedule_date']
@@ -386,15 +503,13 @@ class JobCardService:
             if not jobcard_data.get('price'):
                 jobcard_data['price'] = ''
             
-            if not jobcard_data.get('technician_name'):
-                jobcard_data['technician_name'] = 'TBD'
-            
-            # Create and save jobcard
+            # IMPORTANT: Always create a NEW job card - never update existing ones
+            # Multiple job cards can exist for the same client
             jobcard = JobCard(**jobcard_data)
             jobcard.full_clean()  # Run model validation
-            jobcard.save()
+            jobcard.save()  # This will create a new record with a new ID and code
             
-            logger.info(f"Successfully created jobcard {jobcard.code} for client {client.full_name}")
+            logger.info(f"Successfully created NEW jobcard {jobcard.code} (ID: {jobcard.id}) for client {client.full_name} (ID: {client.id})")
             return jobcard
             
         except ValidationError:
@@ -406,29 +521,7 @@ class JobCardService:
             logger.error(f"Unexpected error during jobcard creation: {e}")
             raise ValidationError(f"Failed to create job card: {str(e)}")
     
-    @staticmethod
-    def calculate_statistics(queryset=None) -> Dict[str, Any]:
-        """Calculate job card statistics."""
-        if queryset is None:
-            queryset = JobCard.objects.all()
-        
-        total_jobs = queryset.count()
-        completed_jobs = queryset.filter(status=JobCard.JobStatus.DONE).count()
-        pending_jobs = total_jobs - completed_jobs
-        
-        # Calculate total revenue (using price field as string, so we'll skip this for now)
-        total_revenue = 0
-        
-        # Calculate completion rate
-        completion_rate = (completed_jobs / total_jobs * 100) if total_jobs > 0 else 0
-        
-        return {
-            'total_jobs': total_jobs,
-            'completed_jobs': completed_jobs,
-            'pending_jobs': pending_jobs,
-            'total_revenue': str(total_revenue),
-            'completion_rate': round(completion_rate, 2),
-        }
+
     
     @staticmethod
     def update_payment_status(jobcard_id: int, status: str) -> bool:
@@ -463,27 +556,55 @@ class RenewalService:
         return renewal
     
     @staticmethod
-    def generate_renewals_for_jobcard(jobcard: JobCard) -> list[Renewal]:
-        """Generate renewals for a jobcard based on customer type and contract duration."""
+    def generate_renewals_for_jobcard(jobcard: JobCard, force_regenerate: bool = False) -> list[Renewal]:
+        """
+        Generate renewals for a jobcard based on customer type and contract duration.
+        Prevents duplicate renewals by checking existing ones.
+        
+        Args:
+            jobcard: The job card to generate renewals for
+            force_regenerate: If True, will regenerate even if renewals exist (default: False)
+        
+        Returns:
+            List of created renewals (may be empty if duplicates exist)
+        """
         from datetime import timedelta
         from dateutil.relativedelta import relativedelta
         
         renewals = []
         
+        # Check if renewals already exist for this jobcard
+        if not force_regenerate:
+            existing_renewals = Renewal.objects.filter(jobcard=jobcard, status=Renewal.RenewalStatus.DUE)
+            if existing_renewals.exists():
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Renewals already exist for job card {jobcard.code}, skipping generation")
+                return list(existing_renewals)
+        
         if jobcard.job_type == JobCard.JobType.CUSTOMER:
             # For customers, create renewal based on next_service_date
             if jobcard.next_service_date:
-                renewal_date = timezone.make_aware(
-                    timezone.datetime.combine(jobcard.next_service_date, timezone.datetime.min.time())
-                )
-                renewal = Renewal(
+                renewal_date = jobcard.next_service_date
+                
+                # Check if renewal already exists for this date
+                existing = Renewal.objects.filter(
                     jobcard=jobcard,
                     due_date=renewal_date,
-                    renewal_type=Renewal.RenewalType.CONTRACT_RENEWAL,
-                    remarks=f"Service renewal for customer {jobcard.client.full_name}"
-                )
-                renewal.save()
-                renewals.append(renewal)
+                    renewal_type=Renewal.RenewalType.CONTRACT_RENEWAL
+                ).first()
+                
+                if not existing:
+                    renewal = Renewal(
+                        jobcard=jobcard,
+                        due_date=renewal_date,
+                        renewal_type=Renewal.RenewalType.CONTRACT_RENEWAL,
+                        remarks=f"Service renewal for customer {jobcard.client.full_name}"
+                    )
+                    renewal.save()
+                    renewals.append(renewal)
+                else:
+                    renewals.append(existing)
         
         elif jobcard.job_type == JobCard.JobType.SOCIETY and jobcard.contract_duration:
             # For societies, create contract renewal and monthly reminders
@@ -492,35 +613,50 @@ class RenewalService:
             
             # Create contract renewal (main renewal)
             contract_end_date = start_date + relativedelta(months=contract_months)
-            contract_renewal_date = timezone.make_aware(
-                timezone.datetime.combine(contract_end_date - timedelta(days=1), timezone.datetime.min.time())
-            )
+            contract_renewal_date = contract_end_date - timedelta(days=1)
             
-            contract_renewal = Renewal(
+            # Check if contract renewal already exists
+            existing_contract = Renewal.objects.filter(
                 jobcard=jobcard,
                 due_date=contract_renewal_date,
-                renewal_type=Renewal.RenewalType.CONTRACT_RENEWAL,
-                remarks=f"Contract renewal for society {jobcard.client.full_name} ({contract_months} months contract)"
-            )
-            contract_renewal.save()
-            renewals.append(contract_renewal)
+                renewal_type=Renewal.RenewalType.CONTRACT_RENEWAL
+            ).first()
+            
+            if not existing_contract:
+                contract_renewal = Renewal(
+                    jobcard=jobcard,
+                    due_date=contract_renewal_date,
+                    renewal_type=Renewal.RenewalType.CONTRACT_RENEWAL,
+                    remarks=f"Contract renewal for society {jobcard.client.full_name} ({contract_months} months contract)"
+                )
+                contract_renewal.save()
+                renewals.append(contract_renewal)
+            else:
+                renewals.append(existing_contract)
             
             # Create monthly reminders
-            current_date = start_date
             for month in range(1, contract_months + 1):
                 monthly_date = start_date + relativedelta(months=month)
-                reminder_date = timezone.make_aware(
-                    timezone.datetime.combine(monthly_date - timedelta(days=1), timezone.datetime.min.time())
-                )
+                reminder_date = monthly_date - timedelta(days=1)
                 
-                monthly_reminder = Renewal(
+                # Check if monthly reminder already exists
+                existing_monthly = Renewal.objects.filter(
                     jobcard=jobcard,
                     due_date=reminder_date,
-                    renewal_type=Renewal.RenewalType.MONTHLY_REMINDER,
-                    remarks=f"Monthly service reminder for society {jobcard.client.full_name} (Month {month})"
-                )
-                monthly_reminder.save()
-                renewals.append(monthly_reminder)
+                    renewal_type=Renewal.RenewalType.MONTHLY_REMINDER
+                ).first()
+                
+                if not existing_monthly:
+                    monthly_reminder = Renewal(
+                        jobcard=jobcard,
+                        due_date=reminder_date,
+                        renewal_type=Renewal.RenewalType.MONTHLY_REMINDER,
+                        remarks=f"Monthly service reminder for society {jobcard.client.full_name} (Month {month})"
+                    )
+                    monthly_reminder.save()
+                    renewals.append(monthly_reminder)
+                else:
+                    renewals.append(existing_monthly)
         
         return renewals
     
@@ -536,25 +672,7 @@ class RenewalService:
         
         return renewals
     
-    @staticmethod
-    def get_upcoming_summary(include_paused: bool = False) -> Dict[str, int]:
-        """Get summary of upcoming renewals with pause functionality."""
-        from datetime import timedelta
-        
-        now = timezone.now()
-        week = now + timedelta(days=7)
-        month = now + timedelta(days=30)
-        
-        renewals = RenewalService.get_active_renewals(include_paused=include_paused)
-        
-        return {
-            'due_this_week': renewals.filter(due_date__lte=week, due_date__gte=now).count(),
-            'due_this_month': renewals.filter(due_date__lte=month, due_date__gte=now).count(),
-            'overdue': renewals.filter(due_date__lt=now).count(),
-            'high_urgency': renewals.filter(urgency_level=Renewal.UrgencyLevel.HIGH).count(),
-            'medium_urgency': renewals.filter(urgency_level=Renewal.UrgencyLevel.MEDIUM).count(),
-            'normal_urgency': renewals.filter(urgency_level=Renewal.UrgencyLevel.NORMAL).count(),
-        }
+
     
     @staticmethod
     def mark_completed(renewal_id: int) -> bool:
@@ -566,6 +684,39 @@ class RenewalService:
             return True
         except Renewal.DoesNotExist:
             return False
+    
+    @staticmethod
+    def bulk_mark_completed(renewal_ids: list[int]) -> Dict[str, Any]:
+        """
+        Mark multiple renewals as completed.
+        
+        Returns:
+            Dictionary with success_count, failed_count, and failed_ids
+        """
+        success_count = 0
+        failed_count = 0
+        failed_ids = []
+        
+        for renewal_id in renewal_ids:
+            try:
+                if RenewalService.mark_completed(renewal_id):
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    failed_ids.append(renewal_id)
+            except Exception as e:
+                failed_count += 1
+                failed_ids.append(renewal_id)
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error marking renewal {renewal_id} as completed: {e}")
+        
+        return {
+            'success_count': success_count,
+            'failed_count': failed_count,
+            'failed_ids': failed_ids,
+            'total': len(renewal_ids)
+        }
     
     @staticmethod
     def update_urgency_levels():
@@ -650,3 +801,65 @@ class AuditService:
     def log_renewal_action(user, action: str, renewal_id: int, changes: Dict = None, ip_address: str = None):
         """Log renewal-specific actions."""
         AuditService.log_action(user, action, 'Renewal', renewal_id, changes, ip_address)
+
+
+class DashboardService:
+    """
+    Service class for Dashboard-related business logic.
+    
+    This service handles all dashboard statistics operations including
+    comprehensive data aggregation for the dashboard API endpoint.
+    
+    Key Features:
+    - Efficient database queries for statistics
+    - Comprehensive data aggregation
+    - Performance optimized counting
+    - Error handling and validation
+    
+    Example:
+        stats = DashboardService.get_dashboard_statistics()
+        # Returns: {
+        #     'total_inquiries': 150,
+        #     'total_job_cards': 89,
+        #     'total_clients': 75,
+        #     'renewals': 45
+        # }
+    """
+    
+    @staticmethod
+    def get_dashboard_statistics() -> Dict[str, int]:
+        """
+        Get comprehensive dashboard statistics.
+        
+        This method efficiently retrieves counts for all major entities
+        in the system using optimized database queries.
+        
+        Returns:
+            Dict[str, int]: Dictionary containing:
+                - total_inquiries: Total count of all inquiries
+                - total_job_cards: Total count of all job cards
+                - total_clients: Total count of all registered clients
+                - renewals: Total count of renewal transactions
+        
+        Raises:
+            Exception: If database query fails
+        """
+        try:
+            # Use efficient count queries to get statistics
+            total_inquiries = Inquiry.objects.count()
+            total_job_cards = JobCard.objects.count()
+            total_clients = Client.objects.count()
+            renewals = Renewal.objects.count()
+            
+            return {
+                'total_inquiries': total_inquiries,
+                'total_job_cards': total_job_cards,
+                'total_clients': total_clients,
+                'renewals': renewals
+            }
+        except Exception as e:
+            # Log the error and re-raise for proper error handling
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error retrieving dashboard statistics: {str(e)}")
+            raise
