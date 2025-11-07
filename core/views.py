@@ -974,6 +974,17 @@ class JobCardViewSet(BaseModelViewSet):
                 client.save(update_fields=update_fields)
                 logger.info(f"Updated client fields during job card update: {', '.join(update_fields)}")
         
+        # Handle client_address fallback if not provided or empty
+        # If client_address is not in request data or is empty, use client.address
+        request_client_address = request.data.get('client_address', '').strip() if request.data.get('client_address') else ''
+        if not request_client_address and instance.client and instance.client.address and instance.client.address.strip():
+            # Only update if current client_address is empty/null
+            current_client_address = instance.client_address or ''
+            if not current_client_address.strip():
+                instance.client_address = instance.client.address
+                instance.save(update_fields=['client_address'])
+                logger.info(f"Updated jobcard {instance.code} client_address from client.address: {instance.client.address}")
+        
         # Perform the update
         response_obj = super().update(request, *args, partial=partial, **kwargs)
         

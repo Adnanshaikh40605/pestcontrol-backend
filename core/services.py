@@ -327,6 +327,13 @@ class InquiryService:
                 'payment_status': JobCard.PaymentStatus.UNPAID,
             }
             
+            # Set client_address from conversion_data or fallback to client.address
+            client_address = conversion_data.get('client_address', '').strip() if conversion_data.get('client_address') else ''
+            if not client_address and client.address and client.address.strip():
+                client_address = client.address
+            if client_address:
+                jobcard_data['client_address'] = client_address
+            
             jobcard = JobCard(**jobcard_data)
             jobcard.full_clean()
             jobcard.save()
@@ -502,6 +509,13 @@ class JobCardService:
             # Set default values
             if not jobcard_data.get('price'):
                 jobcard_data['price'] = ''
+            
+            # Set client_address from client.address if not provided or empty
+            # This ensures job cards always have an address, even if not explicitly provided
+            client_address = jobcard_data.get('client_address', '').strip() if jobcard_data.get('client_address') else ''
+            if not client_address and client.address and client.address.strip():
+                jobcard_data['client_address'] = client.address
+                logger.info(f"Using client's address for jobcard: {client.address}")
             
             # IMPORTANT: Always create a NEW job card - never update existing ones
             # Multiple job cards can exist for the same client
