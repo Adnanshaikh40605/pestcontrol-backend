@@ -36,6 +36,11 @@ CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS',
     default=f'https://*.railway.app,https://*.up.railway.app,https://{RAILWAY_DOMAIN},https://pest99-webapp.vercel.app'
 ).split(',')
 # adnan
+# Telegram integration settings
+TELEGRAM_NOTIFICATIONS_ENABLED = config('TELEGRAM_NOTIFICATIONS_ENABLED', default=False, cast=bool)
+TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='')
+TELEGRAM_CHAT_ID = config('TELEGRAM_CHAT_ID', default='')
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',

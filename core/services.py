@@ -2,11 +2,18 @@
 Business logic services for the pest control application.
 """
 from typing import Optional, Dict, Any
-from django.db import transaction
-from django.core.exceptions import ValidationError
-from django.utils import timezone
-from .models import Client, Inquiry, JobCard, Renewal
+import logging
 import re
+
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.utils import timezone
+
+from .models import Client, Inquiry, JobCard, Renewal
+from .telegram import notify_new_inquiry
+
+
+logger = logging.getLogger(__name__)
 
 
 class DashboardService:
@@ -286,6 +293,24 @@ class InquiryService:
         inquiry = Inquiry(**data)
         inquiry.full_clean()  # Run model validation
         inquiry.save()
+
+        try:
+            notify_new_inquiry(
+                name=inquiry.name,
+                mobile=inquiry.mobile,
+                city=inquiry.city,
+                service=inquiry.service_interest,
+                message=inquiry.message,
+                email=inquiry.email,
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to send Telegram notification for inquiry %s: %s",
+                inquiry.id,
+                exc,
+                exc_info=True,
+            )
+
         return inquiry
     
     @staticmethod
