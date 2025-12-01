@@ -25,6 +25,9 @@ SECRET_KEY = config('DJANGO_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DJANGO_DEBUG', default=False, cast=bool)
 
+# URL configuration
+APPEND_SLASH = True  # Automatically append trailing slashes to URLs
+
 # Railway domain configuration
 RAILWAY_DOMAIN = "pestcontrol-backend-production.up.railway.app"
 

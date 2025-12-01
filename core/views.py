@@ -833,27 +833,47 @@ class JobCardViewSet(BaseModelViewSet):
     ordering = ['-created_at']  # Default: latest job cards first
 
     def get_queryset(self):
-        """Enhanced queryset with custom filtering."""
-        qs = super().get_queryset()
-        
-        # Support frontend query params
-        city = self.request.query_params.get('city')
-        if city:
-            qs = qs.filter(client__city__iexact=city)
+        """Enhanced queryset with custom filtering and error handling."""
+        try:
+            qs = super().get_queryset()
             
-        date_from = self.request.query_params.get('from')
-        date_to = self.request.query_params.get('to')
-        if date_from:
-            qs = qs.filter(schedule_date__gte=date_from)
-        if date_to:
-            qs = qs.filter(schedule_date__lte=date_to)
-        
-        # Filter by job type for Society Job Cards page
-        job_type = self.request.query_params.get('job_type')
-        if job_type:
-            qs = qs.filter(job_type=job_type)
+            # Support frontend query params
+            city = self.request.query_params.get('city')
+            if city:
+                qs = qs.filter(client__city__iexact=city)
+                
+            date_from = self.request.query_params.get('from')
+            date_to = self.request.query_params.get('to')
+            if date_from:
+                qs = qs.filter(schedule_date__gte=date_from)
+            if date_to:
+                qs = qs.filter(schedule_date__lte=date_to)
             
-        return qs
+            # Filter by job type for Society Job Cards page
+            job_type = self.request.query_params.get('job_type')
+            if job_type:
+                qs = qs.filter(job_type=job_type)
+                
+            return qs
+        except Exception as e:
+            logger.error(f"Error in JobCardViewSet.get_queryset: {e}", exc_info=True)
+            # Return empty queryset on error to prevent 500 errors
+            return JobCard.objects.none()
+    
+    def list(self, request, *args, **kwargs):
+        """List job cards with enhanced error handling."""
+        try:
+            return super().list(request, *args, **kwargs)
+        except Exception as e:
+            logger.error(f"Error listing job cards: {e}", exc_info=True)
+            return response.Response(
+                {
+                    'error': 'Failed to retrieve job cards',
+                    'message': 'An error occurred while fetching job cards. Please try again or contact support.',
+                    'details': str(e) if request.user.is_staff else 'Internal server error'
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     def create(self, request, *args, **kwargs):
         """
