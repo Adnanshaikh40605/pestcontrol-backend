@@ -1,6 +1,8 @@
 import logging
 from django.http import JsonResponse
 from django.core.exceptions import ValidationError
+from django.db.models import Q
+from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, filters, permissions, decorators, response, status
 from rest_framework.decorators import action
@@ -13,9 +15,9 @@ from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 
-from .models import Client, Inquiry, JobCard, Renewal
-from .serializers import ClientSerializer, InquirySerializer, JobCardSerializer, RenewalSerializer
-from .services import ClientService, InquiryService, JobCardService, RenewalService, DashboardService
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry
+from .serializers import ClientSerializer, InquirySerializer, JobCardSerializer, RenewalSerializer, TechnicianSerializer, CRMInquirySerializer
+from .services import ClientService, InquiryService, JobCardService, RenewalService, DashboardService, TechnicianService, CRMInquiryService
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +93,105 @@ class BaseModelViewSet(viewsets.ModelViewSet):
         """Override destroy to add logging."""
         logger.info(f"Deleting {self.get_serializer().Meta.model.__name__} {kwargs.get('pk')}")
         return super().destroy(request, *args, **kwargs)
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List Technicians",
+        description="Retrieve a list of all technicians",
+        tags=['Technician']
+    ),
+    create=extend_schema(
+        summary="Create Technician",
+        description="Add a new technician to the system",
+        tags=['Technician']
+    ),
+    retrieve=extend_schema(
+        summary="Get Technician Details",
+        description="Retrieve specific technician details by ID",
+        tags=['Technician']
+    ),
+    update=extend_schema(
+        summary="Update Technician",
+        description="Update all fields of an existing technician",
+        tags=['Technician']
+    ),
+    partial_update=extend_schema(
+        summary="Partial Update Technician",
+        description="Update specific fields of an existing technician",
+        tags=['Technician']
+    ),
+    destroy=extend_schema(
+        summary="Delete Technician",
+        description="Remove a technician from the system",
+        tags=['Technician']
+    )
+)
+class TechnicianViewSet(BaseModelViewSet):
+    """
+    ViewSet for managing technicians.
+    Provides standard CRUD operations with searching and filtering.
+    """
+    queryset = Technician.objects.all()
+    serializer_class = TechnicianSerializer
+    search_fields = ['name', 'mobile', 'alternative_mobile']
+    filterset_fields = ['is_active']
+    ordering_fields = ['name', 'created_at']
+
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        """Helper action to get only active technicians for assignment dropdowns."""
+        active_techs = self.queryset.filter(is_active=True)
+        serializer = self.get_serializer(active_techs, many=True)
+        return response.Response(serializer.data)
+
+
+@extend_schema_view(
+    list=extend_schema(
+        summary="List CRM Inquiries",
+        description="Retrieve a list of staff-created inquiries with searching and status filtering",
+        tags=['CRM Inquiry']
+    ),
+    create=extend_schema(
+        summary="Create CRM Inquiry",
+        description="Add a new manual inquiry to the system",
+        tags=['CRM Inquiry']
+    ),
+    convert=extend_schema(
+        summary="Convert Inquiry to Booking",
+        description="Transform a CRM inquiry into a live JobCard",
+        tags=['CRM Inquiry']
+    )
+)
+class CRMInquiryViewSet(BaseModelViewSet):
+    """
+    ViewSet for managing staff-created manual inquiries.
+    Supports status transitions and conversion to live bookings.
+    """
+    queryset = CRMInquiry.objects.all()
+    serializer_class = CRMInquirySerializer
+    search_fields = ['name', 'mobile', 'location']
+    filterset_fields = ['status', 'pest_type', 'inquiry_date']
+    
+    def perform_create(self, serializer):
+        """Automatically set the creator of the inquiry."""
+        serializer.save(created_by=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def convert(self, request, pk=None):
+        """Action to trigger conversion from Inquiry to Booking."""
+        try:
+            job_card = CRMInquiryService.convert_to_booking(pk)
+            return response.Response({
+                'message': 'Successfully converted to booking',
+                'job_card_id': job_card.id,
+                'job_card_code': job_card.code
+            }, status=status.HTTP_200_OK)
+        except ValidationError as e:
+            return response.Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Error converting inquiry: {e}")
+            return response.Response({'error': 'Conversion failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @extend_schema_view(
@@ -824,37 +925,61 @@ class JobCardViewSet(BaseModelViewSet):
     """
     queryset = JobCard.objects.select_related('client').prefetch_related('renewals').all()
     serializer_class = JobCardSerializer
-    filterset_fields = ['status', 'payment_status', 'client__city', 'job_type', 'contract_duration', 'is_paused']
-    search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type']
+    filterset_fields = ['status', 'payment_status', 'client__city', 'client__mobile', 'job_type', 'service_category', 'contract_duration', 'is_paused', 'assigned_to']
+    search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type', 'assigned_to', 'area']
     ordering_fields = [
         'created_at', 'updated_at', 'schedule_date', 'status', 'payment_status', 
-        'client__full_name', 'client__city', 'job_type', 'contract_duration'
+        'client__full_name', 'client__city', 'job_type', 'service_category', 'contract_duration'
     ]
     ordering = ['-created_at']  # Default: latest job cards first
 
     def get_queryset(self):
-        """Enhanced queryset with custom filtering and error handling."""
         try:
             qs = super().get_queryset()
             
-            # Support frontend query params
-            city = self.request.query_params.get('city')
-            if city:
-                qs = qs.filter(client__city__iexact=city)
+            # 1. Handle Booking Type Categories (Tabs)
+            booking_type = self.request.query_params.get('booking_type', 'all')
+            now = timezone.now().date()
+            
+            if booking_type == 'pending':
+                # Tab 1: Pending Booking
+                qs = qs.filter(status=JobCard.JobStatus.PENDING)
+            elif booking_type == 'on_process':
+                # Tab 2: On Process (Confirmed or Hold)
+                qs = qs.filter(status__in=[JobCard.JobStatus.CONFIRMED, JobCard.JobStatus.HOLD])
+            elif booking_type == 'done':
+                # Tab 3: Done
+                qs = qs.filter(status=JobCard.JobStatus.COMPLETED)
+            elif booking_type == 'upcoming_renewals':
+                # Tab 4: Upcoming Renewals
+                qs = qs.filter(renewals__status=Renewal.RenewalStatus.DUE).distinct()
+            elif booking_type == 'upcoming_services':
+                # Tab 5: Upcoming Services
+                qs = qs.filter(schedule_date__gte=now)
+            
+            # 2. Handle Robust Search (Explicitly)
+            search_query = self.request.query_params.get('search', '').strip()
+            if search_query:
+                # Search by Code (e.g. 0030 matches JC-0030), Client Name, and Mobile
+                search_filter = Q(code__icontains=search_query) | \
+                               Q(client__full_name__icontains=search_query) | \
+                               Q(client__mobile__icontains=search_query)
                 
+                # Also allow searching by the numeric part only for Job Cards (JC-0001 -> 0001)
+                if search_query.isdigit():
+                    search_filter |= Q(code__endswith=search_query)
+                
+                qs = qs.filter(search_filter)
+
+            # 3. Handle Date Ranges
             date_from = self.request.query_params.get('from')
             date_to = self.request.query_params.get('to')
             if date_from:
                 qs = qs.filter(schedule_date__gte=date_from)
             if date_to:
                 qs = qs.filter(schedule_date__lte=date_to)
-            
-            # Filter by job type for Society Job Cards page
-            job_type = self.request.query_params.get('job_type')
-            if job_type:
-                qs = qs.filter(job_type=job_type)
                 
-            return qs
+            return qs.distinct()
         except Exception as e:
             logger.error(f"Error in JobCardViewSet.get_queryset: {e}", exc_info=True)
             # Return empty queryset on error to prevent 500 errors
@@ -1318,6 +1443,29 @@ class JobCardViewSet(BaseModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @extend_schema(
+        summary="Get Indian States and Cities",
+        description="Get a list of Indian states and their major cities for Pan-India support.",
+        responses={
+            200: {
+                'type': 'object',
+                'description': 'Mapping of states to lists of cities'
+            }
+        },
+        tags=['Locations']
+    )
+    @decorators.action(detail=False, methods=['get'], url_path='locations', permission_classes=[])
+    def get_locations(self, request):
+        """Action to provide states and cities data."""
+        try:
+            from .location_data import INDIAN_LOCATIONS
+            return response.Response(INDIAN_LOCATIONS)
+        except ImportError:
+            return response.Response(
+                {'error': 'Location data not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
 
 @extend_schema_view(
     statistics=extend_schema(
@@ -1726,8 +1874,8 @@ class RenewalViewSet(BaseModelViewSet):
     """
     queryset = Renewal.objects.select_related('jobcard', 'jobcard__client').all()
     serializer_class = RenewalSerializer
-    filterset_fields = ['status', 'urgency_level', 'renewal_type']
-    search_fields = ['jobcard__code', 'jobcard__client__full_name']
+    filterset_fields = ['status', 'urgency_level', 'renewal_type', 'jobcard__service_category', 'jobcard__assigned_to']
+    search_fields = ['jobcard__code', 'jobcard__client__full_name', 'jobcard__client__mobile', 'jobcard__assigned_to']
     ordering_fields = ['created_at', 'updated_at', 'due_date', 'status', 'urgency_level']
     ordering = ['due_date']  # Default: sort by due date (earliest first for renewals)
 

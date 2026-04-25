@@ -53,6 +53,14 @@ class Client(BaseModel):
         verbose_name="Email Address",
         help_text="Client's email address (optional)"
     )
+    state = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="State",
+        help_text="State where the client is located"
+    )
     city = models.CharField(
         max_length=255, 
         db_index=True,
@@ -82,7 +90,7 @@ class Client(BaseModel):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['full_name', 'mobile']),
-            models.Index(fields=['city', 'is_active']),
+            models.Index(fields=['city', 'state', 'is_active']),
         ]
         verbose_name = 'Client'
         verbose_name_plural = 'Clients'
@@ -111,6 +119,51 @@ class Client(BaseModel):
                 validate_email(self.email)
             except ValidationError:
                 raise ValidationError({'email': 'Please enter a valid email address.'})
+
+
+class Technician(BaseModel):
+    name = models.CharField(
+        max_length=255, 
+        db_index=True,
+        verbose_name="Name",
+        help_text="Full name of the technician"
+    )
+    mobile = models.CharField(
+        max_length=10, 
+        unique=True, 
+        validators=[validate_mobile_number],
+        db_index=True,
+        verbose_name="Mobile Number",
+        help_text="10-digit primary mobile number"
+    )
+    age = models.IntegerField(
+        blank=True, 
+        null=True,
+        verbose_name="Age",
+        help_text="Age of the technician"
+    )
+    alternative_mobile = models.CharField(
+        max_length=10, 
+        blank=True, 
+        null=True,
+        validators=[validate_mobile_number],
+        verbose_name="Alternative Number",
+        help_text="Secondary contact number"
+    )
+    is_active = models.BooleanField(
+        default=True, 
+        db_index=True,
+        verbose_name="Is Active",
+        help_text="Whether the technician is currently available"
+    )
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Technician'
+        verbose_name_plural = 'Technicians'
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.mobile})"
 
 
 class Inquiry(BaseModel):
@@ -150,6 +203,14 @@ class Inquiry(BaseModel):
         verbose_name="Service Interest",
         help_text="Type of pest control service the customer is interested in"
     )
+    state = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="State",
+        help_text="State where the service is required"
+    )
     city = models.CharField(
         max_length=100, 
         db_index=True,
@@ -174,7 +235,7 @@ class Inquiry(BaseModel):
     class Meta:
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['status', 'city']),
+            models.Index(fields=['status', 'city', 'state']),
             models.Index(fields=['mobile', 'email']),
             models.Index(fields=['is_read', 'status']),
         ]
@@ -209,11 +270,11 @@ class Inquiry(BaseModel):
 
 class JobCard(BaseModel):
     class JobStatus(models.TextChoices):
-        ENQUIRY = 'Enquiry', 'Enquiry'
-        WIP = 'WIP', 'WIP'
-        DONE = 'Done', 'Done'
+        PENDING = 'Pending', 'Pending'
+        CONFIRMED = 'Confirmed', 'Confirmed'
+        COMPLETED = 'Completed', 'Completed'
+        CANCELLED = 'Cancelled', 'Cancelled'
         HOLD = 'Hold', 'Hold'
-        CANCEL = 'Cancel', 'Cancel'
         INACTIVE = 'Inactive', 'Inactive'
 
     class PaymentStatus(models.TextChoices):
@@ -228,6 +289,32 @@ class JobCard(BaseModel):
         TWELVE_MONTHS = '12', '12 Months'
         SIX_MONTHS = '6', '6 Months'
         THREE_MONTHS = '3', '3 Months'
+
+    class ServiceCategory(models.TextChoices):
+        ONE_TIME = 'One-Time Service', 'One-Time Service'
+        AMC = 'AMC', 'AMC (Annual Maintenance Contract)'
+
+    class PropertyType(models.TextChoices):
+        HOME_FLAT = 'Home / Flat', 'Home / Flat'
+        BUNGALOW = 'Bungalow', 'Bungalow'
+        HOTEL = 'Hotel', 'Hotel'
+        OFFICE = 'Office', 'Office'
+        COMMERCIAL = 'Commercial Space', 'Commercial Space'
+
+    class BHKSize(models.TextChoices):
+        RK1 = '1 RK', '1 RK'
+        BHK1 = '1 BHK', '1 BHK'
+        BHK2 = '2 BHK', '2 BHK'
+        BHK3 = '3 BHK', '3 BHK'
+        BHK4 = '4 BHK', '4 BHK'
+
+    class TimeSlot(models.TextChoices):
+        SLOT_8_10 = '8am–10am', '8am–10am'
+        SLOT_10_12 = '10am–12pm', '10am–12pm'
+        SLOT_12_2 = '12pm–2pm', '12pm–2pm'
+        SLOT_2_4 = '2pm–4pm', '2pm–4pm'
+        SLOT_4_6 = '4pm–6pm', '4pm–6pm'
+        SLOT_6_8 = '6pm–8pm', '6pm–8pm'
 
     code = models.CharField(
         max_length=20, 
@@ -254,6 +341,30 @@ class JobCard(BaseModel):
         verbose_name="Job Type",
         help_text="Type of job - Customer or Society"
     )
+    service_category = models.CharField(
+        max_length=50,
+        choices=ServiceCategory.choices,
+        default=ServiceCategory.ONE_TIME,
+        db_index=True,
+        verbose_name="Service Category",
+        help_text="One-Time Service or AMC"
+    )
+    property_type = models.CharField(
+        max_length=50,
+        choices=PropertyType.choices,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Property Type"
+    )
+    bhk_size = models.CharField(
+        max_length=20,
+        choices=BHKSize.choices,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="BHK Size"
+    )
     contract_duration = models.CharField(
         max_length=2,
         choices=ContractDuration.choices,
@@ -266,7 +377,7 @@ class JobCard(BaseModel):
     status = models.CharField(
         max_length=20, 
         choices=JobStatus.choices, 
-        default=JobStatus.ENQUIRY,
+        default=JobStatus.PENDING,
         db_index=True,
         verbose_name="Status",
         help_text="Current status of the job card"
@@ -282,6 +393,17 @@ class JobCard(BaseModel):
         verbose_name="Schedule Date",
         help_text="Date when the service is scheduled"
     )
+    time_slot = models.CharField(
+        max_length=50,
+        choices=TimeSlot.choices,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Time Slot"
+    )
+    state = models.CharField(max_length=100, blank=True, null=True, db_index=True, verbose_name="State")
+    city = models.CharField(max_length=100, blank=True, null=True, db_index=True, verbose_name="City")
+    
     client_address = models.TextField(
         blank=True,
         null=True,
@@ -301,6 +423,24 @@ class JobCard(BaseModel):
         db_index=True,
         verbose_name="Payment Status",
         help_text="Current payment status of the job"
+    )
+    assigned_to = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Assigned Technician (Legacy)",
+        help_text="Technician name string (legacy support)"
+    )
+    technician = models.ForeignKey(
+        Technician,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name='jobcards',
+        db_index=True,
+        verbose_name="Assigned Technician",
+        help_text="Registered technician assigned to this job"
     )
     next_service_date = models.DateField(
         blank=True, 
@@ -508,3 +648,46 @@ class Renewal(BaseModel):
             # Update all related renewals for this jobcard
             from .services import RenewalService
             RenewalService.update_urgency_levels_for_jobcard(self.jobcard.id)
+
+
+class CRMInquiry(BaseModel):
+    class InquiryStatus(models.TextChoices):
+        NEW = 'New', 'New'
+        CONTACTED = 'Contacted', 'Contacted'
+        CONVERTED = 'Converted', 'Converted'
+        CLOSED = 'Closed', 'Closed'
+    
+    class PestType(models.TextChoices):
+        COCKROACH = 'Cockroach', 'Cockroach'
+        ANTS = 'Ants', 'Ants'
+        BED_BUGS = 'Bed Bugs', 'Bed Bugs'
+        TERMITE = 'Termite', 'Termite'
+        RODENT = 'Rodent', 'Rodent'
+        MOSQUITO = 'Mosquito', 'Mosquito'
+        OTHER = 'Other', 'Other'
+
+    name = models.CharField(max_length=255, db_index=True)
+    mobile = models.CharField(max_length=10, validators=[validate_mobile_number], db_index=True)
+    location = models.CharField(max_length=500, blank=True, null=True)
+    pest_type = models.CharField(max_length=50, choices=PestType.choices, default=PestType.OTHER)
+    remark = models.TextField(blank=True, null=True)
+    inquiry_date = models.DateField(default=timezone.now)
+    inquiry_time = models.TimeField(default=timezone.now)
+    status = models.CharField(max_length=20, choices=InquiryStatus.choices, default=InquiryStatus.NEW)
+    
+    # Store user who created it
+    created_by = models.ForeignKey(
+        'auth.User', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='crm_inquiries'
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'CRM Inquiry'
+        verbose_name_plural = 'CRM Inquiries'
+
+    def __str__(self) -> str:
+        return f"{self.name} - {self.mobile}"

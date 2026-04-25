@@ -1,13 +1,23 @@
 from rest_framework import serializers
-from .models import Client, Inquiry, JobCard, Renewal
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry
 
 
 class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client
         fields = [
-            'id', 'full_name', 'mobile', 'email', 'city', 
+            'id', 'full_name', 'mobile', 'email', 'state', 'city', 
             'address', 'notes', 'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class TechnicianSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Technician
+        fields = [
+            'id', 'name', 'mobile', 'age', 'alternative_mobile', 
+            'is_active', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
@@ -17,7 +27,7 @@ class InquirySerializer(serializers.ModelSerializer):
         model = Inquiry
         fields = [
             'id', 'name', 'mobile', 'email', 'message', 
-            'service_interest', 'city', 'status', 'is_read', 
+            'service_interest', 'state', 'city', 'status', 'is_read', 
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -27,7 +37,10 @@ class JobCardSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source='client.full_name', read_only=True)
     client_mobile = serializers.CharField(source='client.mobile', read_only=True)
     client_city = serializers.CharField(source='client.city', read_only=True)
+    client_state = serializers.CharField(source='client.state', read_only=True)
     client_notes = serializers.CharField(source='client.notes', read_only=True, allow_null=True)
+    
+    technician_name = serializers.CharField(source='technician.name', read_only=True)
     
     # Nested client data for creation
     client_data = serializers.DictField(write_only=True, required=False, help_text="Client details for creation if client doesn't exist")
@@ -35,24 +48,28 @@ class JobCardSerializer(serializers.ModelSerializer):
     class Meta:
         model = JobCard
         fields = [
-            'id', 'code', 'client', 'client_name', 'client_mobile', 'client_city', 'client_notes', 'client_data',
-            'job_type', 'contract_duration', 'status', 'service_type', 'schedule_date', 
+            'id', 'code', 'client', 'client_name', 'client_mobile', 'client_state', 'client_city', 'client_notes', 'client_data',
+            'job_type', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_date', 
+            'time_slot', 'state', 'city',
             'price', 'client_address',
-            'payment_status', 'next_service_date', 'notes', 'is_paused', 'reference', 
+            'payment_status', 'assigned_to', 'technician', 'technician_name', 'next_service_date', 'notes', 'is_paused', 'reference', 
             'extra_notes', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'code', 'created_at', 'updated_at']
     
     def validate(self, data):
         """Custom validation for JobCard creation with client data."""
+        # Check if this is a creation (no instance yet)
+        is_create = self.instance is None
+        
         # If client_data is provided, validate it
-        if 'client_data' in data and data['client_data']:
+        if is_create and 'client_data' in data and data['client_data']:
             client_data = data['client_data']
             
             # Validate required client fields
             # Note: full_name is optional when client already exists (will be determined by get_or_create)
-            # mobile and city are always required
-            required_client_fields = ['mobile', 'city']
+            # mobile, state and city are always required
+            required_client_fields = ['mobile', 'state', 'city']
             for field in required_client_fields:
                 if not client_data.get(field):
                     raise serializers.ValidationError({
@@ -100,3 +117,15 @@ class RenewalSerializer(serializers.ModelSerializer):
         }
         return color_map.get(obj.urgency_level, '#44aa44')
 
+
+class CRMInquirySerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    
+    class Meta:
+        model = CRMInquiry
+        fields = [
+            'id', 'name', 'mobile', 'location', 'pest_type', 'remark', 
+            'inquiry_date', 'inquiry_time', 'status', 'created_by', 'created_by_name',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']

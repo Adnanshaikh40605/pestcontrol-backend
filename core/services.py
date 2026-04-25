@@ -9,73 +9,36 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Client, Inquiry, JobCard, Renewal
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry
 from .telegram import notify_new_inquiry
 
 
 logger = logging.getLogger(__name__)
 
 
-class DashboardService:
+class TechnicianService:
     """
-    Service class for Dashboard-related business logic.
-    
-    This service handles all dashboard statistics operations including
-    comprehensive data aggregation for the dashboard API endpoint.
-    
-    Key Features:
-    - Efficient database queries for statistics
-    - Comprehensive data aggregation
-    - Performance optimized counting
-    - Error handling and validation
-    
-    Example:
-        stats = DashboardService.get_dashboard_statistics()
-        # Returns: {
-        #     'total_inquiries': 150,
-        #     'total_job_cards': 89,
-        #     'total_clients': 75,
-        #     'renewals': 45
-        # }
+    Service class for Technician-related business logic.
     """
     
     @staticmethod
-    def get_dashboard_statistics() -> Dict[str, int]:
-        """
-        Get comprehensive dashboard statistics.
-        
-        This method efficiently retrieves counts for all major entities
-        in the system using optimized database queries.
-        
-        Returns:
-            Dict[str, int]: Dictionary containing:
-                - total_inquiries: Total count of all inquiries
-                - total_job_cards: Total count of all job cards
-                - total_clients: Total count of all registered clients
-                - renewals: Total count of renewal transactions
-        
-        Raises:
-            Exception: If database query fails
-        """
-        try:
-            # Use efficient count queries to get statistics
-            total_inquiries = Inquiry.objects.count()
-            total_job_cards = JobCard.objects.count()
-            total_clients = Client.objects.count()
-            renewals = Renewal.objects.count()
-            
-            return {
-                'total_inquiries': total_inquiries,
-                'total_job_cards': total_job_cards,
-                'total_clients': total_clients,
-                'renewals': renewals
-            }
-        except Exception as e:
-            # Log the error and re-raise for proper error handling
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error retrieving dashboard statistics: {str(e)}")
-            raise
+    def create_technician(data: Dict[str, Any]) -> Technician:
+        """Create a new technician with validation."""
+        logger.info(f"Creating technician: {data.get('name')}")
+        technician = Technician.objects.create(**data)
+        return technician
+
+    @staticmethod
+    def update_technician(technician_id: int, data: Dict[str, Any]) -> Technician:
+        """Update technician details."""
+        technician = Technician.objects.get(id=technician_id)
+        for key, value in data.items():
+            setattr(technician, key, value)
+        technician.save()
+        return technician
+
+
+
 
 
 class ClientService:
@@ -334,7 +297,12 @@ class InquiryService:
                         name=inquiry.name,
                         mobile=inquiry.mobile,
                         email=inquiry.email,
-                        city=inquiry.city
+                        city=inquiry.city,
+                        address=inquiry.message, # Use message as detailed address if available
+                        flat_number=inquiry.flat_number,
+                        building_name=inquiry.building_name,
+                        landmark=inquiry.landmark,
+                        area=inquiry.area
                     )
                 except ValidationError as e:
                     # Provide more specific error message for mobile number conflicts
@@ -345,11 +313,16 @@ class InquiryService:
             # Create job card with proper defaults
             jobcard_data = {
                 'client': client,
-                'status': JobCard.JobStatus.ENQUIRY,
+                'status': JobCard.JobStatus.PENDING,
                 'service_type': inquiry.service_interest,
+                'service_category': JobCard.ServiceCategory.ONE_TIME,
                 'schedule_date': conversion_data.get('schedule_date', timezone.now().date()),
                 'price': conversion_data.get('price', ''),
                 'payment_status': JobCard.PaymentStatus.UNPAID,
+                'flat_number': inquiry.flat_number,
+                'building_name': inquiry.building_name,
+                'landmark': inquiry.landmark,
+                'area': inquiry.area,
             }
             
             # Set client_address from conversion_data or fallback to client.address
@@ -503,6 +476,10 @@ class JobCardService:
                     if new_address != current_address:
                         client.address = new_address
                         update_fields.append('address')
+
+
+
+
                 
                 if 'notes' in client_data and client_data.get('notes') is not None:
                     new_notes = client_data.get('notes', '').strip()
@@ -520,6 +497,19 @@ class JobCardService:
             # id should never be set during creation to prevent accidental updates
             jobcard_data = {k: v for k, v in data.items() if k not in ['client_data', 'id']}
             jobcard_data['client'] = client
+            
+            # Use Pending as default status if not provided or empty
+            if not jobcard_data.get('status'):
+                jobcard_data['status'] = JobCard.JobStatus.PENDING
+            elif jobcard_data.get('status') in ['Enquiry', 'WIP', 'Done', 'Cancel']:
+                # Map old statuses to new ones if they come from old frontend code
+                status_map = {
+                    'Enquiry': JobCard.JobStatus.PENDING,
+                    'WIP': JobCard.JobStatus.CONFIRMED,
+                    'Done': JobCard.JobStatus.COMPLETED,
+                    'Cancel': JobCard.JobStatus.CANCELLED
+                }
+                jobcard_data['status'] = status_map.get(jobcard_data['status'], JobCard.JobStatus.PENDING)
             
             # Explicitly ensure we're creating a new job card (not updating)
             if 'id' in jobcard_data:
@@ -866,35 +856,72 @@ class DashboardService:
     """
     
     @staticmethod
-    def get_dashboard_statistics() -> Dict[str, int]:
-        """
-        Get comprehensive dashboard statistics.
-        
-        This method efficiently retrieves counts for all major entities
-        in the system using optimized database queries.
-        
-        Returns:
-            Dict[str, int]: Dictionary containing:
-                - total_inquiries: Total count of all inquiries
-                - total_job_cards: Total count of all job cards
-                - total_clients: Total count of all registered clients
-                - renewals: Total count of renewal transactions
-        
-        Raises:
-            Exception: If database query fails
-        """
+    def get_dashboard_statistics() -> Dict[str, Any]:
+        """Get comprehensive dashboard statistics including status and category breakdowns."""
         try:
-            # Use efficient count queries to get statistics
-            total_inquiries = Inquiry.objects.count()
+            # Basic counts
+            total_web_inquiries = Inquiry.objects.count()
+            total_crm_inquiries = CRMInquiry.objects.count()
+            total_inquiries = total_web_inquiries + total_crm_inquiries
+            
             total_job_cards = JobCard.objects.count()
             total_clients = Client.objects.count()
             renewals = Renewal.objects.count()
             
+            # Service Category Breakdown - Using Model Choices for robustness
+            category_stats = {
+                'one_time': JobCard.objects.filter(service_category=JobCard.ServiceCategory.ONE_TIME).count(),
+                'amc': JobCard.objects.filter(service_category=JobCard.ServiceCategory.AMC).count()
+            }
+            
+            # Job Type Breakdown - Using Model Choices for robustness
+            job_type_stats = {
+                'individual': JobCard.objects.filter(job_type=JobCard.JobType.CUSTOMER).count(),
+                'society': JobCard.objects.filter(job_type=JobCard.JobType.SOCIETY).count(),
+            }
+            
+            # Status Breakdown - Using Model Choices for robustness
+            status_stats = {
+                'pending': JobCard.objects.filter(status=JobCard.JobStatus.PENDING).count(),
+                'confirmed': JobCard.objects.filter(status=JobCard.JobStatus.CONFIRMED).count(),
+                'completed': JobCard.objects.filter(status=JobCard.JobStatus.COMPLETED).count(),
+                'cancelled': JobCard.objects.filter(status=JobCard.JobStatus.CANCELLED).count(),
+                'hold': JobCard.objects.filter(status=JobCard.JobStatus.HOLD).count()
+            }
+            
+            # City breakdown (Top 5)
+            # mapping 'client__city' to 'client_city' for clean frontend consumption
+            from django.db.models import Count, F
+            city_stats = list(JobCard.objects.exclude(client__city=None).exclude(client__city='')
+                             .values(client_city=F('client__city'))
+                             .annotate(count=Count('client__city'))
+                             .order_by('-count')[:5])
+            
+            # Property Type breakdown
+            property_type_stats = list(JobCard.objects.exclude(property_type=None).exclude(property_type='')
+                                     .values('property_type')
+                                     .annotate(count=Count('property_type'))
+                                     .order_by('-count'))
+            
+            # BHK Size breakdown
+            bhk_stats = list(JobCard.objects.exclude(bhk_size=None).exclude(bhk_size='')
+                           .values('bhk_size')
+                           .annotate(count=Count('bhk_size'))
+                           .order_by('-count'))
+            
             return {
                 'total_inquiries': total_inquiries,
+                'total_web_inquiries': total_web_inquiries,
+                'total_crm_inquiries': total_crm_inquiries,
                 'total_job_cards': total_job_cards,
                 'total_clients': total_clients,
-                'renewals': renewals
+                'renewals': renewals,
+                'category_stats': category_stats,
+                'status_stats': status_stats,
+                'job_type_stats': job_type_stats,
+                'city_stats': city_stats,
+                'property_type_stats': property_type_stats,
+                'bhk_stats': bhk_stats,
             }
         except Exception as e:
             # Log the error and re-raise for proper error handling
@@ -902,3 +929,67 @@ class DashboardService:
             logger = logging.getLogger(__name__)
             logger.error(f"Error retrieving dashboard statistics: {str(e)}")
             raise
+
+class CRMInquiryService:
+    """
+    Service class for CRM Inquiry-related business logic.
+    Supports staff-created inquiries and quick conversion to bookings.
+    """
+    
+    @staticmethod
+    def create_inquiry(data: Dict[str, Any], user=None) -> CRMInquiry:
+        """Create a new CRM inquiry with optional user attribution."""
+        logger.info(f"Creating CRM inquiry for: {data.get('name')} by user {user}")
+        inquiry = CRMInquiry.objects.create(created_by=user, **data)
+        return inquiry
+
+    @staticmethod
+    def update_inquiry(inquiry_id: int, data: Dict[str, Any]) -> CRMInquiry:
+        """Update inquiry details."""
+        inquiry = CRMInquiry.objects.get(id=inquiry_id)
+        for key, value in data.items():
+            setattr(inquiry, key, value)
+        inquiry.save()
+        return inquiry
+
+    @staticmethod
+    def convert_to_booking(inquiry_id: int) -> JobCard:
+        """
+        Convert a CRM inquiry into a live JobCard/Booking.
+        This handles client resolution and job card initialization.
+        """
+        with transaction.atomic():
+            inquiry = CRMInquiry.objects.select_for_update().get(id=inquiry_id)
+            
+            if inquiry.status == CRMInquiry.InquiryStatus.CONVERTED:
+                raise ValidationError("This inquiry has already been converted to a booking.")
+
+            # 1. Resolve Client (Get or Create)
+            client, _ = ClientService.get_or_create_client(
+                name=inquiry.name,
+                mobile=inquiry.mobile,
+                city=inquiry.location.split(',')[0] if inquiry.location else 'Unknown'
+            )
+            
+            # 2. Map Inquiry to JobCard fields
+            job_card_data = {
+                'client': client.id,
+                'client_address': inquiry.location or '',
+                'service_type': inquiry.pest_type,
+                'notes': inquiry.remark or '',
+                'status': 'Pending',
+                'schedule_date': timezone.now().date(),
+                'state': client.state or 'Maharashtra',
+                'city': client.city or 'Pune'
+            }
+            
+            # 3. Create the Job Card
+            job_card = JobCardService.create_jobcard(job_card_data)
+            
+            # 4. Finalize Inquiry status
+            inquiry.status = CRMInquiry.InquiryStatus.CONVERTED
+            inquiry.remark = f"{inquiry.remark or ''}\n[Converted to Booking {job_card.code}]".strip()
+            inquiry.save()
+            
+            logger.info(f"Inquiry {inquiry_id} successfully converted to Booking {job_card.code}")
+            return job_card

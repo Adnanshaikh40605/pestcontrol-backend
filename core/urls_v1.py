@@ -10,6 +10,8 @@ from .views import (
     JobCardViewSet,
     RenewalViewSet,
     DashboardViewSet,
+    TechnicianViewSet,
+    CRMInquiryViewSet,
 )
 
 # Create router for v1 API
@@ -19,6 +21,8 @@ router.register(r'inquiries', InquiryViewSet, basename='inquiry')
 router.register(r'jobcards', JobCardViewSet, basename='jobcard')
 router.register(r'renewals', RenewalViewSet, basename='renewal')
 router.register(r'dashboard', DashboardViewSet, basename='dashboard')
+router.register(r'technicians', TechnicianViewSet, basename='technician')
+router.register(r'crm-inquiries', CRMInquiryViewSet, basename='crm-inquiry')
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),
