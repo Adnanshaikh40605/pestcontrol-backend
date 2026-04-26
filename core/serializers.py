@@ -36,7 +36,6 @@ class InquirySerializer(serializers.ModelSerializer):
 class JobCardSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source='client.full_name', read_only=True)
     client_mobile = serializers.CharField(source='client.mobile', read_only=True)
-    client_city = serializers.CharField(source='client.city', read_only=True)
     client_state = serializers.CharField(source='client.state', read_only=True)
     client_notes = serializers.CharField(source='client.notes', read_only=True, allow_null=True)
     
@@ -48,7 +47,7 @@ class JobCardSerializer(serializers.ModelSerializer):
     class Meta:
         model = JobCard
         fields = [
-            'id', 'code', 'client', 'client_name', 'client_mobile', 'client_state', 'client_city', 'client_notes', 'client_data',
+            'id', 'code', 'client', 'client_name', 'client_mobile', 'client_state', 'client_notes', 'client_data',
             'job_type', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_date', 
             'time_slot', 'state', 'city',
             'price', 'client_address',

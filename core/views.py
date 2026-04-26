@@ -945,11 +945,11 @@ class JobCardViewSet(BaseModelViewSet):
                 # Tab 1: Pending Booking
                 qs = qs.filter(status=JobCard.JobStatus.PENDING)
             elif booking_type == 'on_process':
-                # Tab 2: On Process (Confirmed or Hold)
-                qs = qs.filter(status__in=[JobCard.JobStatus.CONFIRMED, JobCard.JobStatus.HOLD])
+                # Tab 2: On Process
+                qs = qs.filter(status=JobCard.JobStatus.ON_PROCESS)
             elif booking_type == 'done':
                 # Tab 3: Done
-                qs = qs.filter(status=JobCard.JobStatus.COMPLETED)
+                qs = qs.filter(status=JobCard.JobStatus.DONE)
             elif booking_type == 'upcoming_renewals':
                 # Tab 4: Upcoming Renewals
                 qs = qs.filter(renewals__status=Renewal.RenewalStatus.DUE).distinct()

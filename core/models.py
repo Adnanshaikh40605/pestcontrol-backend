@@ -271,11 +271,8 @@ class Inquiry(BaseModel):
 class JobCard(BaseModel):
     class JobStatus(models.TextChoices):
         PENDING = 'Pending', 'Pending'
-        CONFIRMED = 'Confirmed', 'Confirmed'
-        COMPLETED = 'Completed', 'Completed'
-        CANCELLED = 'Cancelled', 'Cancelled'
-        HOLD = 'Hold', 'Hold'
-        INACTIVE = 'Inactive', 'Inactive'
+        ON_PROCESS = 'On Process', 'On Process'
+        DONE = 'Done', 'Done'
 
     class PaymentStatus(models.TextChoices):
         UNPAID = 'Unpaid', 'Unpaid'
@@ -394,8 +391,7 @@ class JobCard(BaseModel):
         help_text="Date when the service is scheduled"
     )
     time_slot = models.CharField(
-        max_length=50,
-        choices=TimeSlot.choices,
+        max_length=100,
         blank=True,
         null=True,
         db_index=True,
@@ -669,7 +665,7 @@ class CRMInquiry(BaseModel):
     name = models.CharField(max_length=255, db_index=True)
     mobile = models.CharField(max_length=10, validators=[validate_mobile_number], db_index=True)
     location = models.CharField(max_length=500, blank=True, null=True)
-    pest_type = models.CharField(max_length=50, choices=PestType.choices, default=PestType.OTHER)
+    pest_type = models.CharField(max_length=255, default='Other')
     remark = models.TextField(blank=True, null=True)
     inquiry_date = models.DateField(default=timezone.now)
     inquiry_time = models.TimeField(default=timezone.now)

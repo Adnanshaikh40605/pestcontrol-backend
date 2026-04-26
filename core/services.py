@@ -890,11 +890,11 @@ class DashboardService:
             }
             
             # City breakdown (Top 5)
-            # mapping 'client__city' to 'client_city' for clean frontend consumption
-            from django.db.models import Count, F
-            city_stats = list(JobCard.objects.exclude(client__city=None).exclude(client__city='')
-                             .values(client_city=F('client__city'))
-                             .annotate(count=Count('client__city'))
+            # mapping 'city' for clean frontend consumption
+            from django.db.models import Count
+            city_stats = list(JobCard.objects.exclude(city=None).exclude(city='')
+                             .values('city')
+                             .annotate(count=Count('city'))
                              .order_by('-count')[:5])
             
             # Property Type breakdown
