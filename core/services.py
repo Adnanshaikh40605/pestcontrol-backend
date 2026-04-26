@@ -880,13 +880,16 @@ class DashboardService:
                 'society': JobCard.objects.filter(job_type=JobCard.JobType.SOCIETY).count(),
             }
             
-            # Status Breakdown - Using Model Choices for robustness
+            # Status Breakdown - Updated to match new JobStatus model
             status_stats = {
                 'pending': JobCard.objects.filter(status=JobCard.JobStatus.PENDING).count(),
-                'confirmed': JobCard.objects.filter(status=JobCard.JobStatus.CONFIRMED).count(),
-                'completed': JobCard.objects.filter(status=JobCard.JobStatus.COMPLETED).count(),
-                'cancelled': JobCard.objects.filter(status=JobCard.JobStatus.CANCELLED).count(),
-                'hold': JobCard.objects.filter(status=JobCard.JobStatus.HOLD).count()
+                'on_process': JobCard.objects.filter(status=JobCard.JobStatus.ON_PROCESS).count(),
+                'done': JobCard.objects.filter(status=JobCard.JobStatus.DONE).count(),
+                # Keep old keys as 0 to prevent frontend breakage while we transition
+                'confirmed': 0,
+                'completed': 0,
+                'cancelled': 0,
+                'hold': 0
             }
             
             # City breakdown (Top 5)
