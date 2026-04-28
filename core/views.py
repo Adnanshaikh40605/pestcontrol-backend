@@ -1,7 +1,7 @@
 import logging
 from django.http import JsonResponse
 from django.core.exceptions import ValidationError
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, filters, permissions, decorators, response, status
@@ -138,10 +138,15 @@ class TechnicianViewSet(BaseModelViewSet):
     filterset_fields = ['is_active']
     ordering_fields = ['name', 'created_at']
 
+    def get_queryset(self):
+        return Technician.objects.annotate(
+            active_jobs=Count('jobcards', filter=Q(jobcards__status__iexact='On Process'))
+        )
+
     @action(detail=False, methods=['get'])
     def active(self, request):
         """Helper action to get only active technicians for assignment dropdowns."""
-        active_techs = self.queryset.filter(is_active=True)
+        active_techs = self.get_queryset().filter(is_active=True)
         serializer = self.get_serializer(active_techs, many=True)
         return response.Response(serializer.data)
 
@@ -925,65 +930,62 @@ class JobCardViewSet(BaseModelViewSet):
     """
     queryset = JobCard.objects.select_related('client').prefetch_related('renewals').all()
     serializer_class = JobCardSerializer
-    filterset_fields = ['status', 'payment_status', 'client__city', 'client__mobile', 'job_type', 'service_category', 'contract_duration', 'is_paused', 'assigned_to']
-    search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type', 'assigned_to', 'area']
+    filterset_fields = ['status', 'payment_status', 'client__city', 'client__mobile', 'job_type', 'commercial_type', 'service_category', 'contract_duration', 'is_paused', 'assigned_to']
+    search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type', 'assigned_to', 'area', 'commercial_type']
     ordering_fields = [
-        'created_at', 'updated_at', 'schedule_date', 'status', 'payment_status', 
+        'id', 'code', 'created_at', 'updated_at', 'schedule_date', 'status', 'payment_status', 
         'client__full_name', 'client__city', 'job_type', 'service_category', 'contract_duration'
     ]
     ordering = ['-created_at']  # Default: latest job cards first
 
     def get_queryset(self):
-        try:
-            qs = super().get_queryset()
+        qs = super().get_queryset()
+        if not self.request:
+            return qs
+        
+        # 1. Handle Booking Type Categories (Tabs)
+        booking_type = self.request.query_params.get('booking_type', 'all')
+        now = timezone.now().date()
+        
+        if booking_type == 'pending':
+            # Tab 1: Pending Booking
+            qs = qs.filter(status='Pending')
+        elif booking_type == 'on_process':
+            # Tab 2: On Process
+            qs = qs.filter(status='On Process')
+        elif booking_type == 'done':
+            # Tab 3: Done
+            qs = qs.filter(status='Done')
+        elif booking_type == 'upcoming_renewals':
+            # Tab 4: Upcoming Renewals
+            qs = qs.filter(renewals__status='Due').distinct()
+        elif booking_type == 'upcoming_services':
+            # Tab 5: Upcoming Services
+            qs = qs.filter(next_service_date__isnull=False, status=JobCard.JobStatus.PENDING)
+        
+        # 2. Handle Robust Search (Explicitly)
+        search_query = self.request.query_params.get('search', '').strip()
+        if search_query:
+            # Search by Code (e.g. 0030 matches JC-0030), Client Name, and Mobile
+            search_filter = Q(code__icontains=search_query) | \
+                           Q(client__full_name__icontains=search_query) | \
+                           Q(client__mobile__icontains=search_query)
             
-            # 1. Handle Booking Type Categories (Tabs)
-            booking_type = self.request.query_params.get('booking_type', 'all')
-            now = timezone.now().date()
+            # Also allow searching by the numeric part only for Job Cards (JC-0001 -> 0001)
+            if search_query.isdigit():
+                search_filter |= Q(code__endswith=search_query)
             
-            if booking_type == 'pending':
-                # Tab 1: Pending Booking
-                qs = qs.filter(status=JobCard.JobStatus.PENDING)
-            elif booking_type == 'on_process':
-                # Tab 2: On Process
-                qs = qs.filter(status=JobCard.JobStatus.ON_PROCESS)
-            elif booking_type == 'done':
-                # Tab 3: Done
-                qs = qs.filter(status=JobCard.JobStatus.DONE)
-            elif booking_type == 'upcoming_renewals':
-                # Tab 4: Upcoming Renewals
-                qs = qs.filter(renewals__status=Renewal.RenewalStatus.DUE).distinct()
-            elif booking_type == 'upcoming_services':
-                # Tab 5: Upcoming Services
-                qs = qs.filter(schedule_date__gte=now)
-            
-            # 2. Handle Robust Search (Explicitly)
-            search_query = self.request.query_params.get('search', '').strip()
-            if search_query:
-                # Search by Code (e.g. 0030 matches JC-0030), Client Name, and Mobile
-                search_filter = Q(code__icontains=search_query) | \
-                               Q(client__full_name__icontains=search_query) | \
-                               Q(client__mobile__icontains=search_query)
-                
-                # Also allow searching by the numeric part only for Job Cards (JC-0001 -> 0001)
-                if search_query.isdigit():
-                    search_filter |= Q(code__endswith=search_query)
-                
-                qs = qs.filter(search_filter)
+            qs = qs.filter(search_filter)
 
-            # 3. Handle Date Ranges
-            date_from = self.request.query_params.get('from')
-            date_to = self.request.query_params.get('to')
-            if date_from:
-                qs = qs.filter(schedule_date__gte=date_from)
-            if date_to:
-                qs = qs.filter(schedule_date__lte=date_to)
-                
-            return qs.distinct()
-        except Exception as e:
-            logger.error(f"Error in JobCardViewSet.get_queryset: {e}", exc_info=True)
-            # Return empty queryset on error to prevent 500 errors
-            return JobCard.objects.none()
+        # 3. Handle Date Ranges
+        date_from = self.request.query_params.get('from')
+        date_to = self.request.query_params.get('to')
+        if date_from:
+            qs = qs.filter(schedule_date__gte=date_from)
+        if date_to:
+            qs = qs.filter(schedule_date__lte=date_to)
+            
+        return qs.distinct()
     
     def list(self, request, *args, **kwargs):
         """List job cards with enhanced error handling."""
@@ -997,6 +999,44 @@ class JobCardViewSet(BaseModelViewSet):
                     'message': 'An error occurred while fetching job cards. Please try again or contact support.',
                     'details': str(e) if request.user.is_staff else 'Internal server error'
                 },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=True, methods=['post'])
+    def assign(self, request, pk=None):
+        """Quickly assign a technician and update status to On Process."""
+        try:
+            instance = self.get_object()
+            technician_id = request.data.get('technician_id')
+            
+            if not technician_id:
+                return response.Response(
+                    {'error': 'technician_id is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            from .models import Technician
+            try:
+                technician = Technician.objects.get(id=technician_id)
+            except Technician.DoesNotExist:
+                return response.Response(
+                    {'error': 'Technician not found'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Atomic update
+            instance.technician = technician
+            instance.assigned_to = technician.name
+            instance.status = JobCard.JobStatus.ON_PROCESS
+            instance.save()
+            
+            serializer = self.get_serializer(instance)
+            return response.Response(serializer.data)
+            
+        except Exception as e:
+            logger.error(f"Error in JobCardViewSet.assign: {e}", exc_info=True)
+            return response.Response(
+                {'error': 'Failed to assign technician', 'details': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
@@ -1076,6 +1116,7 @@ class JobCardViewSet(BaseModelViewSet):
         instance = self.get_object()
         
         # Store original values to check for changes
+        original_schedule_date = instance.schedule_date
         original_next_service_date = instance.next_service_date
         original_contract_duration = instance.contract_duration
         original_job_type = instance.job_type
@@ -1133,8 +1174,29 @@ class JobCardViewSet(BaseModelViewSet):
         # Perform the update
         response_obj = super().update(request, *args, partial=partial, **kwargs)
         
-        # Check if renewal-related fields changed
+        # Reload instance for automation logic
         instance.refresh_from_db()
+
+        # 1. Handle automation when job is marked DONE
+        if instance.status == JobCard.JobStatus.DONE:
+            JobCardService.handle_job_completion(instance)
+
+        # 2. Re-calculate next_service_date if missing and relevant fields changed
+        # Only if NOT already provided in request data to respect manual edits
+        if not request.data.get('next_service_date'):
+            # Check if relevant fields changed or if it's just missing
+            needs_calc = (
+                not instance.next_service_date or
+                instance.schedule_date != original_schedule_date
+            )
+            if needs_calc:
+                next_date, max_cycle = JobCardService.calculate_next_service_date(instance)
+                if next_date != instance.next_service_date or max_cycle != instance.max_cycle:
+                    instance.next_service_date = next_date
+                    instance.max_cycle = max_cycle
+                    instance.save(update_fields=['next_service_date', 'max_cycle'])
+        
+        # 3. Check if renewal-related fields changed (legacy logic)
         renewal_fields_changed = (
             instance.next_service_date != original_next_service_date or
             instance.contract_duration != original_contract_duration or

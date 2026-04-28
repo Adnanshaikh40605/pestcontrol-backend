@@ -13,13 +13,22 @@ class ClientSerializer(serializers.ModelSerializer):
 
 
 class TechnicianSerializer(serializers.ModelSerializer):
+    active_jobs = serializers.IntegerField(read_only=True)
+    active_job_details = serializers.SerializerMethodField()
+
     class Meta:
         model = Technician
         fields = [
             'id', 'name', 'mobile', 'age', 'alternative_mobile', 
-            'is_active', 'created_at', 'updated_at'
+            'is_active', 'active_jobs', 'active_job_details', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_active_job_details(self, obj):
+        # Return a list of basic info for current active jobs using values for efficiency
+        return list(obj.jobcards.filter(status__iexact='On Process').values(
+            'id', 'client__full_name', 'service_type'
+        ))
 
 
 class InquirySerializer(serializers.ModelSerializer):
@@ -48,10 +57,10 @@ class JobCardSerializer(serializers.ModelSerializer):
         model = JobCard
         fields = [
             'id', 'code', 'client', 'client_name', 'client_mobile', 'client_state', 'client_notes', 'client_data',
-            'job_type', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_date', 
+            'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_date', 
             'time_slot', 'state', 'city',
             'price', 'client_address',
-            'payment_status', 'assigned_to', 'technician', 'technician_name', 'next_service_date', 'notes', 'is_paused', 'reference', 
+            'payment_status', 'assigned_to', 'technician', 'technician_name', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
             'extra_notes', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'code', 'created_at', 'updated_at']

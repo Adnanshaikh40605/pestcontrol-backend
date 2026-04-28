@@ -535,6 +535,17 @@ class JobCardService:
             # IMPORTANT: Always create a NEW job card - never update existing ones
             # Multiple job cards can exist for the same client
             jobcard = JobCard(**jobcard_data)
+            
+            # Auto-calculate next service date if not provided
+            if not jobcard.next_service_date:
+                next_date, max_cycle = JobCardService.calculate_next_service_date(jobcard)
+                jobcard.next_service_date = next_date
+                jobcard.max_cycle = max_cycle
+            elif jobcard.service_type:
+                # If next_service_date IS provided manually, still ensure max_cycle is set correctly
+                _, max_cycle = JobCardService.calculate_next_service_date(jobcard)
+                jobcard.max_cycle = max_cycle
+
             jobcard.full_clean()  # Run model validation
             jobcard.save()  # This will create a new record with a new ID and code
             
@@ -549,6 +560,85 @@ class JobCardService:
         except Exception as e:
             logger.error(f"Unexpected error during jobcard creation: {e}")
             raise ValidationError(f"Failed to create job card: {str(e)}")
+    
+    @staticmethod
+    def calculate_next_service_date(jobcard: JobCard) -> tuple[Optional[timezone.datetime.date], int]:
+        """
+        Calculate the next service date and max cycle based on service rules.
+        Returns (next_date, max_cycle).
+        """
+        from datetime import timedelta
+        from dateutil.relativedelta import relativedelta
+        
+        service_type = jobcard.service_type.lower() if jobcard.service_type else ""
+        service_category = jobcard.service_category
+        schedule_date = jobcard.schedule_date
+        
+        if not schedule_date:
+            return None, 1
+            
+        next_date = None
+        max_cycle = 1
+        
+        # Cockroach AMC: 3 services total, 4-month gap
+        if "cockroach" in service_type and service_category == JobCard.ServiceCategory.AMC:
+            max_cycle = 3
+            next_date = schedule_date + relativedelta(months=4)
+        # BedBug: 2 services total, 15-day gap
+        elif "bedbug" in service_type or "bed bug" in service_type:
+            max_cycle = 2
+            next_date = schedule_date + timedelta(days=15)
+            
+        return next_date, max_cycle
+
+    @staticmethod
+    def handle_job_completion(jobcard: JobCard) -> Optional[JobCard]:
+        """
+        Handle automation when a job is marked as DONE.
+        Creates the next job in the sequence if applicable.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if jobcard.status == JobCard.JobStatus.DONE and jobcard.next_service_date:
+            if jobcard.service_cycle < jobcard.max_cycle:
+                # Check if next job already exists to avoid duplicates
+                existing_next = JobCard.objects.filter(
+                    parent_job=jobcard,
+                    service_cycle=jobcard.service_cycle + 1
+                ).exists()
+                
+                if not existing_next:
+                    # Prepare data for next job
+                    next_job = JobCard.objects.create(
+                        client=jobcard.client,
+                        service_type=jobcard.service_type,
+                        service_category=jobcard.service_category,
+                        schedule_date=jobcard.next_service_date,
+                        service_cycle=jobcard.service_cycle + 1,
+                        max_cycle=jobcard.max_cycle,
+                        parent_job=jobcard,
+                        commercial_type=jobcard.commercial_type,
+                        property_type=jobcard.property_type,
+                        bhk_size=jobcard.bhk_size,
+                        contract_duration=jobcard.contract_duration,
+                        price=jobcard.price,
+                        client_address=jobcard.client_address,
+                        state=jobcard.state,
+                        city=jobcard.city,
+                        status=JobCard.JobStatus.PENDING,
+                        payment_status=JobCard.PaymentStatus.UNPAID,
+                    )
+                    
+                    # Calculate next service date for the NEWLY created job
+                    next_next_date, _ = JobCardService.calculate_next_service_date(next_job)
+                    if next_job.service_cycle < next_job.max_cycle:
+                        next_job.next_service_date = next_next_date
+                        next_job.save(update_fields=['next_service_date'])
+                    
+                    logger.info(f"Auto-created follow-up job {next_job.code} for job {jobcard.code}")
+                    return next_job
+        return None
     
 
     
@@ -859,6 +949,9 @@ class DashboardService:
     def get_dashboard_statistics() -> Dict[str, Any]:
         """Get comprehensive dashboard statistics including status and category breakdowns."""
         try:
+            from django.utils import timezone
+            today = timezone.now().date()
+            
             # Basic counts
             total_web_inquiries = Inquiry.objects.count()
             total_crm_inquiries = CRMInquiry.objects.count()
@@ -874,10 +967,10 @@ class DashboardService:
                 'amc': JobCard.objects.filter(service_category=JobCard.ServiceCategory.AMC).count()
             }
             
-            # Job Type Breakdown - Using Model Choices for robustness
+            # Category Breakdown (Retail vs Corporate)
             job_type_stats = {
-                'individual': JobCard.objects.filter(job_type=JobCard.JobType.CUSTOMER).count(),
-                'society': JobCard.objects.filter(job_type=JobCard.JobType.SOCIETY).count(),
+                'individual': JobCard.objects.filter(commercial_type=JobCard.CommercialType.HOME).count(),
+                'society': JobCard.objects.exclude(commercial_type=JobCard.CommercialType.HOME).count(),
             }
             
             # Status Breakdown - Updated to match new JobStatus model
@@ -885,8 +978,8 @@ class DashboardService:
                 'pending': JobCard.objects.filter(status=JobCard.JobStatus.PENDING).count(),
                 'on_process': JobCard.objects.filter(status=JobCard.JobStatus.ON_PROCESS).count(),
                 'done': JobCard.objects.filter(status=JobCard.JobStatus.DONE).count(),
-                # Keep old keys as 0 to prevent frontend breakage while we transition
-                'confirmed': 0,
+                # Today's Jobs (previously 'confirmed' key)
+                'confirmed': JobCard.objects.filter(schedule_date=today).count(),
                 'completed': 0,
                 'cancelled': 0,
                 'hold': 0

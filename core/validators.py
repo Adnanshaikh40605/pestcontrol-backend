@@ -65,8 +65,8 @@ def validate_job_code(value):
     if not value:
         return
     
-    if not re.match(r'^JC-\d{4,}$', value):
+    if not re.match(r'^\d+$', value):
         raise ValidationError(
-            _('Job code must be in format JC-XXXX where X is a digit.'),
+            _('Job code must be a numeric value.'),
             code='invalid_job_code'
         )

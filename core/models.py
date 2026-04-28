@@ -305,6 +305,14 @@ class JobCard(BaseModel):
         BHK3 = '3 BHK', '3 BHK'
         BHK4 = '4 BHK', '4 BHK'
 
+    class CommercialType(models.TextChoices):
+        HOME = 'home', 'Home'
+        HOTEL = 'hotel', 'Hotel'
+        SOCIETY = 'society', 'Society'
+        VILLA = 'villa', 'Villa'
+        OFFICE = 'office', 'Office'
+        OTHER = 'other', 'Other'
+
     class TimeSlot(models.TextChoices):
         SLOT_8_10 = '8am–10am', '8am–10am'
         SLOT_10_12 = '10am–12pm', '10am–12pm'
@@ -336,7 +344,21 @@ class JobCard(BaseModel):
         default=JobType.CUSTOMER,
         db_index=True,
         verbose_name="Job Type",
-        help_text="Type of job - Customer or Society"
+        help_text="Type of job - Customer or Society (Legacy)"
+    )
+    commercial_type = models.CharField(
+        max_length=20,
+        choices=CommercialType.choices,
+        default=CommercialType.HOME,
+        db_index=True,
+        verbose_name="Commercial Type",
+        help_text="Detailed category of the booking"
+    )
+    is_price_estimated = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="Is Price Estimated",
+        help_text="Whether the price is a dynamic estimate (for commercial types)"
     )
     service_category = models.CharField(
         max_length=50,
@@ -445,6 +467,25 @@ class JobCard(BaseModel):
         verbose_name="Next Service Date",
         help_text="Date for the next scheduled service (optional)"
     )
+    service_cycle = models.IntegerField(
+        default=1,
+        verbose_name="Service Cycle",
+        help_text="Current service number in the sequence"
+    )
+    max_cycle = models.IntegerField(
+        default=1,
+        verbose_name="Max Cycle",
+        help_text="Total number of services in the contract"
+    )
+    parent_job = models.ForeignKey(
+        'self', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='follow_up_jobs',
+        verbose_name="Parent Job",
+        help_text="The previous job in the service sequence"
+    )
     notes = models.TextField(
         blank=True, 
         null=True,
@@ -479,13 +520,14 @@ class JobCard(BaseModel):
             models.Index(fields=['schedule_date', 'status']),
             models.Index(fields=['client', 'status']),
             models.Index(fields=['job_type', 'status']),
-            models.Index(fields=['contract_duration', 'job_type']),
+            models.Index(fields=['commercial_type', 'status']),
+            models.Index(fields=['contract_duration', 'commercial_type']),
         ]
         verbose_name = 'Job Card'
         verbose_name_plural = 'Job Cards'
 
     def __str__(self) -> str:
-        return self.code or f"JobCard {self.pk}"
+        return self.code or str(self.pk)
 
     def clean(self):
         """Custom validation for the model with comprehensive business rules."""
@@ -521,7 +563,7 @@ class JobCard(BaseModel):
 
         # Generate code after initial save when PK is available
         if creating and not self.code:
-            self.code = f"JC-{self.pk:04d}"
+            self.code = str(self.pk)
             super().save(update_fields=['code'])
 
 
