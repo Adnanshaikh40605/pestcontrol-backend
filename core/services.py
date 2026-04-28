@@ -567,7 +567,7 @@ class JobCardService:
         Calculate the next service date and max cycle based on service rules.
         Returns (next_date, max_cycle).
         """
-        from datetime import timedelta
+        from datetime import timedelta, datetime, date
         from dateutil.relativedelta import relativedelta
         
         service_type = jobcard.service_type.lower() if jobcard.service_type else ""
@@ -576,6 +576,14 @@ class JobCardService:
         
         if not schedule_date:
             return None, 1
+
+        # If schedule_date is a string, convert it to a date object
+        if isinstance(schedule_date, str):
+            try:
+                # Try common formats, mainly YYYY-MM-DD
+                schedule_date = datetime.strptime(schedule_date, "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                return None, 1
             
         next_date = None
         max_cycle = 1
