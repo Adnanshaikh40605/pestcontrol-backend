@@ -962,6 +962,9 @@ class JobCardViewSet(BaseModelViewSet):
         elif booking_type == 'upcoming_services':
             # Tab 5: Upcoming Services
             qs = qs.filter(next_service_date__isnull=False, status=JobCard.JobStatus.PENDING)
+        elif booking_type == 'cancelled':
+            # Tab 6: Cancelled
+            qs = qs.filter(status=JobCard.JobStatus.CANCELLED)
         
         # 2. Handle Robust Search (Explicitly)
         search_query = self.request.query_params.get('search', '').strip()

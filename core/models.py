@@ -273,6 +273,7 @@ class JobCard(BaseModel):
         PENDING = 'Pending', 'Pending'
         ON_PROCESS = 'On Process', 'On Process'
         DONE = 'Done', 'Done'
+        CANCELLED = 'Cancelled', 'Cancelled'
 
     class PaymentStatus(models.TextChoices):
         UNPAID = 'Unpaid', 'Unpaid'
