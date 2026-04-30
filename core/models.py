@@ -156,6 +156,28 @@ class Technician(BaseModel):
         verbose_name="Is Active",
         help_text="Whether the technician is currently available"
     )
+    service_area = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Service Area",
+        help_text="Primary area where the technician operates"
+    )
+    city = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="City",
+        help_text="City where the technician is based"
+    )
+    last_active = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Last Active",
+        help_text="Last known timestamp of activity"
+    )
 
     class Meta:
         ordering = ['name']
@@ -513,6 +535,25 @@ class JobCard(BaseModel):
         verbose_name="Extra Notes",
         help_text="Additional notes or comments about the job card"
     )
+    cancellation_reason = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Cancellation Reason",
+        help_text="Reason why the booking was cancelled"
+    )
+    removal_remarks = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Removal Remarks",
+        help_text="Remarks when a technician is removed from an On Process job"
+    )
+
+    # Partner App Workflow Fields
+    is_accepted = models.BooleanField(default=False, verbose_name="Is Accepted")
+    is_service_call = models.BooleanField(default=False, verbose_name="Is Service Call")
+    accepted_at = models.DateTimeField(null=True, blank=True, verbose_name="Accepted At")
+    started_at = models.DateTimeField(null=True, blank=True, verbose_name="Started At")
+    completed_at = models.DateTimeField(null=True, blank=True, verbose_name="Completed At")
 
     class Meta:
         ordering = ['-created_at']
@@ -558,8 +599,27 @@ class JobCard(BaseModel):
         if self.next_service_date and self.schedule_date and self.next_service_date <= self.schedule_date:
             raise ValidationError({'next_service_date': 'Next service date must be after schedule date.'})
 
+        # Business rule: Cancellation reason validation
+        if self.status == self.JobStatus.CANCELLED:
+            if not self.cancellation_reason or not self.cancellation_reason.strip():
+                raise ValidationError({'cancellation_reason': 'Cancellation reason is required when status is Cancelled.'})
+            
+            # Min 4 characters
+            if len(self.cancellation_reason.strip()) < 4:
+                raise ValidationError({'cancellation_reason': 'Reason must be at least 4 characters.'})
+            
+            # No special characters (alphabets, numbers, spaces only)
+            import re
+            if not re.match(r'^[a-zA-Z0-9\s]*$', self.cancellation_reason):
+                raise ValidationError({'cancellation_reason': 'Special characters are not allowed in the cancellation reason.'})
+
     def save(self, *args, **kwargs):
         creating = self.pk is None
+        
+        # Auto-set is_service_call if it's a follow-up cycle
+        if self.service_cycle > 1:
+            self.is_service_call = True
+            
         super().save(*args, **kwargs)
 
         # Generate code after initial save when PK is available

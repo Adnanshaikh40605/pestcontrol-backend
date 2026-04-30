@@ -960,8 +960,11 @@ class JobCardViewSet(BaseModelViewSet):
             # Tab 4: Upcoming Renewals
             qs = qs.filter(renewals__status='Due').distinct()
         elif booking_type == 'upcoming_services':
-            # Tab 5: Upcoming Services
-            qs = qs.filter(next_service_date__isnull=False, status=JobCard.JobStatus.PENDING)
+            # Tab 5: Upcoming Services - Include Pending, On Process, and Done jobs with next service dates
+            qs = qs.filter(
+                next_service_date__isnull=False, 
+                status__in=[JobCard.JobStatus.PENDING, JobCard.JobStatus.ON_PROCESS, JobCard.JobStatus.DONE]
+            )
         elif booking_type == 'cancelled':
             # Tab 6: Cancelled
             qs = qs.filter(status=JobCard.JobStatus.CANCELLED)
@@ -1031,6 +1034,7 @@ class JobCardViewSet(BaseModelViewSet):
             instance.technician = technician
             instance.assigned_to = technician.name
             instance.status = JobCard.JobStatus.ON_PROCESS
+            instance.removal_remarks = ''  # Clear removal remarks when re-assigned
             instance.save()
             
             serializer = self.get_serializer(instance)

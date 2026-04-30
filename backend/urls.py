@@ -60,4 +60,5 @@ urlpatterns = [
     
     # API endpoints
     path('api/', include('core.urls')),
+    path('api/partner/', include('partner.urls')),
 ]

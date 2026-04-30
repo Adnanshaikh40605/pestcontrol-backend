@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'drf_spectacular',  # OpenAPI 3.0 documentation
     'core',
+    'partner',
 ]
 
 MIDDLEWARE = [

@@ -20,7 +20,7 @@ class TechnicianSerializer(serializers.ModelSerializer):
         model = Technician
         fields = [
             'id', 'name', 'mobile', 'age', 'alternative_mobile', 
-            'is_active', 'active_jobs', 'active_job_details', 'created_at', 'updated_at'
+            'is_active', 'service_area', 'city', 'last_active', 'active_jobs', 'active_job_details', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
@@ -61,7 +61,9 @@ class JobCardSerializer(serializers.ModelSerializer):
             'time_slot', 'state', 'city',
             'price', 'client_address',
             'payment_status', 'assigned_to', 'technician', 'technician_name', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
-            'extra_notes', 'created_at', 'updated_at'
+            'extra_notes', 'cancellation_reason', 'removal_remarks', 
+            'is_accepted', 'is_service_call', 'accepted_at', 'started_at', 'completed_at',
+            'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'code', 'created_at', 'updated_at']
     
@@ -97,6 +99,42 @@ class JobCardSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     'client_data': {'mobile': 'Mobile number must be exactly 10 digits.'}
                 })
+        
+        # Business rule: Cancellation reason validation
+        status = data.get('status')
+        # If updating, check the current status if not provided in data
+        if status is None and self.instance:
+            status = self.instance.status
+            
+        if status == 'Cancelled':
+            cancellation_reason = data.get('cancellation_reason')
+            # If updating, check the current reason if not provided in data
+            if cancellation_reason is None and self.instance:
+                cancellation_reason = self.instance.cancellation_reason
+                
+            if not cancellation_reason or not cancellation_reason.strip():
+                raise serializers.ValidationError({'cancellation_reason': 'Cancellation reason is required when status is Cancelled.'})
+            
+            # Min 4 characters
+            if len(cancellation_reason.strip()) < 4:
+                raise serializers.ValidationError({'cancellation_reason': 'Reason must be at least 4 characters.'})
+            
+            # No special characters (alphabets, numbers, spaces only)
+            import re
+            if not re.match(r'^[a-zA-Z0-9\s]*$', cancellation_reason):
+                raise serializers.ValidationError({'cancellation_reason': 'Special characters are not allowed in the cancellation reason.'})
+        
+        # Business rule: Technician removal validation (On Process -> Pending)
+        if status == 'Pending' and self.instance and self.instance.status in ['On Process', 'Confirmed']:
+            # If the current status is assigned, but we are moving back to Pending, require remarks
+            removal_remarks = data.get('removal_remarks')
+            
+            # Note: technician being None/empty also indicates removal if it was assigned
+            if not removal_remarks or not removal_remarks.strip():
+                raise serializers.ValidationError({'removal_remarks': 'Removal remarks are required when removing a technician.'})
+            
+            if len(removal_remarks.strip()) < 4:
+                raise serializers.ValidationError({'removal_remarks': 'Remarks must be at least 4 characters.'})
         
         return data
 

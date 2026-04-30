@@ -636,6 +636,7 @@ class JobCardService:
                         city=jobcard.city,
                         status=JobCard.JobStatus.PENDING,
                         payment_status=JobCard.PaymentStatus.UNPAID,
+                        is_service_call=True,
                     )
                     
                     # Calculate next service date for the NEWLY created job
