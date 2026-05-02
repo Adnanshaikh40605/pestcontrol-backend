@@ -32,12 +32,13 @@ APPEND_SLASH = True  # Automatically append trailing slashes to URLs
 RAILWAY_DOMAIN = "pestcontrol-backend-production.up.railway.app"
 
 ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', 
-    default=f'localhost,127.0.0.1,.railway.app,.up.railway.app,{RAILWAY_DOMAIN}'
+    default=f'localhost,127.0.0.1,api.vacationbna.site,.railway.app,.up.railway.app'
 ).split(',')
 
-CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', 
-    default=f'https://*.railway.app,https://*.up.railway.app,https://{RAILWAY_DOMAIN},https://pest99-webapp.vercel.app,https://*.vercel.app'
-).split(',')
+CSRF_TRUSTED_ORIGINS = [
+    "https://api.vacationbna.site",
+    "https://pestcontrol-crm-frontend.vercel.app"
+]
 # adnan
 # Telegram integration settings
 TELEGRAM_NOTIFICATIONS_ENABLED = config('TELEGRAM_NOTIFICATIONS_ENABLED', default=False, cast=bool)
@@ -216,35 +217,25 @@ SIMPLE_JWT = {
 }
 
 # CORS settings
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
-CORS_ALLOW_HEADERS = ['*']  # Allow all headers for maximum compatibility
-
-# Get CORS origins from environment or use defaults
-CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', 
-    default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,https://www.pestcontrol99.com,https://pestcontrol-crm-frontend.vercel.app,https://pestcontrol-crm.vercel.app,https://pest99-app.vercel.app,https://pest99-webapp.vercel.app'
-).split(',')
-
-# Ensure all required URLs are included
-REQUIRED_CORS_ORIGINS = [
-    'http://localhost:3000',
-    'http://127.0.0.1:3000', 
-    'http://localhost:3001',
-    'https://www.pestcontrol99.com',
-    'https://pestcontrol-crm-frontend.vercel.app',
-    'https://pestcontrol-crm.vercel.app',
-    'https://pest99-app.vercel.app',
-    'https://pest99-webapp.vercel.app',
-    'http://localhost:5173',
-    
-
+CORS_ALLOWED_ORIGINS = [
+    "https://pestcontrol-crm-frontend.vercel.app"
 ]
-
-# Add any missing required origins
-for origin in REQUIRED_CORS_ORIGINS:
-    if origin not in CORS_ALLOWED_ORIGINS:
-        CORS_ALLOWED_ORIGINS.append(origin)
+CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'x-api-key',
+    'x-client-id',
+]
 
 # Additional CORS patterns for subdomains and variations
 CORS_ALLOWED_ORIGIN_REGEXES = [
