@@ -31,9 +31,7 @@ APPEND_SLASH = True  # Automatically append trailing slashes to URLs
 # Railway domain configuration
 RAILWAY_DOMAIN = "pestcontrol-backend-production.up.railway.app"
 
-ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', 
-    default=f'localhost,127.0.0.1,api.vacationbna.site,.railway.app,.up.railway.app'
-).split(',')
+ALLOWED_HOSTS = ['api.vacationbna.site', '.railway.app', '.up.railway.app', 'localhost', '127.0.0.1', '*']
 
 CSRF_TRUSTED_ORIGINS = [
     "https://api.vacationbna.site",
@@ -300,6 +298,8 @@ if not DEBUG:
     # Force HTTPS everywhere
     SECURE_SSL_REDIRECT = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    USE_X_FORWARDED_HOST = True
+    USE_X_FORWARDED_PORT = True
 
     # Cookie settings for cross-domain (Railway <-> Vercel)
     SESSION_COOKIE_SECURE = True
