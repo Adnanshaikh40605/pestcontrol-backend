@@ -36,7 +36,7 @@ ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS',
 ).split(',')
 
 CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', 
-    default=f'https://*.railway.app,https://*.up.railway.app,https://{RAILWAY_DOMAIN},https://pest99-webapp.vercel.app'
+    default=f'https://*.railway.app,https://*.up.railway.app,https://{RAILWAY_DOMAIN},https://pest99-webapp.vercel.app,https://*.vercel.app'
 ).split(',')
 # adnan
 # Telegram integration settings
@@ -216,7 +216,10 @@ SIMPLE_JWT = {
 }
 
 # CORS settings
-CORS_ALLOW_ALL_ORIGINS = False  # Never allow all origins in production
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
+CORS_ALLOW_HEADERS = ['*']  # Allow all headers for maximum compatibility
 
 # Get CORS origins from environment or use defaults
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', 
@@ -303,16 +306,17 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_PRELOAD = True
     SECURE_REDIRECT_EXEMPT = []
-    # Disable SSL redirect for Railway (Railway handles HTTPS at proxy level)
-    SECURE_SSL_REDIRECT = False
-    # Trust Railway's proxy headers for HTTPS detection
+    # Force HTTPS everywhere
+    SECURE_SSL_REDIRECT = True
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+    # Cookie settings for cross-domain (Railway <-> Vercel)
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_SAMESITE = 'None'
+    CSRF_COOKIE_SAMESITE = 'None'
     SESSION_COOKIE_HTTPONLY = True
     CSRF_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SAMESITE = 'Lax'
-    CSRF_COOKIE_SAMESITE = 'Lax'
 
 # Logging configuration
 LOGGING = {
