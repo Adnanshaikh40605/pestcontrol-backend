@@ -15,11 +15,12 @@ class ClientSerializer(serializers.ModelSerializer):
 class TechnicianSerializer(serializers.ModelSerializer):
     active_jobs = serializers.IntegerField(read_only=True)
     active_job_details = serializers.SerializerMethodField()
+    phone = serializers.CharField(source='mobile', read_only=True)
 
     class Meta:
         model = Technician
         fields = [
-            'id', 'name', 'mobile', 'age', 'alternative_mobile', 
+            'id', 'name', 'mobile', 'phone', 'age', 'alternative_mobile', 
             'is_active', 'service_area', 'city', 'last_active', 'active_jobs', 'active_job_details', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -52,6 +53,9 @@ class JobCardSerializer(serializers.ModelSerializer):
     
     # Nested client data for creation
     client_data = serializers.DictField(write_only=True, required=False, help_text="Client details for creation if client doesn't exist")
+
+    schedule_date = serializers.DateField(format="%Y-%m-%d")
+    created_at = serializers.DateTimeField(format="%d-%m-%Y %H:%M", read_only=True)
 
     class Meta:
         model = JobCard

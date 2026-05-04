@@ -957,12 +957,16 @@ class JobCardViewSet(BaseModelViewSet):
             # Tab 3: Done
             qs = qs.filter(status='Done')
         elif booking_type == 'upcoming_renewals':
-            # Tab 4: Upcoming Renewals
-            qs = qs.filter(renewals__status='Due').distinct()
+            # Tab 4: Upcoming Renewals - Today + Tomorrow only
+            today = timezone.now().date()
+            tomorrow = today + timezone.timedelta(days=1)
+            qs = qs.filter(renewals__status='Due', renewals__due_date__in=[today, tomorrow]).distinct()
         elif booking_type == 'upcoming_services':
-            # Tab 5: Upcoming Services - Include Pending, On Process, and Done jobs with next service dates
+            # Tab 5: Upcoming Services - Today + Tomorrow only
+            today = timezone.now().date()
+            tomorrow = today + timezone.timedelta(days=1)
             qs = qs.filter(
-                next_service_date__isnull=False, 
+                next_service_date__in=[today, tomorrow], 
                 status__in=[JobCard.JobStatus.PENDING, JobCard.JobStatus.ON_PROCESS, JobCard.JobStatus.DONE]
             )
         elif booking_type == 'cancelled':
