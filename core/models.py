@@ -430,10 +430,10 @@ class JobCard(BaseModel):
         verbose_name="Service Type",
         help_text="Type of pest control service to be provided"
     )
-    schedule_date = models.DateField(
+    schedule_datetime = models.DateTimeField(
         db_index=True,
-        verbose_name="Schedule Date",
-        help_text="Date when the service is scheduled"
+        verbose_name="Schedule DateTime",
+        help_text="Date and time when the service is scheduled"
     )
     time_slot = models.CharField(
         max_length=100,
@@ -559,7 +559,7 @@ class JobCard(BaseModel):
         ordering = ['-created_at']
         indexes = [
             models.Index(fields=['status', 'payment_status']),
-            models.Index(fields=['schedule_date', 'status']),
+            models.Index(fields=['schedule_datetime', 'status']),
             models.Index(fields=['client', 'status']),
             models.Index(fields=['job_type', 'status']),
             models.Index(fields=['commercial_type', 'status']),
@@ -580,11 +580,11 @@ class JobCard(BaseModel):
             raise ValidationError({'service_type': 'Service type is required.'})
         
         # Business rule: Schedule date validation (allow past dates with warning)
-        if self.schedule_date and self.schedule_date < timezone.now().date() and not self.pk:
+        if self.schedule_datetime and self.schedule_datetime.date() < timezone.now().date() and not self.pk:
             # Allow past dates but log a warning for audit purposes
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning(f"Job card created with past schedule date: {self.schedule_date} (today: {timezone.now().date()})")
+            logger.warning(f"Job card created with past schedule date: {self.schedule_datetime} (today: {timezone.now().date()})")
             # Note: We allow past dates for cases like recording completed services, backdating, etc.
         
         # Business rule: Price must be provided
@@ -596,7 +596,7 @@ class JobCard(BaseModel):
             raise ValidationError({'contract_duration': 'Contract duration is required for Society jobs.'})
         
         # Business rule: Next service date validation
-        if self.next_service_date and self.schedule_date and self.next_service_date <= self.schedule_date:
+        if self.next_service_date and self.schedule_datetime and self.next_service_date <= self.schedule_datetime.date():
             raise ValidationError({'next_service_date': 'Next service date must be after schedule date.'})
 
         # Business rule: Cancellation reason validation

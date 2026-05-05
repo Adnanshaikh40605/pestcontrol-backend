@@ -54,14 +54,14 @@ class JobCardSerializer(serializers.ModelSerializer):
     # Nested client data for creation
     client_data = serializers.DictField(write_only=True, required=False, help_text="Client details for creation if client doesn't exist")
 
-    schedule_date = serializers.DateField(format="%Y-%m-%d")
+    schedule_datetime = serializers.DateTimeField(required=False, allow_null=True)
     created_at = serializers.DateTimeField(format="%d-%m-%Y %H:%M", read_only=True)
 
     class Meta:
         model = JobCard
         fields = [
             'id', 'code', 'client', 'client_name', 'client_mobile', 'client_state', 'client_notes', 'client_data',
-            'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_date', 
+            'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_datetime', 
             'time_slot', 'state', 'city',
             'price', 'client_address',
             'payment_status', 'assigned_to', 'technician', 'technician_name', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 

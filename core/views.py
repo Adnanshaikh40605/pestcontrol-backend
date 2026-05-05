@@ -991,9 +991,9 @@ class JobCardViewSet(BaseModelViewSet):
         date_from = self.request.query_params.get('from')
         date_to = self.request.query_params.get('to')
         if date_from:
-            qs = qs.filter(schedule_date__gte=date_from)
+            qs = qs.filter(schedule_datetime__date__gte=date_from)
         if date_to:
-            qs = qs.filter(schedule_date__lte=date_to)
+            qs = qs.filter(schedule_datetime__date__lte=date_to)
             
         return qs.distinct()
     
