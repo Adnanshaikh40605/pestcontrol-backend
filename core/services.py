@@ -959,39 +959,54 @@ class DashboardService:
     """
     
     @staticmethod
-    def get_dashboard_statistics() -> Dict[str, Any]:
-        """Get comprehensive dashboard statistics including status and category breakdowns."""
+    def get_dashboard_statistics(from_date: str = None, to_date: str = None) -> Dict[str, Any]:
+        """Get comprehensive dashboard statistics with optional date range filtering."""
         try:
             from django.utils import timezone
+            from django.db.models import Count, Q
             today = timezone.now().date()
             
+            # Prepare filters
+            inquiry_filters = Q()
+            jobcard_filters = Q()
+            renewal_filters = Q()
+            
+            if from_date:
+                inquiry_filters &= Q(created_at__date__gte=from_date)
+                jobcard_filters &= Q(schedule_datetime__date__gte=from_date)
+                renewal_filters &= Q(due_date__gte=from_date)
+            if to_date:
+                inquiry_filters &= Q(created_at__date__lte=to_date)
+                jobcard_filters &= Q(schedule_datetime__date__lte=to_date)
+                renewal_filters &= Q(due_date__lte=to_date)
+            
             # Basic counts
-            total_web_inquiries = Inquiry.objects.count()
-            total_crm_inquiries = CRMInquiry.objects.count()
+            total_web_inquiries = Inquiry.objects.filter(inquiry_filters).count()
+            total_crm_inquiries = CRMInquiry.objects.filter(inquiry_filters).count()
             total_inquiries = total_web_inquiries + total_crm_inquiries
             
-            total_job_cards = JobCard.objects.count()
-            total_clients = Client.objects.count()
-            renewals = Renewal.objects.count()
+            total_job_cards = JobCard.objects.filter(jobcard_filters).count()
+            total_clients = Client.objects.count() # Clients are not typically filtered by date unless specifically requested
+            renewals = Renewal.objects.filter(renewal_filters).count()
             
-            # Service Category Breakdown - Using Model Choices for robustness
+            # Service Category Breakdown
             category_stats = {
-                'one_time': JobCard.objects.filter(service_category=JobCard.ServiceCategory.ONE_TIME).count(),
-                'amc': JobCard.objects.filter(service_category=JobCard.ServiceCategory.AMC).count()
+                'one_time': JobCard.objects.filter(jobcard_filters, service_category=JobCard.ServiceCategory.ONE_TIME).count(),
+                'amc': JobCard.objects.filter(jobcard_filters, service_category=JobCard.ServiceCategory.AMC).count()
             }
             
             # Category Breakdown (Retail vs Corporate)
             job_type_stats = {
-                'individual': JobCard.objects.filter(commercial_type=JobCard.CommercialType.HOME).count(),
-                'society': JobCard.objects.exclude(commercial_type=JobCard.CommercialType.HOME).count(),
+                'individual': JobCard.objects.filter(jobcard_filters, commercial_type=JobCard.CommercialType.HOME).count(),
+                'society': JobCard.objects.filter(jobcard_filters).exclude(commercial_type=JobCard.CommercialType.HOME).count(),
             }
             
-            # Status Breakdown - Updated to match new JobStatus model
+            # Status Breakdown
             status_stats = {
-                'pending': JobCard.objects.filter(status=JobCard.JobStatus.PENDING).count(),
-                'on_process': JobCard.objects.filter(status=JobCard.JobStatus.ON_PROCESS).count(),
-                'done': JobCard.objects.filter(status=JobCard.JobStatus.DONE).count(),
-                # Today's Jobs (previously 'confirmed' key)
+                'pending': JobCard.objects.filter(jobcard_filters, status=JobCard.JobStatus.PENDING).count(),
+                'on_process': JobCard.objects.filter(jobcard_filters, status=JobCard.JobStatus.ON_PROCESS).count(),
+                'done': JobCard.objects.filter(jobcard_filters, status=JobCard.JobStatus.DONE).count(),
+                # Today's Jobs (always relative to today unless explicitly filtering for a range that excludes it)
                 'confirmed': JobCard.objects.filter(schedule_datetime__date=today).count(),
                 'completed': 0,
                 'cancelled': 0,
@@ -999,19 +1014,18 @@ class DashboardService:
             }
             
             # City breakdown (Top 5)
-            # mapping 'city' for clean frontend consumption
-            from django.db.models import Count
-            city_stats = list(JobCard.objects.exclude(city=None).exclude(city='')
+            city_stats = list(JobCard.objects.filter(jobcard_filters)
+                             .exclude(city=None).exclude(city='')
                              .values('city')
                              .annotate(count=Count('city'))
                              .order_by('-count')[:5])
             
             # Property Type breakdown
-            property_type_stats = list(JobCard.objects.exclude(property_type=None).exclude(property_type='')
+            property_type_stats = list(JobCard.objects.filter(jobcard_filters)
+                                     .exclude(property_type=None).exclude(property_type='')
                                      .values('property_type')
                                      .annotate(count=Count('property_type'))
                                      .order_by('-count'))
-            
             
             return {
                 'total_inquiries': total_inquiries,
@@ -1027,7 +1041,6 @@ class DashboardService:
                 'property_type_stats': property_type_stats,
             }
         except Exception as e:
-            # Log the error and re-raise for proper error handling
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Error retrieving dashboard statistics: {str(e)}")

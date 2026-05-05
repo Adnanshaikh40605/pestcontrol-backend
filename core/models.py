@@ -253,6 +253,11 @@ class Inquiry(BaseModel):
         verbose_name="Is Read",
         help_text="Whether the inquiry has been read by staff"
     )
+    
+    # Reminder fields
+    reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")
+    reminder_note = models.TextField(null=True, blank=True, verbose_name="Reminder Note")
+    is_reminder_done = models.BooleanField(default=False, db_index=True, verbose_name="Is Reminder Done")
 
     class Meta:
         ordering = ['-created_at']
@@ -547,8 +552,14 @@ class JobCard(BaseModel):
         verbose_name="Removal Remarks",
         help_text="Remarks when a technician is removed from an On Process job"
     )
+    
+    # Reminder fields
+    reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")
+    reminder_note = models.TextField(null=True, blank=True, verbose_name="Reminder Note")
+    is_reminder_done = models.BooleanField(default=False, db_index=True, verbose_name="Is Reminder Done")
 
     # Partner App Workflow Fields
+    is_read = models.BooleanField(default=False, verbose_name="Is Read")
     is_accepted = models.BooleanField(default=False, verbose_name="Is Accepted")
     is_service_call = models.BooleanField(default=False, verbose_name="Is Service Call")
     accepted_at = models.DateTimeField(null=True, blank=True, verbose_name="Accepted At")
@@ -769,7 +780,12 @@ class CRMInquiry(BaseModel):
     mobile = models.CharField(max_length=10, validators=[validate_mobile_number], db_index=True)
     location = models.CharField(max_length=500, blank=True, null=True)
     pest_type = models.CharField(max_length=255, default='Other')
-    remark = models.TextField(blank=True, null=True)
+    remark = models.TextField(blank=True, null=True, verbose_name="Remark")
+    
+    # Reminder fields
+    reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")
+    reminder_note = models.TextField(null=True, blank=True, verbose_name="Reminder Note")
+    is_reminder_done = models.BooleanField(default=False, db_index=True, verbose_name="Is Reminder Done")
     inquiry_date = models.DateField(default=timezone.now)
     inquiry_time = models.TimeField(default=timezone.now)
     status = models.CharField(max_length=20, choices=InquiryStatus.choices, default=InquiryStatus.NEW)

@@ -972,6 +972,9 @@ class JobCardViewSet(BaseModelViewSet):
         elif booking_type == 'cancelled':
             # Tab 6: Cancelled
             qs = qs.filter(status=JobCard.JobStatus.CANCELLED)
+        elif booking_type == 'reminders':
+            # Tab 7: Reminders
+            qs = qs.filter(reminder_date__isnull=False, is_reminder_done=False)
         
         # 2. Handle Robust Search (Explicitly)
         search_query = self.request.query_params.get('search', '').strip()
@@ -1614,8 +1617,12 @@ class DashboardViewSet(viewsets.GenericViewSet):
         }
         """
         try:
+            # Get date range from query params
+            from_date = request.query_params.get('from')
+            to_date = request.query_params.get('to')
+            
             # Get dashboard statistics from service
-            stats = DashboardService.get_dashboard_statistics()
+            stats = DashboardService.get_dashboard_statistics(from_date=from_date, to_date=to_date)
             
             # Add metadata
             stats.update({
