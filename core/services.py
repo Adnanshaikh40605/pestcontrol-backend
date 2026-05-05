@@ -505,8 +505,8 @@ class JobCardService:
                 # Map old statuses to new ones if they come from old frontend code
                 status_map = {
                     'Enquiry': JobCard.JobStatus.PENDING,
-                    'WIP': JobCard.JobStatus.CONFIRMED,
-                    'Done': JobCard.JobStatus.COMPLETED,
+                    'WIP': JobCard.JobStatus.ON_PROCESS,
+                    'Done': JobCard.JobStatus.DONE,
                     'Cancel': JobCard.JobStatus.CANCELLED
                 }
                 jobcard_data['status'] = status_map.get(jobcard_data['status'], JobCard.JobStatus.PENDING)

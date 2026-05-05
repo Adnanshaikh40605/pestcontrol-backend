@@ -944,19 +944,18 @@ class JobCardViewSet(BaseModelViewSet):
             return qs
         
         # 1. Handle Booking Type Categories (Tabs)
-        booking_type = self.request.query_params.get('booking_type', 'all')
+        booking_type = self.request.query_params.get('booking_type', 'pending').lower()
         logger.info(f"🔍 JobCard list requested with booking_type: {booking_type}")
-        now = timezone.now().date()
         
         if booking_type == 'pending':
-            # Tab 1: Pending Booking
-            qs = qs.filter(status='Pending')
+            # Tab 1: Pending Booking - Strictly PENDING status only
+            qs = qs.filter(status=JobCard.JobStatus.PENDING)
         elif booking_type == 'on_process':
-            # Tab 2: On Process
-            qs = qs.filter(status='On Process')
+            # Tab 2: On Process - Strictly ON_PROCESS status only
+            qs = qs.filter(status=JobCard.JobStatus.ON_PROCESS)
         elif booking_type == 'done':
-            # Tab 3: Done
-            qs = qs.filter(status='Done')
+            # Tab 3: Done - Strictly DONE status only
+            qs = qs.filter(status=JobCard.JobStatus.DONE)
         elif booking_type == 'upcoming_renewals':
             # Tab 4: Upcoming Renewals - Today + Tomorrow only
             today = timezone.now().date()
@@ -971,11 +970,18 @@ class JobCardViewSet(BaseModelViewSet):
                 status__in=[JobCard.JobStatus.PENDING, JobCard.JobStatus.ON_PROCESS, JobCard.JobStatus.DONE]
             )
         elif booking_type == 'cancelled':
-            # Tab 6: Cancelled
+            # Tab 6: Cancelled - Strictly CANCELLED status only
             qs = qs.filter(status=JobCard.JobStatus.CANCELLED)
         elif booking_type == 'reminders':
             # Tab 7: Reminders
             qs = qs.filter(reminder_date__isnull=False, is_reminder_done=False)
+        elif booking_type == 'all':
+            # No specific tab filter, show all
+            pass
+        else:
+            # Default fallback for unknown types: treat as pending if it's the main list
+            if not self.request.query_params.get('status'):
+                qs = qs.filter(status=JobCard.JobStatus.PENDING)
         
         # 2. Handle Robust Search (Explicitly)
         search_query = self.request.query_params.get('search', '').strip()
