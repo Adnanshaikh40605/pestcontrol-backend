@@ -813,7 +813,7 @@ class InquiryViewSet(BaseModelViewSet):
                 name='ordering',
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
-                description='Order results by: created_at, updated_at, schedule_date, status, payment_status, client__full_name, client__city, job_type, contract_duration (prefix with - for descending)'
+                description='Order results by: created_at, updated_at, schedule_datetime, status, payment_status, client__full_name, client__city, job_type, contract_duration (prefix with - for descending)'
             ),
         ],
         responses={
@@ -840,7 +840,7 @@ class InquiryViewSet(BaseModelViewSet):
                     'client': 1,
                     'service_type': 'Pest Control',
                     'job_type': 'residential',
-                    'schedule_date': '2024-01-15',
+                    'schedule_datetime': '2024-01-15T10:00:00Z',
                     'contract_duration': 12,
                     'amount': 1500.00,
                     'description': 'Regular pest control service'
@@ -925,7 +925,7 @@ class JobCardViewSet(BaseModelViewSet):
     - service_type: Search by service type
     
     Ordering options:
-    - created_at, updated_at, schedule_date, status, payment_status, 
+    - created_at, updated_at, schedule_datetime, status, payment_status, 
       client__full_name, client__city, job_type, contract_duration
     """
     queryset = JobCard.objects.select_related('client').prefetch_related('renewals').all()
@@ -933,7 +933,7 @@ class JobCardViewSet(BaseModelViewSet):
     filterset_fields = ['status', 'payment_status', 'client__city', 'client__mobile', 'job_type', 'commercial_type', 'service_category', 'contract_duration', 'is_paused', 'assigned_to']
     search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type', 'assigned_to', 'area', 'commercial_type']
     ordering_fields = [
-        'id', 'code', 'created_at', 'updated_at', 'schedule_date', 'status', 'payment_status', 
+        'id', 'code', 'created_at', 'updated_at', 'schedule_datetime', 'status', 'payment_status', 
         'client__full_name', 'client__city', 'job_type', 'service_category', 'contract_duration'
     ]
     ordering = ['-created_at']  # Default: latest job cards first
@@ -1127,7 +1127,7 @@ class JobCardViewSet(BaseModelViewSet):
         instance = self.get_object()
         
         # Store original values to check for changes
-        original_schedule_date = instance.schedule_date
+        original_schedule_datetime = instance.schedule_datetime
         original_next_service_date = instance.next_service_date
         original_contract_duration = instance.contract_duration
         original_job_type = instance.job_type
@@ -1198,7 +1198,7 @@ class JobCardViewSet(BaseModelViewSet):
             # Check if relevant fields changed or if it's just missing
             needs_calc = (
                 not instance.next_service_date or
-                instance.schedule_date != original_schedule_date
+                instance.schedule_datetime != original_schedule_datetime
             )
             if needs_calc:
                 next_date, max_cycle = JobCardService.calculate_next_service_date(instance)

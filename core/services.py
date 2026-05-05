@@ -316,7 +316,7 @@ class InquiryService:
                 'status': JobCard.JobStatus.PENDING,
                 'service_type': inquiry.service_interest,
                 'service_category': JobCard.ServiceCategory.ONE_TIME,
-                'schedule_date': conversion_data.get('schedule_date', timezone.now().date()),
+                'schedule_datetime': conversion_data.get('schedule_datetime', timezone.now()),
                 'price': conversion_data.get('price', ''),
                 'payment_status': JobCard.PaymentStatus.UNPAID,
                 'flat_number': inquiry.flat_number,
@@ -516,7 +516,7 @@ class JobCardService:
                 del jobcard_data['id']
             
             # Validate required fields
-            required_fields = ['service_type', 'schedule_date']
+            required_fields = ['service_type', 'schedule_datetime']
             for field in required_fields:
                 if not jobcard_data.get(field):
                     raise ValidationError(f"{field.replace('_', ' ').title()} is required.")
@@ -572,18 +572,22 @@ class JobCardService:
         
         service_type = jobcard.service_type.lower() if jobcard.service_type else ""
         service_category = jobcard.service_category
-        schedule_date = jobcard.schedule_date
+        schedule_datetime = jobcard.schedule_datetime
         
-        if not schedule_date:
+        if not schedule_datetime:
             return None, 1
 
-        # If schedule_date is a string, convert it to a date object
-        if isinstance(schedule_date, str):
+        # Extract date from datetime
+        if hasattr(schedule_datetime, 'date'):
+            schedule_date = schedule_datetime.date()
+        elif isinstance(schedule_datetime, str):
             try:
-                # Try common formats, mainly YYYY-MM-DD
-                schedule_date = datetime.strptime(schedule_date, "%Y-%m-%d").date()
+                from datetime import datetime as dt_
+                schedule_date = dt_.strptime(schedule_datetime[:10], "%Y-%m-%d").date()
             except (ValueError, TypeError):
                 return None, 1
+        else:
+            return None, 1
             
         next_date = None
         max_cycle = 1
@@ -622,7 +626,7 @@ class JobCardService:
                         client=jobcard.client,
                         service_type=jobcard.service_type,
                         service_category=jobcard.service_category,
-                        schedule_date=jobcard.next_service_date,
+                        schedule_datetime=jobcard.next_service_date,
                         service_cycle=jobcard.service_cycle + 1,
                         max_cycle=jobcard.max_cycle,
                         parent_job=jobcard,
@@ -737,7 +741,7 @@ class RenewalService:
         elif jobcard.job_type == JobCard.JobType.SOCIETY and jobcard.contract_duration:
             # For societies, create contract renewal and monthly reminders
             contract_months = int(jobcard.contract_duration)
-            start_date = jobcard.schedule_date
+            start_date = jobcard.schedule_datetime.date() if hasattr(jobcard.schedule_datetime, 'date') else jobcard.schedule_datetime
             
             # Create contract renewal (main renewal)
             contract_end_date = start_date + relativedelta(months=contract_months)
@@ -988,7 +992,7 @@ class DashboardService:
                 'on_process': JobCard.objects.filter(status=JobCard.JobStatus.ON_PROCESS).count(),
                 'done': JobCard.objects.filter(status=JobCard.JobStatus.DONE).count(),
                 # Today's Jobs (previously 'confirmed' key)
-                'confirmed': JobCard.objects.filter(schedule_date=today).count(),
+                'confirmed': JobCard.objects.filter(schedule_datetime__date=today).count(),
                 'completed': 0,
                 'cancelled': 0,
                 'hold': 0
@@ -1008,11 +1012,6 @@ class DashboardService:
                                      .annotate(count=Count('property_type'))
                                      .order_by('-count'))
             
-            # BHK Size breakdown
-            bhk_stats = list(JobCard.objects.exclude(bhk_size=None).exclude(bhk_size='')
-                           .values('bhk_size')
-                           .annotate(count=Count('bhk_size'))
-                           .order_by('-count'))
             
             return {
                 'total_inquiries': total_inquiries,
@@ -1026,7 +1025,6 @@ class DashboardService:
                 'job_type_stats': job_type_stats,
                 'city_stats': city_stats,
                 'property_type_stats': property_type_stats,
-                'bhk_stats': bhk_stats,
             }
         except Exception as e:
             # Log the error and re-raise for proper error handling
@@ -1083,7 +1081,7 @@ class CRMInquiryService:
                 'service_type': inquiry.pest_type,
                 'notes': inquiry.remark or '',
                 'status': 'Pending',
-                'schedule_date': timezone.now().date(),
+                'schedule_datetime': timezone.now(),
                 'state': client.state or 'Maharashtra',
                 'city': client.city or 'Pune'
             }

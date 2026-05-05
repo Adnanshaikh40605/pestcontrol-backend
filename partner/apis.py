@@ -60,7 +60,7 @@ def available_bookings(request):
             "id": job.id,
             "service": job.service_type,
             "area": job.city,
-            "date": job.schedule_date,
+            "date": job.schedule_datetime,
             "time_slot": job.time_slot,
             "is_service_call": job.is_service_call
         })
@@ -116,7 +116,7 @@ def accepted_bookings(request):
             "phone": job.client.mobile,
             "address": job.client_address,
             "service": job.service_type,
-            "date": job.schedule_date,
+            "date": job.schedule_datetime,
             "time_slot": job.time_slot,
             "is_service_call": job.is_service_call
         })
