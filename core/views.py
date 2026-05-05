@@ -945,6 +945,7 @@ class JobCardViewSet(BaseModelViewSet):
         
         # 1. Handle Booking Type Categories (Tabs)
         booking_type = self.request.query_params.get('booking_type', 'all')
+        logger.info(f"🔍 JobCard list requested with booking_type: {booking_type}")
         now = timezone.now().date()
         
         if booking_type == 'pending':
@@ -998,7 +999,9 @@ class JobCardViewSet(BaseModelViewSet):
         if date_to:
             qs = qs.filter(schedule_datetime__date__lte=date_to)
             
-        return qs.distinct()
+        final_qs = qs.distinct()
+        logger.info(f"✅ JobCard list returning {final_qs.count()} records for booking_type: {booking_type}")
+        return final_qs
     
     def list(self, request, *args, **kwargs):
         """List job cards with enhanced error handling."""
