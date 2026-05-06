@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback
 
 
 class ClientSerializer(serializers.ModelSerializer):
@@ -182,3 +182,20 @@ class CRMInquirySerializer(serializers.ModelSerializer):
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']
+
+
+class FeedbackSerializer(serializers.ModelSerializer):
+    client_name = serializers.CharField(source='booking.client.full_name', read_only=True)
+    technician_name = serializers.CharField(source='booking.technician.name', read_only=True)
+    booking_code = serializers.CharField(source='booking.code', read_only=True)
+    service_name = serializers.CharField(source='booking.service_type', read_only=True)
+    service_date = serializers.DateTimeField(source='booking.schedule_datetime', read_only=True)
+
+    class Meta:
+        model = Feedback
+        fields = [
+            'id', 'booking', 'booking_code', 'client_name', 'technician_name', 
+            'service_name', 'service_date', 'rating', 'remark', 
+            'technician_behavior', 'feedback_type', 'token', 'created_at'
+        ]
+        read_only_fields = ['id', 'token', 'created_at', 'feedback_type']

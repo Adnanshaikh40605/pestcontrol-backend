@@ -15,8 +15,8 @@ from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry
-from .serializers import ClientSerializer, InquirySerializer, JobCardSerializer, RenewalSerializer, TechnicianSerializer, CRMInquirySerializer
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback
+from .serializers import ClientSerializer, InquirySerializer, JobCardSerializer, RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, FeedbackSerializer
 from .services import ClientService, InquiryService, JobCardService, RenewalService, DashboardService, TechnicianService, CRMInquiryService
 
 logger = logging.getLogger(__name__)
@@ -81,7 +81,7 @@ class BaseModelViewSet(viewsets.ModelViewSet):
     
     def create(self, request, *args, **kwargs):
         """Override create to add logging."""
-        logger.info(f"Creating {self.get_serializer().Meta.model.__name__}")
+        logger.info(f"Creating {self.get_serializer_class().Meta.model.__name__}")
         return super().create(request, *args, **kwargs)
     
     def update(self, request, *args, **kwargs):
@@ -673,7 +673,7 @@ class InquiryViewSet(BaseModelViewSet):
         except Exception as e:
             logger.error(f"Error converting inquiry {pk}: {e}")
             return response.Response(
-                {'error': 'Failed to convert inquiry', 'details': str(e)},
+                {'error': 'Internal server error', 'details': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -696,7 +696,7 @@ class InquiryViewSet(BaseModelViewSet):
         },
         tags=['Inquiries']
     )
-    @decorators.action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'])
     def mark_as_read(self, request, pk=None):
         """Mark inquiry as read."""
         try:
@@ -710,8 +710,6 @@ class InquiryViewSet(BaseModelViewSet):
                 {'error': 'Failed to mark inquiry as read'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-
 
     @extend_schema(
         summary="Check if Client Exists",
@@ -735,7 +733,7 @@ class InquiryViewSet(BaseModelViewSet):
         },
         tags=['Inquiries']
     )
-    @decorators.action(detail=True, methods=['get'])
+    @action(detail=True, methods=['get'])
     def check_client_exists(self, request, pk=None):
         """Check if a client exists for the inquiry's mobile number."""
         try:
@@ -760,6 +758,179 @@ class InquiryViewSet(BaseModelViewSet):
                 {'error': 'Failed to check client existence'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class FeedbackViewSet(BaseModelViewSet):
+    """
+    ViewSet for managing customer feedback.
+    Supports manual entry and WhatsApp link generation/submission.
+    """
+    queryset = Feedback.objects.all()
+    serializer_class = FeedbackSerializer
+    filterset_fields = ['rating', 'feedback_type']
+    search_fields = ['booking__code', 'booking__client__full_name', 'remark']
+    ordering_fields = ['created_at', 'rating']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Filter out placeholders (rating=0) from listing if needed, 
+        # but for now we'll show all. Actually, rating=0 are just generated links not yet filled.
+        return qs.exclude(rating=0, feedback_type='WhatsApp Link')
+
+    def get_permissions(self):
+        """Allow public access to submit and retrieve booking info for feedback."""
+        action_name = getattr(self, 'action', None)
+        if action_name in ['submit', 'booking_info']:
+            return [permissions.AllowAny()]
+        return super().get_permissions()
+
+    def get_authenticators(self):
+        """Disable auth for public actions."""
+        action_name = getattr(self, 'action', None)
+        if action_name in ['submit', 'booking_info']:
+            return []
+        return super().get_authenticators()
+
+    @action(detail=False, methods=['post'], url_path='generate')
+    def generate(self, request):
+        """Generate a secure feedback link for a booking."""
+        booking_id = request.data.get('booking_id')
+        if not booking_id:
+            return response.Response({'error': 'booking_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            booking = JobCard.objects.get(id=booking_id)
+            if booking.status != JobCard.JobStatus.DONE:
+                return response.Response({'error': 'Feedback can only be generated for DONE bookings'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if feedback already exists for this booking
+            feedback = Feedback.objects.filter(booking=booking).first()
+            if not feedback:
+                feedback = Feedback.objects.create(
+                    booking=booking,
+                    rating=0,  # Placeholder until submitted
+                    feedback_type='WhatsApp Link'
+                )
+            elif feedback.rating > 0:
+                # If feedback exists and is completed, return the existing one but maybe we should allow re-sending the link?
+                # The user says "Do not allow multiple submissions".
+                pass
+            
+            # Simplified link format as requested: https://pestcontrol99.com/feedback/BOOKING_ID
+            link = f"https://pestcontrol99.com/feedback/{booking.id}"
+            
+            return response.Response({
+                'booking_id': booking.id,
+                'token': feedback.token,
+                'link': link,
+                'customer_name': booking.client.full_name
+            })
+        except JobCard.DoesNotExist:
+            return response.Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['get'], url_path='booking-info/(?P<booking_id>[^/.]+)')
+    def booking_info(self, request, booking_id=None):
+        """Get booking info for the public feedback page."""
+        token = request.query_params.get('token')
+        try:
+            if token:
+                feedback = Feedback.objects.get(booking_id=booking_id, token=token)
+            else:
+                # If no token, just get the feedback for the booking
+                feedback = Feedback.objects.get(booking_id=booking_id)
+            
+            booking = feedback.booking
+            
+            return response.Response({
+                'booking_id': booking.code or booking.id,
+                'service_name': booking.service_type,
+                'service_date': booking.schedule_datetime,
+                'technician_name': booking.technician.name if booking.technician else 'N/A',
+                'is_submitted': feedback.rating > 0
+            })
+        except Feedback.DoesNotExist:
+            return response.Response({'error': 'Invalid feedback link'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'], url_path='submit')
+    def submit(self, request):
+        """Submit feedback from the public link."""
+        booking_id = request.data.get('booking_id')
+        token = request.data.get('token')
+        rating = request.data.get('rating')
+        remark = request.data.get('remark', '')
+        behavior = request.data.get('technician_behavior')
+        
+        try:
+            if token:
+                feedback = Feedback.objects.get(booking_id=booking_id, token=token)
+            else:
+                feedback = Feedback.objects.get(booking_id=booking_id)
+            
+            if feedback.rating > 0:
+                 return response.Response({'error': 'Feedback already submitted'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            feedback.rating = rating
+            feedback.remark = remark
+            feedback.technician_behavior = behavior
+            feedback.save()
+            
+            return response.Response({'message': 'Thank you for your feedback ❤️'})
+        except Feedback.DoesNotExist:
+            return response.Response({'error': 'Invalid feedback link'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['get'])
+    def performance(self, request):
+        """Get technician performance averages."""
+        from django.db.models import Avg
+        performance = Feedback.objects.filter(rating__gt=0).values(
+            'booking__technician__name', 'booking__technician__id'
+        ).annotate(
+            average_rating=Avg('rating'),
+            total_feedbacks=Count('id')
+        ).order_by('-average_rating')
+        
+        # Format the response for easier consumption
+        results = []
+        for p in performance:
+            if p['booking__technician__id']:
+                results.append({
+                    'technician_name': p['booking__technician__name'],
+                    'technician_id': p['booking__technician__id'],
+                    'average_rating': round(p['average_rating'], 1),
+                    'total_feedbacks': p['total_feedbacks']
+                })
+        
+        return response.Response(results)
+
+    def perform_create(self, serializer):
+        """Handle manual feedback entry."""
+        booking = serializer.validated_data.get('booking')
+        if booking.status != JobCard.JobStatus.DONE:
+            raise ValidationError("Feedback can only be recorded for DONE bookings")
+        
+        # Check if a feedback record already exists for this booking
+        # If it's a placeholder (WhatsApp Link with no rating), we update it.
+        # Otherwise, we don't allow duplicate manual entries if one already exists.
+        existing_feedback = Feedback.objects.filter(booking=booking).first()
+        if existing_feedback:
+            if existing_feedback.rating > 0:
+                raise ValidationError("Feedback has already been recorded for this booking")
+            
+            # Update the existing placeholder
+            serializer.instance = existing_feedback
+        
+        serializer.save(feedback_type='Manual')
+
+    def create(self, request, *args, **kwargs):
+        """Override to provide better error messages for 400 errors."""
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            logger.warning(f"Feedback validation failed: {serializer.errors}")
+            return response.Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return response.Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 @extend_schema_view(

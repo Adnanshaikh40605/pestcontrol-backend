@@ -1,4 +1,5 @@
 from django.db import models
+import uuid
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from .validators import (
@@ -806,3 +807,28 @@ class CRMInquiry(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.name} - {self.mobile}"
+
+
+class Feedback(BaseModel):
+    booking = models.ForeignKey(JobCard, on_delete=models.CASCADE, related_name='feedbacks')
+    rating = models.IntegerField()
+    remark = models.TextField(blank=True, null=True)
+    technician_behavior = models.CharField(
+        max_length=50,
+        choices=[
+            ('excellent', 'Excellent'),
+            ('good', 'Good'),
+            ('average', 'Average'),
+            ('poor', 'Poor'),
+        ]
+    )
+    feedback_type = models.CharField(max_length=20)  # 'Manual' or 'WhatsApp Link'
+    token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Feedback'
+        verbose_name_plural = 'Feedbacks'
+
+    def __str__(self) -> str:
+        return f"Feedback for Booking {self.booking.code} - Rating: {self.rating}"
