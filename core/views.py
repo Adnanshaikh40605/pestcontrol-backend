@@ -833,23 +833,39 @@ class FeedbackViewSet(BaseModelViewSet):
         """Get booking info for the public feedback page."""
         token = request.query_params.get('token')
         try:
+            # 1. Try to find the Feedback record first
+            feedback = None
             if token:
-                feedback = Feedback.objects.get(booking_id=booking_id, token=token)
+                feedback = Feedback.objects.filter(booking_id=booking_id, token=token).first()
             else:
-                # If no token, just get the feedback for the booking
-                feedback = Feedback.objects.get(booking_id=booking_id)
+                feedback = Feedback.objects.filter(booking_id=booking_id).first()
             
-            booking = feedback.booking
+            # 2. If Feedback record exists, use its booking
+            if feedback:
+                booking = feedback.booking
+                is_submitted = feedback.rating > 0
+            else:
+                # 3. If no Feedback record, look up JobCard directly (for direct ID links)
+                booking = JobCard.objects.filter(id=booking_id).first()
+                if not booking:
+                    return response.Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+                
+                # Ensure it's a DONE booking
+                if booking.status != JobCard.JobStatus.DONE:
+                    return response.Response({'error': 'Feedback link is only active for completed services'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                is_submitted = False
             
             return response.Response({
                 'booking_id': booking.code or booking.id,
                 'service_name': booking.service_type,
                 'service_date': booking.schedule_datetime,
                 'technician_name': booking.technician.name if booking.technician else 'N/A',
-                'is_submitted': feedback.rating > 0
+                'is_submitted': is_submitted
             })
-        except Feedback.DoesNotExist:
-            return response.Response({'error': 'Invalid feedback link'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error in booking_info: {e}")
+            return response.Response({'error': 'An error occurred fetching booking info'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['post'], url_path='submit')
     def submit(self, request):
@@ -861,10 +877,27 @@ class FeedbackViewSet(BaseModelViewSet):
         behavior = request.data.get('technician_behavior')
         
         try:
+            # 1. Find or Create Feedback record
+            feedback = None
             if token:
-                feedback = Feedback.objects.get(booking_id=booking_id, token=token)
+                feedback = Feedback.objects.filter(booking_id=booking_id, token=token).first()
             else:
-                feedback = Feedback.objects.get(booking_id=booking_id)
+                feedback = Feedback.objects.filter(booking_id=booking_id).first()
+            
+            if not feedback:
+                # Direct submission via ID - check booking exists and is DONE
+                booking = JobCard.objects.filter(id=booking_id).first()
+                if not booking:
+                    return response.Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+                
+                if booking.status != JobCard.JobStatus.DONE:
+                    return response.Response({'error': 'Feedback can only be submitted for completed services'}, status=status.HTTP_400_BAD_REQUEST)
+                
+                feedback = Feedback.objects.create(
+                    booking=booking,
+                    rating=0,
+                    feedback_type='Direct Link'
+                )
             
             if feedback.rating > 0:
                  return response.Response({'error': 'Feedback already submitted'}, status=status.HTTP_400_BAD_REQUEST)
@@ -875,8 +908,9 @@ class FeedbackViewSet(BaseModelViewSet):
             feedback.save()
             
             return response.Response({'message': 'Thank you for your feedback ❤️'})
-        except Feedback.DoesNotExist:
-            return response.Response({'error': 'Invalid feedback link'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error in feedback submit: {e}")
+            return response.Response({'error': 'Failed to submit feedback'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['get'])
     def performance(self, request):
