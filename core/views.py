@@ -1182,7 +1182,7 @@ class JobCardViewSet(BaseModelViewSet):
             # Tab 6: Cancelled - Strictly CANCELLED status only
             qs = qs.filter(status=JobCard.JobStatus.CANCELLED)
         elif booking_type == 'reminders':
-            # Tab 7: Reminders
+            # Tab 7: Reminders - Initially show all active reminders
             qs = qs.filter(reminder_date__isnull=False, is_reminder_done=False)
         elif booking_type == 'all':
             # No specific tab filter, show all
@@ -1228,13 +1228,26 @@ class JobCardViewSet(BaseModelViewSet):
             
             qs = qs.filter(search_filter)
 
-        # 4. Handle Date Ranges
+        # 4. Handle Context-Aware Date Ranges
         date_from = self.request.query_params.get('from')
         date_to = self.request.query_params.get('to')
-        if date_from:
-            qs = qs.filter(schedule_datetime__date__gte=date_from)
-        if date_to:
-            qs = qs.filter(schedule_datetime__date__lte=date_to)
+        
+        if date_from or date_to:
+            if booking_type == 'reminders':
+                if date_from: qs = qs.filter(reminder_date__gte=date_from)
+                if date_to: qs = qs.filter(reminder_date__lte=date_to)
+            elif booking_type == 'upcoming_renewals':
+                if date_from: qs = qs.filter(renewals__due_date__gte=date_from)
+                if date_to: qs = qs.filter(renewals__due_date__lte=date_to)
+            else:
+                # Default for Pending, On Process, Done, Cancelled, Upcoming Services
+                if date_from: qs = qs.filter(schedule_datetime__date__gte=date_from)
+                if date_to: qs = qs.filter(schedule_datetime__date__lte=date_to)
+        elif booking_type == 'reminders':
+            # Default for Reminders tab if no date filter: Today + Tomorrow only (staff focus)
+            today = timezone.now().date()
+            tomorrow = today + timezone.timedelta(days=1)
+            qs = qs.filter(reminder_date__in=[today, tomorrow])
             
         final_qs = qs.distinct()
         logger.info(f"✅ JobCard list returning {final_qs.count()} records for booking_type: {booking_type}")
