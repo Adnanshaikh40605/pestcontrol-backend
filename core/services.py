@@ -112,10 +112,7 @@ class ClientService:
                 pass  # Client doesn't exist, we can proceed
             
             # Ensure required fields are present
-            required_fields = ['full_name', 'mobile', 'city']
-            for field in required_fields:
-                if not data.get(field):
-                    raise ValidationError(f"{field.replace('_', ' ').title()} is required.")
+            required_fields = ['full_name', 'mobile']
             
             # Validate mobile number format
             mobile_pattern = r'^\d{10}$'
@@ -515,11 +512,8 @@ class JobCardService:
             if 'id' in jobcard_data:
                 del jobcard_data['id']
             
-            # Validate required fields
-            required_fields = ['service_type', 'schedule_datetime']
-            for field in required_fields:
-                if not jobcard_data.get(field):
-                    raise ValidationError(f"{field.replace('_', ' ').title()} is required.")
+            # Validate required fields (only basic ones for quick reminders)
+            pass
             
             # Set default values
             if not jobcard_data.get('price'):
@@ -604,13 +598,17 @@ class JobCardService:
         return next_date, max_cycle
 
     @staticmethod
+    @transaction.atomic
     def handle_job_completion(jobcard: JobCard) -> Optional[JobCard]:
         """
         Handle automation when a job is marked as DONE.
-        Creates the next job in the sequence if applicable.
+        Creates the next job in the sequence if applicable for AMC or BedBug.
+        Uses select_for_update to prevent race conditions and duplicate creation.
         """
-        import logging
-        logger = logging.getLogger(__name__)
+        # Refetch with lock to prevent race conditions
+        jobcard = JobCard.objects.select_for_update().get(id=jobcard.id)
+        
+        logger.info(f"Checking completion automation for JobCard {jobcard.code} (Status: {jobcard.status})")
         
         if jobcard.status == JobCard.JobStatus.DONE and jobcard.next_service_date:
             if jobcard.service_cycle < jobcard.max_cycle:
@@ -621,7 +619,10 @@ class JobCardService:
                 ).exists()
                 
                 if not existing_next:
+                    logger.info(f"Creating follow-up cycle {jobcard.service_cycle + 1} for JobCard {jobcard.code}")
+                    
                     # Prepare data for next job
+                    # Note: next_job will automatically have is_service_call=True via model save logic
                     next_job = JobCard.objects.create(
                         client=jobcard.client,
                         service_type=jobcard.service_type,
@@ -649,8 +650,10 @@ class JobCardService:
                         next_job.next_service_date = next_next_date
                         next_job.save(update_fields=['next_service_date'])
                     
-                    logger.info(f"Auto-created follow-up job {next_job.code} for job {jobcard.code}")
+                    logger.info(f"✅ Successfully auto-created follow-up job {next_job.code} for job {jobcard.code}")
                     return next_job
+                else:
+                    logger.info(f"Follow-up for {jobcard.code} already exists, skipping duplicate creation.")
         return None
     
 

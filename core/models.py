@@ -64,6 +64,8 @@ class Client(BaseModel):
     )
     city = models.CharField(
         max_length=255, 
+        blank=True,
+        null=True,
         db_index=True,
         verbose_name="City",
         help_text="City where the client is located"
@@ -109,9 +111,8 @@ class Client(BaseModel):
         if self.full_name and len(self.full_name.strip()) < 2:
             raise ValidationError({'full_name': 'Full name must be at least 2 characters long.'})
         
-        # Business rule: City must be provided and not empty
-        if not self.city or not self.city.strip():
-            raise ValidationError({'city': 'City is required and cannot be empty.'})
+        # Business rule: City requirement removed to support quick reminders
+        pass
         
         # Business rule: Email format validation if provided
         if self.email and self.email.strip():
@@ -257,6 +258,7 @@ class Inquiry(BaseModel):
     
     # Reminder fields
     reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")
+    reminder_time = models.TimeField(null=True, blank=True, verbose_name="Reminder Time")
     reminder_note = models.TextField(null=True, blank=True, verbose_name="Reminder Note")
     is_reminder_done = models.BooleanField(default=False, db_index=True, verbose_name="Is Reminder Done")
 
@@ -291,9 +293,8 @@ class Inquiry(BaseModel):
         if not self.service_interest or not self.service_interest.strip():
             raise ValidationError({'service_interest': 'Service interest is required.'})
         
-        # Business rule: City must be provided
-        if not self.city or not self.city.strip():
-            raise ValidationError({'city': 'City is required.'})
+        # Business rule: City requirement removed
+        pass
 
 
 class JobCard(BaseModel):
@@ -432,11 +433,15 @@ class JobCard(BaseModel):
     )
     service_type = models.CharField(
         max_length=500, 
+        blank=True,
+        null=True,
         db_index=True,
         verbose_name="Service Type",
         help_text="Type of pest control service to be provided"
     )
     schedule_datetime = models.DateTimeField(
+        blank=True,
+        null=True,
         db_index=True,
         verbose_name="Schedule DateTime",
         help_text="Date and time when the service is scheduled"
@@ -556,6 +561,7 @@ class JobCard(BaseModel):
     
     # Reminder fields
     reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")
+    reminder_time = models.TimeField(null=True, blank=True, verbose_name="Reminder Time")
     reminder_note = models.TextField(null=True, blank=True, verbose_name="Reminder Note")
     is_reminder_done = models.BooleanField(default=False, db_index=True, verbose_name="Is Reminder Done")
 
@@ -587,9 +593,8 @@ class JobCard(BaseModel):
         """Custom validation for the model with comprehensive business rules."""
         super().clean()
         
-        # Business rule: Service type must be provided
-        if not self.service_type or not self.service_type.strip():
-            raise ValidationError({'service_type': 'Service type is required.'})
+        # Business rule: Service type requirement removed
+        pass
         
         # Business rule: Schedule date validation (allow past dates with warning)
         if self.schedule_datetime and self.schedule_datetime.date() < timezone.now().date() and not self.pk:
@@ -599,9 +604,8 @@ class JobCard(BaseModel):
             logger.warning(f"Job card created with past schedule date: {self.schedule_datetime} (today: {timezone.now().date()})")
             # Note: We allow past dates for cases like recording completed services, backdating, etc.
         
-        # Business rule: Price must be provided
-        if not self.price or not self.price.strip():
-            raise ValidationError({'price': 'Price is required.'})
+        # Business rule: Price requirement removed
+        pass
         
         # Business rule: Contract duration validation for Society jobs
         if self.job_type == self.JobType.SOCIETY and not self.contract_duration:
@@ -785,6 +789,7 @@ class CRMInquiry(BaseModel):
     
     # Reminder fields
     reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")
+    reminder_time = models.TimeField(null=True, blank=True, verbose_name="Reminder Time")
     reminder_note = models.TextField(null=True, blank=True, verbose_name="Reminder Note")
     is_reminder_done = models.BooleanField(default=False, db_index=True, verbose_name="Is Reminder Done")
     inquiry_date = models.DateField(default=timezone.now)

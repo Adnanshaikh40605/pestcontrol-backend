@@ -38,7 +38,7 @@ class InquirySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'mobile', 'email', 'message', 
             'service_interest', 'state', 'city', 'status', 'is_read', 
-            'reminder_date', 'reminder_note', 'is_reminder_done',
+            'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -67,7 +67,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'price', 'client_address',
             'payment_status', 'assigned_to', 'technician', 'technician_name', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
             'extra_notes', 'cancellation_reason', 'removal_remarks', 
-            'reminder_date', 'reminder_note', 'is_reminder_done',
+            'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'is_accepted', 'is_service_call', 'accepted_at', 'started_at', 'completed_at',
             'created_at', 'updated_at'
         ]
@@ -84,8 +84,8 @@ class JobCardSerializer(serializers.ModelSerializer):
             
             # Validate required client fields
             # Note: full_name is optional when client already exists (will be determined by get_or_create)
-            # mobile, state and city are always required
-            required_client_fields = ['mobile', 'state', 'city']
+            # mobile is always required
+            required_client_fields = ['mobile']
             for field in required_client_fields:
                 if not client_data.get(field):
                     raise serializers.ValidationError({
@@ -178,7 +178,7 @@ class CRMInquirySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'mobile', 'location', 'pest_type', 'remark', 
             'inquiry_date', 'inquiry_time', 'status', 'created_by', 'created_by_name',
-            'reminder_date', 'reminder_note', 'is_reminder_done',
+            'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']

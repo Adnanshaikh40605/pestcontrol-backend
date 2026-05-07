@@ -19,6 +19,11 @@ from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, F
 from .serializers import ClientSerializer, InquirySerializer, JobCardSerializer, RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, FeedbackSerializer
 from .services import ClientService, InquiryService, JobCardService, RenewalService, DashboardService, TechnicianService, CRMInquiryService
 
+from django.db.models import Case, When, Value, IntegerField
+import pytz
+import logging
+import re
+
 logger = logging.getLogger(__name__)
 
 
@@ -1151,12 +1156,13 @@ class JobCardViewSet(BaseModelViewSet):
             return qs
         
         # 1. Handle Booking Type Categories (Tabs)
-        booking_type = self.request.query_params.get('booking_type', 'pending').lower()
+        booking_type = self.request.query_params.get('booking_type', '').lower()
         logger.info(f"🔍 JobCard list requested with booking_type: {booking_type}")
         
+        # Apply strict status filters based on booking_type
         if booking_type == 'pending':
-            # Tab 1: Pending Booking - Strictly PENDING status only
-            qs = qs.filter(status=JobCard.JobStatus.PENDING)
+            # Tab 1: Pending Booking - Strictly PENDING status and NOT a service call (initial booking only)
+            qs = qs.filter(status=JobCard.JobStatus.PENDING, is_service_call=False)
         elif booking_type == 'on_process':
             # Tab 2: On Process - Strictly ON_PROCESS status only
             qs = qs.filter(status=JobCard.JobStatus.ON_PROCESS)
@@ -1169,13 +1175,9 @@ class JobCardViewSet(BaseModelViewSet):
             tomorrow = today + timezone.timedelta(days=1)
             qs = qs.filter(renewals__status='Due', renewals__due_date__in=[today, tomorrow]).distinct()
         elif booking_type == 'upcoming_services':
-            # Tab 5: Upcoming Services - Today + Tomorrow only
-            today = timezone.now().date()
-            tomorrow = today + timezone.timedelta(days=1)
-            qs = qs.filter(
-                next_service_date__in=[today, tomorrow], 
-                status__in=[JobCard.JobStatus.PENDING, JobCard.JobStatus.ON_PROCESS, JobCard.JobStatus.DONE]
-            )
+            # Tab 5: Upcoming Services - All service calls (follow-ups) that are not yet processed (Pending/On Process)
+            # This separates "New Bookings" from "Follow-up Services"
+            qs = qs.filter(is_service_call=True).exclude(status__in=[JobCard.JobStatus.DONE, JobCard.JobStatus.CANCELLED])
         elif booking_type == 'cancelled':
             # Tab 6: Cancelled - Strictly CANCELLED status only
             qs = qs.filter(status=JobCard.JobStatus.CANCELLED)
@@ -1185,13 +1187,35 @@ class JobCardViewSet(BaseModelViewSet):
         elif booking_type == 'all':
             # No specific tab filter, show all
             pass
-        else:
-            # Default fallback for unknown types: treat as pending if it's the main list
-            if not self.request.query_params.get('status'):
-                qs = qs.filter(status=JobCard.JobStatus.PENDING)
         
-        # 2. Handle Robust Search (Explicitly)
-        search_query = self.request.query_params.get('search', '').strip()
+        # 2. Handle Sorting Priority for Pending + On Process
+        if booking_type in ['pending', 'on_process']:
+            # Sort by: Today bookings first, Tomorrow second, Future bookings after
+            
+            # Use Asia/Kolkata for comparison
+            tz = pytz.timezone('Asia/Kolkata')
+            now_local = timezone.now().astimezone(tz)
+            today_date = now_local.date()
+            tomorrow_date = today_date + timezone.timedelta(days=1)
+            
+            qs = qs.annotate(
+                booking_priority=Case(
+                    When(schedule_datetime__date=today_date, then=Value(1)),
+                    When(schedule_datetime__date=tomorrow_date, then=Value(2)),
+                    When(schedule_datetime__date__gt=tomorrow_date, then=Value(3)),
+                    When(schedule_datetime__date__lt=today_date, then=Value(4)), # Past bookings
+                    default=Value(5),
+                    output_field=IntegerField(),
+                )
+            ).order_by('booking_priority', 'schedule_datetime')
+        else:
+            # Default ordering for other tabs or no booking_type
+            qs = qs.order_by('-created_at')
+
+        # 3. Handle Robust Search (Explicitly)
+        # Check for both 'q' and 'search' parameters for frontend compatibility
+        search_query = self.request.query_params.get('q', 
+                      self.request.query_params.get('search', '')).strip()
         if search_query:
             # Search by Code (e.g. 0030 matches JC-0030), Client Name, and Mobile
             search_filter = Q(code__icontains=search_query) | \
@@ -1204,7 +1228,7 @@ class JobCardViewSet(BaseModelViewSet):
             
             qs = qs.filter(search_filter)
 
-        # 3. Handle Date Ranges
+        # 4. Handle Date Ranges
         date_from = self.request.query_params.get('from')
         date_to = self.request.query_params.get('to')
         if date_from:

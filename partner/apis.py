@@ -136,6 +136,16 @@ def complete_booking(request, pk):
         job.completed_at = timezone.now()
         job.save()
         
-        return Response({"message": "Job marked as completed"})
+        # Trigger follow-up automation
+        try:
+            from core.services import JobCardService
+            JobCardService.handle_job_completion(job)
+        except Exception as e:
+            # Log but don't fail the response
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to trigger follow-up automation in partner app: {e}")
+        
+        return Response({"message": "Job marked as completed and follow-up checked"})
     except JobCard.DoesNotExist:
         return Response({"error": "Job not found"}, status=404)
