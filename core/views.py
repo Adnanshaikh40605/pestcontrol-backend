@@ -773,6 +773,8 @@ class FeedbackViewSet(BaseModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        if not self.request or self.action != 'list':
+            return qs
         # Filter out placeholders (rating=0) from listing if needed, 
         # but for now we'll show all. Actually, rating=0 are just generated links not yet filled.
         return qs.exclude(rating=0, feedback_type='WhatsApp Link')
@@ -1145,7 +1147,7 @@ class JobCardViewSet(BaseModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if not self.request:
+        if not self.request or self.action != 'list':
             return qs
         
         # 1. Handle Booking Type Categories (Tabs)
@@ -2176,6 +2178,8 @@ class RenewalViewSet(BaseModelViewSet):
     def get_queryset(self):
         """Enhanced queryset with custom filtering for pause functionality and urgency levels."""
         qs = super().get_queryset()
+        if not self.request or self.action != 'list':
+            return qs
         
         # Filter out paused renewals by default (unless explicitly requested)
         include_paused = self.request.query_params.get('include_paused', 'false').lower() == 'true'
