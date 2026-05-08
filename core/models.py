@@ -465,6 +465,7 @@ class JobCard(BaseModel):
     price = models.CharField(
         max_length=200,
         default='',
+        blank=True,
         verbose_name="Service Price",
         help_text="Service price as entered by user"
     )

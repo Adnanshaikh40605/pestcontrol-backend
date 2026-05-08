@@ -203,6 +203,47 @@ class CRMInquiryViewSet(BaseModelViewSet):
             logger.error(f"Error converting inquiry: {e}")
             return response.Response({'error': 'Conversion failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(detail=False, methods=['get'])
+    def reminders(self, request):
+        """Get active CRM inquiry reminders for the Reminders tab."""
+        qs = CRMInquiry.objects.filter(
+            reminder_date__isnull=False,
+            is_reminder_done=False
+        )
+
+        # Apply date range filters
+        date_from = request.query_params.get('from')
+        date_to = request.query_params.get('to')
+
+        if date_from or date_to:
+            if date_from:
+                qs = qs.filter(reminder_date__gte=date_from)
+            if date_to:
+                qs = qs.filter(reminder_date__lte=date_to)
+        else:
+            # Default: today + tomorrow only
+            today = timezone.now().date()
+            tomorrow = today + timezone.timedelta(days=1)
+            qs = qs.filter(reminder_date__in=[today, tomorrow])
+
+        qs = qs.order_by('reminder_date', 'reminder_time')
+        serializer = self.get_serializer(qs, many=True)
+        return response.Response({
+            'count': qs.count(),
+            'results': serializer.data
+        })
+
+    @action(detail=True, methods=['post'])
+    def mark_reminder_done(self, request, pk=None):
+        """Mark a CRM inquiry reminder as done."""
+        try:
+            inquiry = CRMInquiry.objects.get(id=pk)
+            inquiry.is_reminder_done = True
+            inquiry.save(update_fields=['is_reminder_done'])
+            return response.Response({'message': 'Reminder marked as done'})
+        except CRMInquiry.DoesNotExist:
+            return response.Response({'error': 'Inquiry not found'}, status=status.HTTP_404_NOT_FOUND)
+
 
 @extend_schema_view(
     list=extend_schema(
