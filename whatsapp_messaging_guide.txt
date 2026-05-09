@@ -1,0 +1,65 @@
+
+📱 WHATSAPP MESSAGING GUIDE - PESTCONTROL99
+
+This document explains how to use the manual WhatsApp messaging system integrated into the CRM. Use these buttons to communicate quickly with clients and technicians using professional templates.
+
+--------------------------------------------------
+1. MESSAGE TEMPLATES OVERVIEW
+--------------------------------------------------
+
+Template | Recipient | Purpose
+--------------------------------------------------
+T1: Booking Confirmation | Customer | To confirm a new service booking with ID and details.
+T2: Technician Assigned | Customer | To notify the client of the technician's name and contact.
+T3: Service Rates / Inquiry | Customer | To send full price charts and service plans to new leads.
+T4: Job Details | Technician | To send full service details (Address, Notes, etc.) to the staff.
+
+--------------------------------------------------
+2. WHERE TO FIND THE BUTTONS
+--------------------------------------------------
+
+A. VIEW ENQUIRIES SCREEN (NEW LEADS)
+Used for sending Service Rates (T3) to potential customers.
+- Location: Look at the "Customer Info" column.
+- Button: Small green WhatsApp icon next to the mobile number.
+- Usage: Click this immediately after a client makes an inquiry to send them our price list.
+
+B. JOB CARDS DASHBOARD (ACTIVE BOOKINGS)
+Icons are located in the "Actions" column (Last column on the right).
+- Green Icon: Sends Booking Confirmation (T1) to the client.
+- Blue Icon: Sends Job Details (T4) to the technician's WhatsApp.
+- Indigo Icon: Sends Technician Assigned (T2) info to the client.
+
+NOTE: The Blue and Indigo icons only appear AFTER a technician has been assigned to the job.
+
+C. EDIT BOOKING PAGE
+Located at the top-right header of the edit screen.
+- Allows you to send messages while you are updating a booking.
+- Feature: If you change the time or address on the page, the WhatsApp buttons will send the updated details even before you click the "Update" button.
+
+--------------------------------------------------
+3. ICON REFERENCE & COLOR CODING
+--------------------------------------------------
+
+Icon Color | Target | Meaning
+--------------------------------------------------
+Green | Customer | Confirmation / Inquiry Response
+Blue | Technician | New Job Assignment Details
+Indigo | Customer | Technician Information Update
+
+--------------------------------------------------
+4. TERMS & CONDITIONS
+--------------------------------------------------
+All templates now include a single official link to our Terms & Conditions:
+https://www.pestcontrol99.com/terms-and-conditions/
+
+--------------------------------------------------
+5. INSTRUCTIONS FOR TEAM
+--------------------------------------------------
+1. Ensure you have WhatsApp Web logged in or the WhatsApp Desktop App installed.
+2. Click the appropriate icon based on the stage of the booking.
+3. A new tab will open with the pre-filled message.
+4. Review the message and press SEND in WhatsApp.
+
+Regards,
+PestControl99 Tech Team

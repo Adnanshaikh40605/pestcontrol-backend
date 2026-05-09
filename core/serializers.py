@@ -51,6 +51,7 @@ class JobCardSerializer(serializers.ModelSerializer):
     client_notes = serializers.CharField(source='client.notes', read_only=True, allow_null=True)
     
     technician_name = serializers.CharField(source='technician.name', read_only=True)
+    technician_mobile = serializers.CharField(source='technician.mobile', read_only=True)
     
     # Nested client data for creation
     client_data = serializers.DictField(write_only=True, required=False, help_text="Client details for creation if client doesn't exist")
@@ -65,7 +66,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_datetime', 
             'time_slot', 'state', 'city',
             'price', 'client_address',
-            'payment_status', 'assigned_to', 'technician', 'technician_name', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
+            'payment_status', 'assigned_to', 'technician', 'technician_name', 'technician_mobile', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
             'extra_notes', 'cancellation_reason', 'removal_remarks', 
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'is_accepted', 'is_service_call', 'accepted_at', 'started_at', 'completed_at',
