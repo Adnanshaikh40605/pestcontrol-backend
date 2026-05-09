@@ -5,7 +5,7 @@ from django.db.models import Q, Count, Value, Avg
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import viewsets, filters, permissions, decorators, response, status
+from rest_framework import viewsets, filters, permissions, decorators, response, status, views
 from rest_framework.decorators import action
 from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from django.views.decorators.cache import cache_page
@@ -16,12 +16,14 @@ from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog
 from .serializers import (
     ClientSerializer, InquirySerializer, JobCardSerializer, 
     RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, 
-    FeedbackSerializer, TechnicianPerformanceSerializer
+    FeedbackSerializer, TechnicianPerformanceSerializer,
+    StaffSerializer, ActivityLogSerializer
 )
+from django.contrib.auth.models import User
 from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField
 from django.db.models.functions import Cast, Coalesce
 from .services import ClientService, InquiryService, JobCardService, RenewalService, DashboardService, TechnicianService, CRMInquiryService
@@ -298,13 +300,15 @@ class CRMInquiryViewSet(BaseModelViewSet):
     
     def perform_create(self, serializer):
         """Automatically set the creator of the inquiry."""
-        serializer.save(created_by=self.request.user)
+        instance = serializer.save(created_by=self.request.user)
+        log_activity(self.request.user, "Created Inquiry", details=f"Customer: {instance.name}")
 
     @action(detail=True, methods=['post'])
     def convert(self, request, pk=None):
         """Action to trigger conversion from Inquiry to Booking."""
         try:
             job_card = CRMInquiryService.convert_to_booking(pk)
+            log_activity(request.user, "Converted Inquiry to Booking", booking_id=job_card.code)
             return response.Response({
                 'message': 'Successfully converted to booking',
                 'job_card_id': job_card.id,
@@ -315,6 +319,10 @@ class CRMInquiryViewSet(BaseModelViewSet):
         except Exception as e:
             logger.error(f"Error converting inquiry: {e}")
             return response.Response({'error': 'Conversion failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        log_activity(self.request.user, "Updated Inquiry", details=f"Customer: {instance.name}")
 
     @action(detail=False, methods=['get'])
     def reminders(self, request):
@@ -353,6 +361,7 @@ class CRMInquiryViewSet(BaseModelViewSet):
             inquiry = CRMInquiry.objects.get(id=pk)
             inquiry.is_reminder_done = True
             inquiry.save(update_fields=['is_reminder_done'])
+            log_activity(request.user, "Marked Reminder Done", details=f"Inquiry: {inquiry.name}")
             return response.Response({'message': 'Reminder marked as done'})
         except CRMInquiry.DoesNotExist:
             return response.Response({'error': 'Inquiry not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -1329,15 +1338,24 @@ class JobCardViewSet(BaseModelViewSet):
             tomorrow = today + timezone.timedelta(days=1)
             qs = qs.filter(renewals__status='Due', renewals__due_date__in=[today, tomorrow]).distinct()
         elif booking_type == 'upcoming_services':
-            # Tab 5: Upcoming Services - All service calls (follow-ups) that are not yet processed (Pending/On Process)
-            # This separates "New Bookings" from "Follow-up Services"
-            qs = qs.filter(is_service_call=True).exclude(status__in=[JobCard.JobStatus.DONE, JobCard.JobStatus.CANCELLED])
+            # Tab 5: Upcoming Services - Only show services for the next 7 days
+            tz = pytz.timezone('Asia/Kolkata')
+            today = timezone.now().astimezone(tz).date()
+            seven_days_later = today + timezone.timedelta(days=7)
+            
+            qs = qs.filter(
+                is_service_call=True,
+                schedule_datetime__date__range=[today, seven_days_later]
+            ).exclude(status__in=[JobCard.JobStatus.DONE, JobCard.JobStatus.CANCELLED])
         elif booking_type == 'cancelled':
             # Tab 6: Cancelled - Strictly CANCELLED status only
             qs = qs.filter(status=JobCard.JobStatus.CANCELLED)
         elif booking_type == 'reminders':
             # Tab 7: Reminders - Initially show all active reminders
             qs = qs.filter(reminder_date__isnull=False, is_reminder_done=False)
+        elif booking_type == 'complaint_calls':
+            # Tab 8: Complaint Calls - Strictly is_complaint_call=True
+            qs = qs.filter(is_complaint_call=True)
         elif booking_type == 'all':
             # No specific tab filter, show all
             pass
@@ -1510,6 +1528,7 @@ class JobCardViewSet(BaseModelViewSet):
                 response_data['client_created'] = False
                 response_data['message'] = 'Job card created successfully with existing client'
             
+            log_activity(request.user, "Created Booking", booking_id=jobcard.code)
             return response.Response(response_data, status=status.HTTP_201_CREATED)
             
         except ValidationError as e:
@@ -1587,6 +1606,9 @@ class JobCardViewSet(BaseModelViewSet):
             # 1. Handle automation when job is marked DONE
             if instance.status == JobCard.JobStatus.DONE:
                 JobCardService.handle_job_completion(instance)
+                log_activity(request.user, "Completed Booking", booking_id=instance.code, details=f"Payment: {instance.payment_mode}")
+            else:
+                log_activity(request.user, "Updated Booking", booking_id=instance.code)
 
             # 2. Re-calculate next_service_date if missing and relevant fields changed
             if not request.data.get('next_service_date'):
@@ -1705,6 +1727,7 @@ class JobCardViewSet(BaseModelViewSet):
             
             if success:
                 status_text = 'paused' if is_paused else 'resumed'
+                log_activity(request.user, f"{status_text.capitalize()} Booking", booking_id=pk)
                 return response.Response({
                     'message': f'JobCard {status_text} successfully',
                     'is_paused': is_paused
@@ -2673,6 +2696,339 @@ class RenewalViewSet(BaseModelViewSet):
                 {'error': 'Failed to generate renewals', 'details': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class GlobalSearchView(views.APIView):
+    """
+    Search globally across Clients, JobCards, and CRM Inquiries.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    @extend_schema(
+        summary="Global search across CRM",
+        description="Search by name, mobile, booking code, or address across Clients and Job Cards.",
+        parameters=[
+            OpenApiParameter(name="q", description="Search query string", required=True, type=str)
+        ],
+        tags=['Search']
+    )
+    def get(self, request):
+        query = request.query_params.get('q', '').strip()
+        if not query:
+            return response.Response([], status=status.HTTP_200_OK)
+
+        results = []
+
+        # 1. Search Clients
+        clients = Client.objects.filter(
+            Q(full_name__icontains=query) | 
+            Q(mobile__icontains=query)
+        ).distinct()[:10]
+        
+        for client in clients:
+            results.append({
+                'id': client.id,
+                'title': client.full_name,
+                'subtitle': client.mobile,
+                'type': 'Customer',
+                'link': f'/clients/{client.id}'
+            })
+
+        # 2. Search JobCards (Bookings)
+        jobcards = JobCard.objects.select_related('client').filter(
+            Q(code__icontains=query) |
+            Q(client__full_name__icontains=query) |
+            Q(client__mobile__icontains=query) |
+            Q(client_address__icontains=query)
+        ).distinct()[:10]
+
+        for jc in jobcards:
+            results.append({
+                'id': jc.id,
+                'title': f"Booking #{jc.code}",
+                'subtitle': f"{jc.client.full_name} - {jc.service_type}",
+                'type': 'Booking',
+                'link': f'/jobcards/{jc.id}',
+                'client_id': jc.client_id
+            })
+            
+        # 3. Search CRM Inquiries
+        inquiries = CRMInquiry.objects.filter(
+            Q(name__icontains=query) |
+            Q(mobile__icontains=query)
+        ).distinct()[:5]
+        
+        for inc in inquiries:
+            results.append({
+                'id': inc.id,
+                'title': f"Inquiry: {inc.name}",
+                'subtitle': f"{inc.mobile} - {inc.pest_type}",
+                'type': 'Inquiry',
+                'link': f'/crm-inquiries/{inc.id}'
+            })
+
+        return response.Response(results)
+
+
+class CustomerHistoryView(views.APIView):
+    """
+    Get complete history for a specific customer.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        summary="Get customer history",
+        description="Returns all bookings, feedbacks, reminders, and revenue summary for a specific client.",
+        tags=['Search']
+    )
+    def get(self, request, client_id):
+        try:
+            # Fetch client with optimized related data
+            client = Client.objects.prefetch_related(
+                'jobcards', 
+                'jobcards__feedbacks',
+                'jobcards__technician'
+            ).get(id=client_id)
+        except Client.DoesNotExist:
+            return response.Response({'error': 'Client not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 1. Booking History
+        jobcards = client.jobcards.all().order_by('-schedule_datetime', '-created_at')
+        jobcards_data = JobCardSerializer(jobcards, many=True).data
+
+        # 2. Feedback History
+        feedbacks = Feedback.objects.filter(booking__client=client).order_by('-created_at')
+        feedback_data = FeedbackSerializer(feedbacks, many=True).data
+
+        # 3. Revenue Summary
+        total_revenue = 0
+        amc_revenue = 0
+        paid_services = 0
+        
+        for jc in jobcards:
+            try:
+                price_str = str(jc.price).replace('₹', '').replace(',', '').strip()
+                p = float(price_str) if price_str else 0
+                total_revenue += p
+                if jc.service_category == JobCard.ServiceCategory.AMC:
+                    amc_revenue += p
+                if jc.payment_status == JobCard.PaymentStatus.PAID:
+                    paid_services += 1
+            except ValueError:
+                pass
+
+        # 4. Reminders
+        reminders = []
+        for jc in jobcards:
+            if jc.reminder_date:
+                reminders.append({
+                    'id': jc.id,
+                    'type': 'Booking Reminder',
+                    'date': jc.reminder_date,
+                    'time': jc.reminder_time,
+                    'note': jc.reminder_note,
+                    'status': 'Done' if jc.is_reminder_done else 'Pending'
+                })
+        
+        # Also include inquiries with the same mobile
+        crm_inquiries = CRMInquiry.objects.filter(mobile=client.mobile)
+        for inc in crm_inquiries:
+            if inc.reminder_date:
+                reminders.append({
+                    'id': inc.id,
+                    'type': 'Inquiry Reminder',
+                    'date': inc.reminder_date,
+                    'time': inc.reminder_time,
+                    'note': inc.reminder_note,
+                    'status': 'Done' if inc.is_reminder_done else 'Pending'
+                })
+
+        # 5. Technician History
+        technicians = set()
+        for jc in jobcards:
+            if jc.technician:
+                technicians.add(jc.technician.name)
+            elif jc.assigned_to:
+                technicians.add(jc.assigned_to)
+
+        # 6. Upcoming Services
+        upcoming = jobcards.filter(
+            status__in=[JobCard.JobStatus.PENDING, JobCard.JobStatus.ON_PROCESS],
+            schedule_datetime__gte=timezone.now()
+        )
+
+        return response.Response({
+            'client': ClientSerializer(client).data,
+            'stats': {
+                'total_bookings': jobcards.count(),
+                'total_revenue': total_revenue,
+                'amc_revenue': amc_revenue,
+                'paid_services': paid_services,
+                'first_booking': jobcards.last().schedule_datetime if jobcards.exists() else None,
+                'last_service': jobcards.first().schedule_datetime if jobcards.exists() else None,
+            },
+            'bookings': jobcards_data,
+            'feedbacks': feedback_data,
+            'reminders': sorted(reminders, key=lambda x: str(x['date']), reverse=True),
+            'technicians': list(technicians),
+            'upcoming': JobCardSerializer(upcoming, many=True).data
+        })
+
+
+class ComplaintViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for handling Complaint Calls.
+    """
+    queryset = JobCard.objects.filter(is_complaint_call=True)
+    serializer_class = JobCardSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['complaint_status', 'priority', 'technician']
+    search_fields = ['client__full_name', 'client__mobile', 'code', 'complaint_note']
+
+    @extend_schema(
+        summary="Create a complaint from an existing booking",
+        request={
+            'type': 'object',
+            'properties': {
+                'parent_booking_id': {'type': 'integer'},
+                'complaint_type': {'type': 'string'},
+                'complaint_note': {'type': 'string'},
+                'priority': {'type': 'string'},
+                'revisit_date': {'type': 'string', 'format': 'date'},
+                'technician_id': {'type': 'integer'}
+            },
+            'required': ['parent_booking_id', 'complaint_type']
+        },
+        responses={201: JobCardSerializer},
+        tags=['Complaints']
+    )
+    @decorators.action(detail=False, methods=['post'])
+    def create_complaint(self, request):
+        parent_id = request.data.get('parent_booking_id')
+        try:
+            parent = JobCard.objects.get(id=parent_id)
+        except JobCard.DoesNotExist:
+            return response.Response({'error': 'Parent booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Create new complaint booking by copying parent details
+        complaint = JobCard.objects.create(
+            client=parent.client,
+            is_complaint_call=True,
+            complaint_parent_booking=parent,
+            service_type=parent.service_type,
+            client_address=parent.client_address,
+            city=parent.city,
+            state=parent.state,
+            job_type=parent.job_type,
+            commercial_type=parent.commercial_type,
+            service_category=parent.service_category,
+            complaint_type=request.data.get('complaint_type'),
+            complaint_note=request.data.get('complaint_note', ''),
+            priority=request.data.get('priority', 'Medium'),
+            schedule_datetime=request.data.get('revisit_date'),
+            technician_id=request.data.get('technician_id'),
+            status=JobCard.JobStatus.PENDING,
+            complaint_status=JobCard.ComplaintStatus.OPEN,
+            price="0"  # Complaint calls are usually free
+        )
+
+        serializer = self.get_serializer(complaint)
+        log_activity(request.user, "Created Complaint", booking_id=complaint.code, details=f"Parent Booking: {parent.code}")
+        return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ComplaintAnalyticsView(views.APIView):
+    """
+    Get analytics for complaints.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(
+        summary="Get complaint analytics",
+        tags=['Complaints']
+    )
+    def get(self, request):
+        total = JobCard.objects.filter(is_complaint_call=True).count()
+        resolved_statuses = [JobCard.ComplaintStatus.RESOLVED, JobCard.ComplaintStatus.CLOSED]
+        resolved = JobCard.objects.filter(is_complaint_call=True, complaint_status__in=resolved_statuses).count()
+        unresolved = JobCard.objects.filter(is_complaint_call=True).exclude(complaint_status__in=resolved_statuses).count()
+        high_priority = JobCard.objects.filter(is_complaint_call=True, priority=JobCard.Priority.HIGH).exclude(complaint_status__in=resolved_statuses).count()
+        
+        # Technician complaint rate (complaints per technician)
+        tech_stats = JobCard.objects.filter(is_complaint_call=True, technician__isnull=False).values('technician__name').annotate(
+            count=Count('id')
+        ).order_by('-count')
+
+        return response.Response({
+            'total_count': total,
+            'resolved_count': resolved,
+            'unresolved_count': unresolved,
+            'high_priority_count': high_priority,
+            'resolution_rate': round((resolved / total * 100), 1) if total > 0 else 0,
+            'technician_stats': list(tech_stats)
+        })
+
+
+def log_activity(user, action, booking_id=None, details=None):
+    """Utility to log staff activities."""
+    if not user or user.is_anonymous:
+        return
+    try:
+        ActivityLog.objects.create(
+            user=user,
+            action=action,
+            booking_id=booking_id,
+            details=details
+        )
+    except Exception as e:
+        print(f"Error logging activity: {e}")
+
+
+class IsSuperAdmin(permissions.BasePermission):
+    """
+    Allows access only to superusers.
+    """
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_superuser)
+
+
+class StaffViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing Staff users.
+    """
+    queryset = User.objects.filter(is_staff=True).order_by('-date_joined')
+    serializer_class = StaffSerializer
+    permission_classes = [permissions.IsAuthenticated, IsSuperAdmin]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    search_fields = ['first_name', 'username']
+
+    @decorators.action(detail=True, methods=['post'])
+    def reset_password(self, request, pk=None):
+        user = self.get_object()
+        new_password = request.data.get('password')
+        if not new_password:
+            return response.Response({'error': 'Password is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        user.set_password(new_password)
+        user.save()
+        
+        log_activity(request.user, f"Reset password for staff: {user.first_name}")
+        return response.Response({'status': 'Password reset successfully'})
+
+
+class ActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for viewing Activity Logs.
+    """
+    queryset = ActivityLog.objects.all().order_by('-created_at')
+    serializer_class = ActivityLogSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ['user', 'action']
+    search_fields = ['action', 'booking_id', 'details', 'user__first_name']
+
+
 
 
 

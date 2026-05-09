@@ -13,6 +13,12 @@ from .views import (
     TechnicianViewSet,
     CRMInquiryViewSet,
     FeedbackViewSet,
+    GlobalSearchView,
+    CustomerHistoryView,
+    ComplaintViewSet,
+    ComplaintAnalyticsView,
+    StaffViewSet,
+    ActivityLogViewSet,
 )
 
 # Create router for v1 API
@@ -25,8 +31,14 @@ router.register(r'dashboard', DashboardViewSet, basename='dashboard')
 router.register(r'technicians', TechnicianViewSet, basename='technician')
 router.register(r'crm-inquiries', CRMInquiryViewSet, basename='crm-inquiry')
 router.register(r'feedbacks', FeedbackViewSet, basename='feedback')
+router.register(r'complaints', ComplaintViewSet, basename='complaint')
+router.register(r'staff', StaffViewSet, basename='staff')
+router.register(r'activity-logs', ActivityLogViewSet, basename='activity-log')
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),
+    path('global-search/', GlobalSearchView.as_view(), name='global_search'),
+    path('customer-history/<int:client_id>/', CustomerHistoryView.as_view(), name='customer_history'),
+    path('complaints/stats/', ComplaintAnalyticsView.as_view(), name='complaint_analytics'),
     path('', include(router.urls)),
 ]

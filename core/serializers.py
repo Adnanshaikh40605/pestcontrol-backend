@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog
+from django.contrib.auth.models import User
 
 
 class ClientSerializer(serializers.ModelSerializer):
@@ -66,9 +67,10 @@ class JobCardSerializer(serializers.ModelSerializer):
             'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_datetime', 
             'time_slot', 'state', 'city',
             'price', 'client_address',
-            'payment_status', 'assigned_to', 'technician', 'technician_name', 'technician_mobile', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
+            'payment_status', 'payment_mode', 'assigned_to', 'technician', 'technician_name', 'technician_mobile', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
             'extra_notes', 'cancellation_reason', 'removal_remarks', 
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
+            'is_complaint_call', 'complaint_parent_booking', 'complaint_status', 'complaint_type', 'priority', 'complaint_note',
             'is_accepted', 'is_service_call', 'accepted_at', 'started_at', 'completed_at',
             'created_at', 'updated_at'
         ]
@@ -221,3 +223,55 @@ class TechnicianPerformanceSerializer(serializers.ModelSerializer):
             'service_calls_count', 'total_revenue', 'avg_rating', 'feedback_count',
             'completion_rate'
         ]
+
+
+class ActivityLogSerializer(serializers.ModelSerializer):
+    staff_name = serializers.CharField(source='user.get_full_name', read_only=True)
+    created_at = serializers.DateTimeField(format="%d-%m-%Y %H:%M", read_only=True)
+
+    class Meta:
+        model = ActivityLog
+        fields = ['id', 'user', 'staff_name', 'action', 'booking_id', 'details', 'created_at']
+
+
+class StaffSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(source='first_name')
+    mobile = serializers.CharField(source='username')
+    role = serializers.ChoiceField(choices=['Super Admin', 'Staff'], write_only=True, required=False)
+    role_display = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'name', 'mobile', 'role', 'role_display', 'password', 'is_active', 'date_joined']
+        extra_kwargs = {
+            'password': {'write_only': True, 'required': False},
+            'date_joined': {'read_only': True}
+        }
+
+    def get_role_display(self, obj):
+        if obj.is_superuser:
+            return 'Super Admin'
+        return 'Staff'
+
+    def create(self, validated_data):
+        password = validated_data.pop('password', None)
+        role = validated_data.pop('role', 'Staff')
+        validated_data['is_staff'] = True
+        validated_data['is_superuser'] = (role == 'Super Admin')
+        user = super().create(validated_data)
+        if password:
+            user.set_password(password)
+            user.save()
+        return user
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+        role = validated_data.pop('role', None)
+        if role is not None:
+            instance.is_superuser = (role == 'Super Admin')
+            instance.save()
+        user = super().update(instance, validated_data)
+        if password:
+            user.set_password(password)
+            user.save()
+        return user

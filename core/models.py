@@ -308,6 +308,10 @@ class JobCard(BaseModel):
         UNPAID = 'Unpaid', 'Unpaid'
         PAID = 'Paid', 'Paid'
     
+    class PaymentMode(models.TextChoices):
+        CASH = 'Cash', 'Cash'
+        ONLINE = 'Online', 'Online'
+    
     class JobType(models.TextChoices):
         CUSTOMER = 'Customer', 'Customer'
         SOCIETY = 'Society', 'Society'
@@ -350,6 +354,18 @@ class JobCard(BaseModel):
         SLOT_2_4 = '2pm–4pm', '2pm–4pm'
         SLOT_4_6 = '4pm–6pm', '4pm–6pm'
         SLOT_6_8 = '6pm–8pm', '6pm–8pm'
+
+    class ComplaintStatus(models.TextChoices):
+        OPEN = 'Open', 'Open'
+        ASSIGNED = 'Assigned', 'Assigned'
+        IN_PROGRESS = 'In Progress', 'In Progress'
+        RESOLVED = 'Resolved', 'Resolved'
+        CLOSED = 'Closed', 'Closed'
+
+    class Priority(models.TextChoices):
+        LOW = 'Low', 'Low'
+        MEDIUM = 'Medium', 'Medium'
+        HIGH = 'High', 'High'
 
     code = models.CharField(
         max_length=20, 
@@ -477,6 +493,14 @@ class JobCard(BaseModel):
         verbose_name="Payment Status",
         help_text="Current payment status of the job"
     )
+    payment_mode = models.CharField(
+        max_length=20,
+        choices=PaymentMode.choices,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Payment Mode"
+    )
     assigned_to = models.CharField(
         max_length=255,
         blank=True,
@@ -573,6 +597,31 @@ class JobCard(BaseModel):
     accepted_at = models.DateTimeField(null=True, blank=True, verbose_name="Accepted At")
     started_at = models.DateTimeField(null=True, blank=True, verbose_name="Started At")
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name="Completed At")
+
+    # Complaint Call Fields
+    is_complaint_call = models.BooleanField(default=False, db_index=True)
+    complaint_parent_booking = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='complaints',
+        verbose_name="Parent Booking for Complaint"
+    )
+    complaint_status = models.CharField(
+        max_length=50,
+        choices=ComplaintStatus.choices,
+        default=ComplaintStatus.OPEN,
+        db_index=True
+    )
+    complaint_type = models.CharField(max_length=100, blank=True, null=True)
+    priority = models.CharField(
+        max_length=20,
+        choices=Priority.choices,
+        default=Priority.MEDIUM,
+        db_index=True
+    )
+    complaint_note = models.TextField(blank=True, null=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -838,3 +887,25 @@ class Feedback(BaseModel):
 
     def __str__(self) -> str:
         return f"Feedback for Booking {self.booking.code} - Rating: {self.rating}"
+
+
+class ActivityLog(BaseModel):
+    user = models.ForeignKey(
+        'auth.User', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='activity_logs'
+    )
+    action = models.CharField(max_length=255)
+    booking_id = models.CharField(max_length=100, blank=True, null=True)
+    details = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Activity Log'
+        verbose_name_plural = 'Activity Logs'
+
+    def __str__(self) -> str:
+        staff_name = f"{self.user.first_name} {self.user.last_name}" if self.user else "System"
+        return f"{staff_name} - {self.action} - {self.created_at.strftime('%d-%m-%Y %H:%M')}"

@@ -62,7 +62,9 @@ def available_bookings(request):
             "area": job.city,
             "date": job.schedule_datetime,
             "time_slot": job.time_slot,
-            "is_service_call": job.is_service_call
+            "is_service_call": job.is_service_call,
+            "is_complaint_call": job.is_complaint_call,
+            "complaint_type": job.complaint_type
         })
 
     return Response(data)
@@ -118,7 +120,9 @@ def accepted_bookings(request):
             "service": job.service_type,
             "date": job.schedule_datetime,
             "time_slot": job.time_slot,
-            "is_service_call": job.is_service_call
+            "is_service_call": job.is_service_call,
+            "is_complaint_call": job.is_complaint_call,
+            "complaint_type": job.complaint_type
         })
 
     return Response(data)
@@ -132,8 +136,12 @@ def complete_booking(request, pk):
         if job.status != "On Process":
             return Response({"error": "Only On Process jobs can be completed"}, status=400)
             
+        payment_mode = request.data.get('payment_mode')
         job.status = "Done"
         job.completed_at = timezone.now()
+        if payment_mode:
+            job.payment_mode = payment_mode
+            job.payment_status = "Paid"
         job.save()
         
         # Trigger follow-up automation
