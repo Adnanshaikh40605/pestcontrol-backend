@@ -7,6 +7,8 @@ import re
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Sum, Count, Value, FloatField, Q
+from django.db.models.functions import Coalesce, Cast
 from django.utils import timezone
 
 from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry
@@ -989,7 +991,8 @@ class DashboardService:
             total_inquiries = total_web_inquiries + total_crm_inquiries
             
             total_job_cards = JobCard.objects.filter(jobcard_filters).count()
-            total_clients = Client.objects.count() # Clients are not typically filtered by date unless specifically requested
+            total_clients = Client.objects.count() 
+            total_technicians = Technician.objects.filter(is_active=True).count()
             renewals = Renewal.objects.filter(renewal_filters).count()
             
             # Service Category Breakdown
@@ -1030,13 +1033,28 @@ class DashboardService:
                                      .annotate(count=Count('property_type'))
                                      .order_by('-count'))
             
+            # Revenue Stats (Only Done bookings)
+            today_revenue = JobCard.objects.filter(
+                status=JobCard.JobStatus.DONE,
+                schedule_datetime__date=today
+            ).aggregate(total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField())))['total']
+            
+            month_revenue = JobCard.objects.filter(
+                status=JobCard.JobStatus.DONE,
+                schedule_datetime__year=today.year,
+                schedule_datetime__month=today.month
+            ).aggregate(total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField())))['total']
+
             return {
                 'total_inquiries': total_inquiries,
                 'total_web_inquiries': total_web_inquiries,
                 'total_crm_inquiries': total_crm_inquiries,
                 'total_job_cards': total_job_cards,
                 'total_clients': total_clients,
+                'total_technicians': total_technicians,
                 'renewals': renewals,
+                'today_revenue': today_revenue,
+                'month_revenue': month_revenue,
                 'category_stats': category_stats,
                 'status_stats': status_stats,
                 'job_type_stats': job_type_stats,

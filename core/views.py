@@ -1,7 +1,8 @@
 import logging
 from django.http import JsonResponse
 from django.core.exceptions import ValidationError
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Value, Avg
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, filters, permissions, decorators, response, status
@@ -16,7 +17,13 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from drf_spectacular.types import OpenApiTypes
 
 from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback
-from .serializers import ClientSerializer, InquirySerializer, JobCardSerializer, RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, FeedbackSerializer
+from .serializers import (
+    ClientSerializer, InquirySerializer, JobCardSerializer, 
+    RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, 
+    FeedbackSerializer, TechnicianPerformanceSerializer
+)
+from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField
+from django.db.models.functions import Cast, Coalesce
 from .services import ClientService, InquiryService, JobCardService, RenewalService, DashboardService, TechnicianService, CRMInquiryService
 
 from django.db.models import Case, When, Value, IntegerField
@@ -154,6 +161,112 @@ class TechnicianViewSet(BaseModelViewSet):
         active_techs = self.get_queryset().filter(is_active=True)
         serializer = self.get_serializer(active_techs, many=True)
         return response.Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def performance(self, request):
+        """Get performance metrics for all technicians with filtering."""
+        # Filters
+        from_date = request.query_params.get('from')
+        to_date = request.query_params.get('to')
+        service_type = request.query_params.get('service_type')
+        
+        # Base filter for jobcards
+        job_filter = Q()
+        if from_date:
+            job_filter &= Q(jobcards__schedule_datetime__date__gte=from_date)
+        if to_date:
+            job_filter &= Q(jobcards__schedule_datetime__date__lte=to_date)
+        if service_type:
+            job_filter &= Q(jobcards__service_type__icontains=service_type)
+
+        # Performance annotation
+        queryset = Technician.objects.annotate(
+            assigned_count=Count('jobcards', filter=job_filter, distinct=True),
+            completed_count=Count('jobcards', filter=job_filter & Q(jobcards__status='Done'), distinct=True),
+            pending_count=Count('jobcards', filter=job_filter & Q(jobcards__status='Pending'), distinct=True),
+            on_process_count=Count('jobcards', filter=job_filter & Q(jobcards__status='On Process'), distinct=True),
+            service_calls_count=Count('jobcards', filter=job_filter & Q(jobcards__is_service_call=True), distinct=True),
+            
+            # Revenue calculation (casting CharField price to Float)
+            # Using Coalesce to handle None values
+            total_revenue=Coalesce(
+                Sum(
+                    Cast('jobcards__price', FloatField()),
+                    filter=job_filter & Q(jobcards__status='Done')
+                ),
+                Value(0.0, output_field=FloatField())
+            ),
+            
+            avg_rating=Coalesce(Avg('jobcards__feedbacks__rating', filter=job_filter), Value(0.0, output_field=FloatField())),
+            feedback_count=Count('jobcards__feedbacks', filter=job_filter, distinct=True)
+        ).annotate(
+            completion_rate=Case(
+                When(assigned_count__gt=0, then=ExpressionWrapper(F('completed_count') * 100.0 / F('assigned_count'), output_field=FloatField())),
+                default=Value(0.0, output_field=FloatField())
+            )
+        ).order_by('-completed_count')
+
+        # Leaderboard summaries
+        # Use a sub-query or simple aggregation for the stats
+        stats_agg = queryset.aggregate(
+            total_completed=Sum('completed_count'),
+            total_revenue_sum=Sum('total_revenue'),
+            overall_avg_rating=Avg('avg_rating'),
+            total_pending=Sum('pending_count'),
+            total_service_calls=Sum('service_calls_count')
+        )
+
+        stats = {
+            'total_technicians': queryset.count(),
+            'total_completed': stats_agg['total_completed'] or 0,
+            'total_revenue': stats_agg['total_revenue_sum'] or 0,
+            'avg_rating': stats_agg['overall_avg_rating'] or 0,
+            'pending_jobs': stats_agg['total_pending'] or 0,
+            'service_calls': stats_agg['total_service_calls'] or 0,
+        }
+
+        serializer = TechnicianPerformanceSerializer(queryset, many=True)
+        
+        return response.Response({
+            'stats': stats,
+            'technicians': serializer.data
+        })
+
+    @action(detail=True, methods=['get'])
+    def performance_detail(self, request, pk=None):
+        """Get detailed performance metrics for a specific technician."""
+        technician = self.get_object()
+        
+        # We can reuse the same logic or provide more time-series data
+        # For now, let's provide basic monthly breakdown
+        current_year = timezone.now().year
+        
+        monthly_stats = []
+        for month in range(1, 13):
+            # Calculate stats for each month
+            month_filter = Q(jobcards__schedule_datetime__year=current_year, jobcards__schedule_datetime__month=month)
+            
+            stats = technician.jobcards.filter(month_filter).aggregate(
+                completed=Count('id', filter=Q(status='Done')),
+                revenue=Coalesce(Sum(Cast('price', FloatField()), filter=Q(status='Done')), Value(0.0, output_field=FloatField())),
+                avg_rating=Avg('feedbacks__rating')
+            )
+            
+            monthly_stats.append({
+                'month': month,
+                'name': timezone.datetime(current_year, month, 1).strftime('%b'),
+                **stats
+            })
+            
+        # Recent feedbacks
+        recent_feedbacks = Feedback.objects.filter(booking__technician=technician).order_by('-created_at')[:10]
+        feedback_serializer = FeedbackSerializer(recent_feedbacks, many=True)
+        
+        return response.Response({
+            'technician_name': technician.name,
+            'monthly_stats': monthly_stats,
+            'recent_feedbacks': feedback_serializer.data
+        })
 
 
 @extend_schema_view(
@@ -1423,6 +1536,13 @@ class JobCardViewSet(BaseModelViewSet):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         
+        # Ensure request.data is mutable for our fallback logic
+        if hasattr(request.data, '_mutable'):
+            request.data._mutable = True
+            
+        logger.info(f"🚀 Updating JobCard {instance.code} (ID: {instance.id})")
+        logger.info(f"Incoming Price: {request.data.get('price')} (Current: {instance.price})")
+        
         # Store original values to check for changes
         original_schedule_datetime = instance.schedule_datetime
         original_next_service_date = instance.next_service_date
@@ -1430,96 +1550,75 @@ class JobCardViewSet(BaseModelViewSet):
         original_job_type = instance.job_type
         
         # Handle client updates if client_data is provided
-        # IMPORTANT: Only update email, city, address, notes - NOT full_name
         if 'client_data' in request.data and request.data['client_data']:
             client_data = request.data['client_data']
             client = instance.client
             update_fields = []
             
-            # Only update editable fields - NOT full_name
-            if 'email' in client_data and client_data.get('email') is not None:
-                new_email = client_data.get('email', '').strip()
-                current_email = client.email or ''
-                if new_email != current_email:
-                    client.email = new_email
-                    update_fields.append('email')
-            
-            if 'city' in client_data and client_data.get('city'):
-                new_city = client_data.get('city', '').strip()
-                if new_city and client.city != new_city:
-                    client.city = new_city
-                    update_fields.append('city')
-            
-            if 'address' in client_data and client_data.get('address') is not None:
-                new_address = client_data.get('address', '').strip()
-                current_address = client.address or ''
-                if new_address != current_address:
-                    client.address = new_address
-                    update_fields.append('address')
-            
-            if 'notes' in client_data and client_data.get('notes') is not None:
-                new_notes = client_data.get('notes', '').strip()
-                current_notes = client.notes or ''
-                if new_notes != current_notes:
-                    client.notes = new_notes
-                    update_fields.append('notes')
+            # Only update email, city, address, notes - NOT full_name
+            for field in ['email', 'city', 'address', 'notes']:
+                if field in client_data and client_data.get(field) is not None:
+                    new_val = str(client_data.get(field)).strip()
+                    current_val = str(getattr(client, field) or '').strip()
+                    if new_val != current_val:
+                        setattr(client, field, new_val)
+                        if field not in update_fields: update_fields.append(field)
             
             if update_fields:
                 client.save(update_fields=update_fields)
-                logger.info(f"Updated client fields during job card update: {', '.join(update_fields)}")
+                logger.info(f"✅ Updated client {client.id} fields: {', '.join(update_fields)}")
         
-        # Handle client_address fallback if not provided or empty
-        # If client_address is not in request data or is empty, use client.address
+        # Handle client_address fallback if not provided
         request_client_address = request.data.get('client_address', '').strip() if request.data.get('client_address') else ''
-        if not request_client_address and instance.client and instance.client.address and instance.client.address.strip():
-            # Only update if current client_address is empty/null
-            current_client_address = instance.client_address or ''
-            if not current_client_address.strip():
-                instance.client_address = instance.client.address
-                instance.save(update_fields=['client_address'])
-                logger.info(f"Updated jobcard {instance.code} client_address from client.address: {instance.client.address}")
+        if not request_client_address and instance.client and instance.client.address:
+            if not (instance.client_address or '').strip():
+                # Update it in request.data so serializer picks it up
+                request.data['client_address'] = instance.client.address
+                logger.info(f"📍 Auto-filling client_address from client profile")
         
         # Perform the update
-        response_obj = super().update(request, *args, partial=partial, **kwargs)
-        
-        # Reload instance for automation logic
-        instance.refresh_from_db()
+        try:
+            response_obj = super().update(request, *args, partial=partial, **kwargs)
+            
+            # Reload instance to get updated values from DB
+            instance.refresh_from_db()
+            logger.info(f"✅ JobCard {instance.code} updated. New Price in DB: {instance.price}")
+            
+            # 1. Handle automation when job is marked DONE
+            if instance.status == JobCard.JobStatus.DONE:
+                JobCardService.handle_job_completion(instance)
 
-        # 1. Handle automation when job is marked DONE
-        if instance.status == JobCard.JobStatus.DONE:
-            JobCardService.handle_job_completion(instance)
-
-        # 2. Re-calculate next_service_date if missing and relevant fields changed
-        # Only if NOT already provided in request data to respect manual edits
-        if not request.data.get('next_service_date'):
-            # Check if relevant fields changed or if it's just missing
-            needs_calc = (
-                not instance.next_service_date or
-                instance.schedule_datetime != original_schedule_datetime
+            # 2. Re-calculate next_service_date if missing and relevant fields changed
+            if not request.data.get('next_service_date'):
+                needs_calc = (
+                    not instance.next_service_date or
+                    instance.schedule_datetime != original_schedule_datetime
+                )
+                if needs_calc:
+                    next_date, max_cycle = JobCardService.calculate_next_service_date(instance)
+                    if next_date != instance.next_service_date or max_cycle != instance.max_cycle:
+                        instance.next_service_date = next_date
+                        instance.max_cycle = max_cycle
+                        instance.save(update_fields=['next_service_date', 'max_cycle'])
+            
+            # 3. Generate renewals if relevant fields changed
+            renewal_fields_changed = (
+                instance.next_service_date != original_next_service_date or
+                instance.contract_duration != original_contract_duration or
+                instance.job_type != original_job_type
             )
-            if needs_calc:
-                next_date, max_cycle = JobCardService.calculate_next_service_date(instance)
-                if next_date != instance.next_service_date or max_cycle != instance.max_cycle:
-                    instance.next_service_date = next_date
-                    instance.max_cycle = max_cycle
-                    instance.save(update_fields=['next_service_date', 'max_cycle'])
-        
-        # 3. Check if renewal-related fields changed (legacy logic)
-        renewal_fields_changed = (
-            instance.next_service_date != original_next_service_date or
-            instance.contract_duration != original_contract_duration or
-            instance.job_type != original_job_type
-        )
-        
-        # Generate renewals if relevant fields changed
-        if renewal_fields_changed:
-            try:
-                generated_renewals = RenewalService.generate_renewals_for_jobcard(instance)
-                logger.info(f"Generated {len(generated_renewals)} renewals for updated job card {instance.code}")
-            except Exception as e:
-                logger.warning(f"Failed to generate renewals for updated job card {instance.code}: {e}")
-        
-        return response_obj
+            
+            if renewal_fields_changed:
+                try:
+                    RenewalService.generate_renewals_for_jobcard(instance)
+                except Exception as e:
+                    logger.warning(f"Failed to generate renewals: {e}")
+            
+            return response_obj
+            
+        except Exception as e:
+            logger.error(f"❌ Error updating job card {instance.code}: {e}", exc_info=True)
+            raise e
 
     
     @extend_schema(
