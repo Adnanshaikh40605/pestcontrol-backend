@@ -253,6 +253,12 @@ class StaffSerializer(serializers.ModelSerializer):
             return 'Super Admin'
         return 'Staff'
 
+    def validate_mobile(self, value):
+        user_id = self.instance.id if self.instance else None
+        if User.objects.filter(username=value).exclude(id=user_id).exists():
+            raise serializers.ValidationError("A staff member with this mobile number already exists.")
+        return value
+
     def create(self, validated_data):
         password = validated_data.pop('password', None)
         role = validated_data.pop('role', 'Staff')
