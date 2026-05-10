@@ -63,7 +63,7 @@ def send_telegram_message(text: str) -> bool:
     return False
 
 
-def notify_new_inquiry(*, name: str, mobile: str, city: str, service: str, message: str, email: str | None = None) -> bool:
+def notify_new_inquiry(*, name: str, mobile: str, city: str, service: str, message: str, email: str | None = None, premise_type: str | None = None, premise_size: str | None = None, estimated_price: str | None = None, service_frequency: str | None = None) -> bool:
     """
     Format and dispatch a Telegram notification for a newly created inquiry.
 
@@ -74,21 +74,42 @@ def notify_new_inquiry(*, name: str, mobile: str, city: str, service: str, messa
         service: Service interest detail.
         message: Inquiry message body.
         email: Optional email address supplied by the customer.
+        premise_type: Optional property type (residential/commercial).
+        premise_size: Optional property size (1bhk/2bhk).
+        estimated_price: Optional price estimate.
+        service_frequency: Optional frequency (one-time/amc).
     """
     timestamp = timezone.now().astimezone().strftime("%Y-%m-%d %H:%M")
 
-    details: Iterable[str] = (
-        f"New inquiry received ({timestamp})",
+    details = [
+        f"🔥 New Inquiry Received ({timestamp})",
         "",
-        f"Name   : {name or 'N/A'}",
-        f"Mobile : {mobile or 'N/A'}",
-        f"City   : {city or 'N/A'}",
-        f"Service: {service or 'N/A'}",
-        *( [f"Email  : {email}"] if email else [] ),
+        f"👤 Name   : {name or 'N/A'}",
+        f"📞 Mobile : {mobile or 'N/A'}",
+        f"📍 City   : {city or 'N/A'}",
+        f"🛡️ Service: {service or 'N/A'}",
+    ]
+
+    if email:
+        details.append(f"📧 Email  : {email}")
+    
+    if premise_type:
+        details.append(f"🏠 Type   : {premise_type.capitalize()}")
+    
+    if premise_size:
+        details.append(f"📏 Size   : {premise_size.upper()}")
+        
+    if estimated_price:
+        details.append(f"💰 Quote  : ₹{estimated_price}")
+        
+    if service_frequency:
+        details.append(f"🔄 Plan   : {service_frequency.capitalize()}")
+
+    details.extend([
         "",
-        "Message:",
+        "💬 Message:",
         message or "N/A",
-    )
+    ])
 
     text = "\n".join(details)
     return send_telegram_message(text)

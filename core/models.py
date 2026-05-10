@@ -256,6 +256,53 @@ class Inquiry(BaseModel):
         help_text="Whether the inquiry has been read by staff"
     )
     
+    # New fields for website quote form
+    premise_type = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True, 
+        db_index=True,
+        verbose_name="Premise Type",
+        help_text="Categorizes the property type (e.g., residential, commercial)"
+    )
+    premise_size = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True, 
+        db_index=True,
+        verbose_name="Premise Size",
+        help_text="Specific size for residential quotes (e.g., 1bhk, 2bhk)"
+    )
+    pest_problems = models.TextField(
+        blank=True, 
+        null=True,
+        verbose_name="Pest Problems",
+        help_text="List of pests selected by the user"
+    )
+    estimated_price = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        null=True, 
+        blank=True,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Estimated Price",
+        help_text="The price calculated by the website"
+    )
+    is_inspection_required = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="Is Inspection Required",
+        help_text="Flag for cases where price is not fixed"
+    )
+    service_frequency = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True, 
+        db_index=True,
+        verbose_name="Service Frequency",
+        help_text="Whether user wants a one-time treatment or AMC"
+    )
+    
     # Reminder fields
     reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")
     reminder_time = models.TimeField(null=True, blank=True, verbose_name="Reminder Time")

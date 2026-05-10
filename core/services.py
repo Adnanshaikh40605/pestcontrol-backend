@@ -264,6 +264,10 @@ class InquiryService:
                 service=inquiry.service_interest,
                 message=inquiry.message,
                 email=inquiry.email,
+                premise_type=inquiry.premise_type,
+                premise_size=inquiry.premise_size,
+                estimated_price=str(inquiry.estimated_price) if inquiry.estimated_price else None,
+                service_frequency=inquiry.service_frequency,
             )
         except Exception as exc:
             logger.error(

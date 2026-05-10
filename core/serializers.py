@@ -39,6 +39,8 @@ class InquirySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'mobile', 'email', 'message', 
             'service_interest', 'state', 'city', 'status', 'is_read', 
+            'premise_type', 'premise_size', 'pest_problems', 
+            'estimated_price', 'is_inspection_required', 'service_frequency',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_at', 'updated_at'
         ]
