@@ -11,7 +11,7 @@ class ClientAdmin(admin.ModelAdmin):
 
 @admin.register(Inquiry)
 class InquiryAdmin(admin.ModelAdmin):
-    list_display = ('name', 'mobile', 'premise_type', 'premise_size', 'estimated_price', 'status', 'created_at')
+    list_display = ('name', 'mobile', 'premise_type', 'premise_size', 'service_frequency', 'estimated_price', 'status', 'created_at')
     search_fields = ('name', 'mobile', 'email', 'service_interest', 'message')
     list_filter = ('status', 'premise_type', 'city', 'created_at')
     readonly_fields = ('created_at', 'updated_at')

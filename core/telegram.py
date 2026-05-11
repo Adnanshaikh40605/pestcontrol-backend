@@ -103,7 +103,14 @@ def notify_new_inquiry(*, name: str, mobile: str, city: str, service: str, messa
         details.append(f"💰 Quote  : ₹{estimated_price}")
         
     if service_frequency:
-        details.append(f"🔄 Plan   : {service_frequency.capitalize()}")
+        freq = service_frequency.strip().lower()
+        if freq == 'amc':
+            plan_label = "AMC (3 services)"
+        elif freq == 'one-time':
+            plan_label = "One-time"
+        else:
+            plan_label = service_frequency.capitalize()
+        details.append(f"🔄 Plan   : {plan_label}")
 
     details.extend([
         "",

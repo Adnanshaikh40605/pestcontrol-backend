@@ -8,7 +8,8 @@ class ClientSerializer(serializers.ModelSerializer):
         model = Client
         fields = [
             'id', 'full_name', 'mobile', 'email', 'state', 'city', 
-            'address', 'notes', 'is_active', 'created_at', 'updated_at'
+            'address', 'flat_number', 'building_name', 'landmark', 'area',
+            'notes', 'is_active', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
@@ -41,10 +42,22 @@ class InquirySerializer(serializers.ModelSerializer):
             'service_interest', 'state', 'city', 'status', 'is_read', 
             'premise_type', 'premise_size', 'pest_problems', 
             'estimated_price', 'is_inspection_required', 'service_frequency',
+            'flat_number', 'building_name', 'landmark', 'area',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_service_frequency(self, value):
+        if value in (None, ''):
+            return value
+        v = value.strip().lower()
+        allowed = frozenset({'one-time', 'amc'})
+        if v not in allowed:
+            raise serializers.ValidationError(
+                'Must be "one-time" or "amc".'
+            )
+        return v
 
 
 class JobCardSerializer(serializers.ModelSerializer):
@@ -68,7 +81,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'id', 'code', 'client', 'client_name', 'client_mobile', 'client_state', 'client_notes', 'client_data',
             'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_datetime', 
             'time_slot', 'state', 'city',
-            'price', 'client_address',
+            'price', 'client_address', 'flat_number', 'building_name', 'landmark', 'area',
             'payment_status', 'payment_mode', 'assigned_to', 'technician', 'technician_name', 'technician_mobile', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
             'extra_notes', 'cancellation_reason', 'removal_remarks', 
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
@@ -181,12 +194,24 @@ class CRMInquirySerializer(serializers.ModelSerializer):
     class Meta:
         model = CRMInquiry
         fields = [
-            'id', 'name', 'mobile', 'location', 'pest_type', 'remark', 
+            'id', 'name', 'mobile', 'location', 'pest_type', 'remark',
+            'service_frequency',
             'inquiry_date', 'inquiry_time', 'status', 'created_by', 'created_by_name',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']
+
+    def validate_service_frequency(self, value):
+        if value in (None, ''):
+            return value
+        v = value.strip().lower()
+        allowed = frozenset({'one-time', 'amc'})
+        if v not in allowed:
+            raise serializers.ValidationError(
+                'Must be "one-time" or "amc".'
+            )
+        return v
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
