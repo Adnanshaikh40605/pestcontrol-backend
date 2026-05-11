@@ -76,10 +76,6 @@ class Client(BaseModel):
         verbose_name="Address",
         help_text="Complete address of the client (optional)"
     )
-    flat_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="Flat/House Number")
-    building_name = models.CharField(max_length=255, blank=True, null=True, verbose_name="Building Name")
-    landmark = models.CharField(max_length=255, blank=True, null=True, verbose_name="Landmark")
-    area = models.CharField(max_length=255, blank=True, null=True, verbose_name="Area/Locality")
     notes = models.TextField(
         blank=True, 
         null=True,
@@ -259,12 +255,6 @@ class Inquiry(BaseModel):
         verbose_name="Is Read",
         help_text="Whether the inquiry has been read by staff"
     )
-    
-    # Detailed address fields
-    flat_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="Flat/House Number")
-    building_name = models.CharField(max_length=255, blank=True, null=True, verbose_name="Building Name")
-    landmark = models.CharField(max_length=255, blank=True, null=True, verbose_name="Landmark")
-    area = models.CharField(max_length=255, blank=True, null=True, verbose_name="Area/Locality")
     
     # New fields for website quote form
     premise_type = models.CharField(
@@ -535,10 +525,6 @@ class JobCard(BaseModel):
         verbose_name="Client Address",
         help_text="Address where the service will be performed"
     )
-    flat_number = models.CharField(max_length=100, blank=True, null=True, verbose_name="Flat/House Number")
-    building_name = models.CharField(max_length=255, blank=True, null=True, verbose_name="Building Name")
-    landmark = models.CharField(max_length=255, blank=True, null=True, verbose_name="Landmark")
-    area = models.CharField(max_length=255, blank=True, null=True, verbose_name="Area/Locality")
     price = models.CharField(
         max_length=200,
         default='',
@@ -897,14 +883,6 @@ class CRMInquiry(BaseModel):
     location = models.CharField(max_length=500, blank=True, null=True)
     pest_type = models.CharField(max_length=255, default='Other')
     remark = models.TextField(blank=True, null=True, verbose_name="Remark")
-    service_frequency = models.CharField(
-        max_length=50,
-        blank=True,
-        null=True,
-        db_index=True,
-        verbose_name="Service Frequency",
-        help_text="Website-style plan: one-time or amc",
-    )
     
     # Reminder fields
     reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")

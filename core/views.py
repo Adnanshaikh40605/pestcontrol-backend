@@ -789,10 +789,8 @@ class InquiryViewSet(BaseModelViewSet):
     
     def create(self, request, *args, **kwargs):
         """Create a new inquiry using service layer."""
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
         try:
-            inquiry = InquiryService.create_inquiry(serializer.validated_data)
+            inquiry = InquiryService.create_inquiry(request.data)
             serializer = self.get_serializer(inquiry)
             return response.Response(serializer.data, status=status.HTTP_201_CREATED)
         except ValidationError as e:

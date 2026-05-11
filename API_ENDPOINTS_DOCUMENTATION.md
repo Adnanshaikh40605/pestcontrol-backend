@@ -256,24 +256,9 @@ GET /api/v1/inquiries/?status=New&city=Mumbai&ordering=-created_at&page=1&page_s
       "email": "john.doe@example.com",
       "message": "Need pest control service for my home",
       "service_interest": "Residential Pest Control",
-      "state": null,
       "city": "Mumbai",
       "status": "New",
       "is_read": false,
-      "premise_type": "residential",
-      "premise_size": "2bhk",
-      "pest_problems": null,
-      "estimated_price": "4500.00",
-      "is_inspection_required": false,
-      "service_frequency": "one-time",
-      "flat_number": null,
-      "building_name": null,
-      "landmark": null,
-      "area": null,
-      "reminder_date": null,
-      "reminder_time": null,
-      "reminder_note": null,
-      "is_reminder_done": false,
       "created_at": "2024-01-15T10:30:00Z",
       "updated_at": "2024-01-15T10:30:00Z"
     },
@@ -284,24 +269,9 @@ GET /api/v1/inquiries/?status=New&city=Mumbai&ordering=-created_at&page=1&page_s
       "email": "jane.smith@example.com",
       "message": "Looking for commercial pest control services",
       "service_interest": "Commercial Pest Control",
-      "state": null,
       "city": "Delhi",
       "status": "Contacted",
       "is_read": true,
-      "premise_type": null,
-      "premise_size": null,
-      "pest_problems": null,
-      "estimated_price": null,
-      "is_inspection_required": false,
-      "service_frequency": null,
-      "flat_number": null,
-      "building_name": null,
-      "landmark": null,
-      "area": null,
-      "reminder_date": null,
-      "reminder_time": null,
-      "reminder_note": null,
-      "is_reminder_done": false,
       "created_at": "2024-01-14T14:20:00Z",
       "updated_at": "2024-01-14T15:45:00Z"
     }
@@ -327,45 +297,7 @@ GET /api/v1/inquiries/?status=New&city=Mumbai&ordering=-created_at&page=1&page_s
 
 ---
 
-### 2. Create Inquiry (Public)
-
-**Endpoint:** `POST /api/v1/inquiries/` or `POST /api/inquiries/`
-
-**Description:** Submit a website or lead form inquiry. No authentication required. Only known inquiry fields are saved; extras are rejected by validation.
-
-**Body (JSON)** — selected fields:
-
-| Field | Required | Notes |
-|-------|----------|--------|
-| `name` | Yes | |
-| `mobile` | Yes | 10 digits |
-| `message` | Yes | Min length enforced by server |
-| `service_interest` | Yes | |
-| `city` | Yes | |
-| `email` | No | |
-| `service_frequency` | No | `"one-time"` or `"amc"` (website “Select Type”) |
-| Quote extras | No | `premise_type`, `premise_size`, `pest_problems`, `estimated_price`, `is_inspection_required`, address fields, etc. |
-
-**Example:**
-```json
-{
-  "name": "John Doe",
-  "mobile": "9876543210",
-  "email": "john@example.com",
-  "message": "Please book cockroach treatment for next week.",
-  "service_interest": "Cockroach control",
-  "city": "Pune",
-  "service_frequency": "amc",
-  "premise_type": "residential",
-  "premise_size": "2bhk"
-}
-```
-
-**Success:** `201 Created` with the full inquiry object (same shape as GET by id).
-
----
-
-### 3. Get Single Inquiry (Retrieve)
+### 2. Get Single Inquiry (Retrieve)
 
 **Endpoint:** `GET /api/v1/inquiries/{id}/` or `GET /api/inquiries/{id}/`
 
@@ -396,24 +328,9 @@ GET /api/v1/inquiries/1/
   "email": "john.doe@example.com",
   "message": "Need pest control service for my home. I have noticed some cockroaches and ants in my kitchen.",
   "service_interest": "Residential Pest Control",
-  "state": null,
   "city": "Mumbai",
   "status": "New",
   "is_read": false,
-  "premise_type": "residential",
-  "premise_size": "2bhk",
-  "pest_problems": null,
-  "estimated_price": null,
-  "is_inspection_required": false,
-  "service_frequency": "one-time",
-  "flat_number": null,
-  "building_name": null,
-  "landmark": null,
-  "area": null,
-  "reminder_date": null,
-  "reminder_time": null,
-  "reminder_note": null,
-  "is_reminder_done": false,
   "created_at": "2024-01-15T10:30:00Z",
   "updated_at": "2024-01-15T10:30:00Z"
 }

@@ -164,11 +164,6 @@ The API uses JWT tokens for authentication with the following endpoints:
   "email": "jane@example.com",
   "message": "Need pest control service for my apartment",
   "service_interest": "Residential Pest Control",
-  "premise_type": "residential",
-  "premise_size": "2bhk",
-  "estimated_price": "4500.00",
-  "is_inspection_required": false,
-  "service_frequency": "one-time",
   "city": "Mumbai",
   "status": "New",
   "is_read": false,
@@ -176,7 +171,6 @@ The API uses JWT tokens for authentication with the following endpoints:
   "updated_at": "2024-01-01T10:00:00Z"
 }
 ```
-- **`service_frequency`** (optional): `"one-time"` or `"amc"` — matches the website “Select Type” quote field.
 
 #### Status Options
 - `New` - Initial status for new inquiries

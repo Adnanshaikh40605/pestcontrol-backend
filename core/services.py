@@ -142,7 +142,7 @@ class ClientService:
     
     @staticmethod
     @transaction.atomic
-    def get_or_create_client(name: str, mobile: str, email: str = None, city: str = None, address: str = None, flat_number: str = None, building_name: str = None, landmark: str = None, area: str = None) -> tuple[Client, bool]:
+    def get_or_create_client(name: str, mobile: str, email: str = None, city: str = None) -> tuple[Client, bool]:
         """Get existing client or create new one with proper locking to prevent race conditions."""
         import logging
         logger = logging.getLogger(__name__)
@@ -165,12 +165,7 @@ class ClientService:
                 'full_name': name,
                 'mobile': cleaned_mobile,
                 'email': email,
-                'city': city or 'Unknown',
-                'address': address,
-                'flat_number': flat_number,
-                'building_name': building_name,
-                'landmark': landmark,
-                'area': area
+                'city': city or 'Unknown'
             }
             
             try:
@@ -323,22 +318,22 @@ class InquiryService:
                 'client': client,
                 'status': JobCard.JobStatus.PENDING,
                 'service_type': inquiry.service_interest,
-                'service_category': JobCard.ServiceCategory.AMC
-                if (inquiry.service_frequency or '').strip().lower() == 'amc'
-                else JobCard.ServiceCategory.ONE_TIME,
+                'service_category': JobCard.ServiceCategory.ONE_TIME,
                 'schedule_datetime': conversion_data.get('schedule_datetime', timezone.now()),
-                'price': conversion_data.get('price') or (str(inquiry.estimated_price) if inquiry.estimated_price else ''),
+                'price': conversion_data.get('price', ''),
                 'payment_status': JobCard.PaymentStatus.UNPAID,
-                # Map premise details
-                'commercial_type': JobCard.CommercialType.OFFICE if inquiry.premise_type == 'commercial' else JobCard.CommercialType.HOME,
-                'bhk_size': inquiry.premise_size or '',
-                'is_price_estimated': inquiry.is_inspection_required,
-                'client_address': conversion_data.get('client_address') or inquiry.message,
                 'flat_number': inquiry.flat_number,
                 'building_name': inquiry.building_name,
                 'landmark': inquiry.landmark,
                 'area': inquiry.area,
             }
+            
+            # Set client_address from conversion_data or fallback to client.address
+            client_address = conversion_data.get('client_address', '').strip() if conversion_data.get('client_address') else ''
+            if not client_address and client.address and client.address.strip():
+                client_address = client.address
+            if client_address:
+                jobcard_data['client_address'] = client_address
             
             jobcard = JobCard(**jobcard_data)
             jobcard.full_clean()
@@ -1118,16 +1113,10 @@ class CRMInquiryService:
             )
             
             # 2. Map Inquiry to JobCard fields
-            svc_freq = (inquiry.service_frequency or '').strip().lower()
             job_card_data = {
                 'client': client.id,
                 'client_address': inquiry.location or '',
                 'service_type': inquiry.pest_type,
-                'service_category': (
-                    JobCard.ServiceCategory.AMC
-                    if svc_freq == 'amc'
-                    else JobCard.ServiceCategory.ONE_TIME
-                ),
                 'notes': inquiry.remark or '',
                 'status': 'Pending',
                 'schedule_datetime': timezone.now(),
