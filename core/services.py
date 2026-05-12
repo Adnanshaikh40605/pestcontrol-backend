@@ -1,7 +1,7 @@
 """
 Business logic services for the pest control application.
 """
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import logging
 import re
 
@@ -250,9 +250,9 @@ class InquiryService:
     """Service class for Inquiry-related business logic."""
     
     @staticmethod
-    def create_inquiry(data: Dict[str, Any]) -> Inquiry:
+    def create_inquiry(data: Dict[str, Any], user=None) -> Inquiry:
         """Create a new inquiry with validation."""
-        inquiry = Inquiry(**data)
+        inquiry = Inquiry(created_by=user, **data)
         inquiry.full_clean()  # Run model validation
         inquiry.save()
 
@@ -281,7 +281,7 @@ class InquiryService:
     
     @staticmethod
     @transaction.atomic
-    def convert_to_jobcard(inquiry_id: int, conversion_data: Dict[str, Any]) -> JobCard:
+    def convert_to_jobcard(inquiry_id: int, conversion_data: Dict[str, Any], user=None) -> JobCard:
         """Convert an inquiry to a job card."""
         try:
             inquiry = Inquiry.objects.get(id=inquiry_id)
@@ -326,6 +326,8 @@ class InquiryService:
                 'building_name': inquiry.building_name,
                 'landmark': inquiry.landmark,
                 'area': inquiry.area,
+                'created_by': user,
+                'reference': 'Website',
             }
             
             # Set client_address from conversion_data or fallback to client.address
@@ -341,6 +343,7 @@ class InquiryService:
             
             # Update inquiry status
             inquiry.status = Inquiry.InquiryStatus.CONVERTED
+            inquiry.converted_by = user
             inquiry.save()
             
             return jobcard
@@ -353,7 +356,7 @@ class JobCardService:
     """Service class for JobCard-related business logic."""
     
     @staticmethod
-    def create_jobcard(data: Dict[str, Any]) -> JobCard:
+    def create_jobcard(data: Dict[str, Any], user=None) -> JobCard:
         """
         Create a NEW job card with client get_or_create pattern.
         
@@ -534,7 +537,7 @@ class JobCardService:
             
             # IMPORTANT: Always create a NEW job card - never update existing ones
             # Multiple job cards can exist for the same client
-            jobcard = JobCard(**jobcard_data)
+            jobcard = JobCard(created_by=user, **jobcard_data)
             
             # Auto-calculate next service date if not provided
             if not jobcard.next_service_date:
@@ -648,6 +651,7 @@ class JobCardService:
                         status=JobCard.JobStatus.PENDING,
                         payment_status=JobCard.PaymentStatus.UNPAID,
                         is_service_call=True,
+                        created_by=jobcard.created_by,
                     )
                     
                     # Calculate next service date for the NEWLY created job
@@ -682,7 +686,7 @@ class RenewalService:
     """Service class for Renewal-related business logic."""
     
     @staticmethod
-    def create_renewal(data: Dict[str, Any]) -> Renewal:
+    def create_renewal(data: Dict[str, Any], user=None) -> Renewal:
         """Create a new renewal with validation."""
         # Handle jobcard field - convert ID to instance if needed
         if 'jobcard' in data and isinstance(data['jobcard'], (int, str)):
@@ -691,13 +695,13 @@ class RenewalService:
             except JobCard.DoesNotExist:
                 raise ValidationError("JobCard with the given ID does not exist.")
         
-        renewal = Renewal(**data)
+        renewal = Renewal(created_by=user, **data)
         renewal.full_clean()  # Run model validation
         renewal.save()
         return renewal
     
     @staticmethod
-    def generate_renewals_for_jobcard(jobcard: JobCard, force_regenerate: bool = False) -> list[Renewal]:
+    def generate_renewals_for_jobcard(jobcard: JobCard, force_regenerate: bool = False, user=None) -> list[Renewal]:
         """
         Generate renewals for a jobcard based on customer type and contract duration.
         Prevents duplicate renewals by checking existing ones.
@@ -740,7 +744,8 @@ class RenewalService:
                         jobcard=jobcard,
                         due_date=renewal_date,
                         renewal_type=Renewal.RenewalType.CONTRACT_RENEWAL,
-                        remarks=f"Service renewal for customer {jobcard.client.full_name}"
+                        remarks=f"Service renewal for customer {jobcard.client.full_name}",
+                        created_by=user
                     )
                     renewal.save()
                     renewals.append(renewal)
@@ -768,7 +773,8 @@ class RenewalService:
                     jobcard=jobcard,
                     due_date=contract_renewal_date,
                     renewal_type=Renewal.RenewalType.CONTRACT_RENEWAL,
-                    remarks=f"Contract renewal for society {jobcard.client.full_name} ({contract_months} months contract)"
+                    remarks=f"Contract renewal for society {jobcard.client.full_name} ({contract_months} months contract)",
+                    created_by=user
                 )
                 contract_renewal.save()
                 renewals.append(contract_renewal)
@@ -792,7 +798,8 @@ class RenewalService:
                         jobcard=jobcard,
                         due_date=reminder_date,
                         renewal_type=Renewal.RenewalType.MONTHLY_REMINDER,
-                        remarks=f"Monthly service reminder for society {jobcard.client.full_name} (Month {month})"
+                        remarks=f"Monthly service reminder for society {jobcard.client.full_name} (Month {month})",
+                        created_by=user
                     )
                     monthly_reminder.save()
                     renewals.append(monthly_reminder)
@@ -1071,6 +1078,114 @@ class DashboardService:
             logger.error(f"Error retrieving dashboard statistics: {str(e)}")
             raise
 
+    @staticmethod
+    def get_dashboard_counts() -> Dict[str, Any]:
+        """Get lightweight counts for sidebar badges."""
+        try:
+            from django.utils import timezone
+            from .models import Inquiry, JobCard, CRMInquiry, Feedback, Reminder
+            today = timezone.now().date()
+            
+            return {
+                "website_leads_unread": Inquiry.objects.filter(is_read=False).count(),
+                "complaint_calls": JobCard.objects.filter(is_complaint_call=True, status='Pending').count(),
+                "reminders": Reminder.objects.filter(status='pending').count(),
+                "feedbacks": Feedback.objects.count()
+            }
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error retrieving dashboard counts: {str(e)}")
+            return {
+                "website_leads_unread": 0,
+                "complaint_calls": 0,
+                "reminders": 0,
+                "feedbacks": 0
+            }
+
+    @staticmethod
+    def get_staff_performance(period: str = 'today') -> List[Dict[str, Any]]:
+        """
+        Get staff performance report based on the specified period.
+        Periods: today, yesterday, this_week, this_month
+        """
+        from django.contrib.auth.models import User
+        from django.utils import timezone
+        from django.db.models import Count, Q
+        from datetime import timedelta
+        from .models import Inquiry, JobCard, CRMInquiry, Renewal
+
+        now = timezone.now()
+        today = now.date()
+        
+        if period == 'yesterday':
+            start_date = today - timedelta(days=1)
+            end_date = today
+        elif period == 'this_week':
+            start_date = today - timedelta(days=today.weekday())
+            end_date = today + timedelta(days=1)
+        elif period == 'this_month':
+            start_date = today.replace(day=1)
+            next_month = today.replace(day=28) + timedelta(days=4)
+            end_date = next_month.replace(day=1)
+        else:  # today
+            start_date = today
+            end_date = today + timedelta(days=1)
+
+        # Get all active staff/admins
+        staff_users = User.objects.filter(is_active=True).order_by('first_name', 'username')
+        
+        performance_data = []
+        
+        for user in staff_users:
+            # Filters for the period
+            date_filter_created = Q(created_at__date__gte=start_date, created_at__date__lt=end_date)
+            date_filter_updated = Q(updated_at__date__gte=start_date, updated_at__date__lt=end_date)
+            
+            # 1. Inquiries Created (Website + CRM)
+            website_inquiries_created = Inquiry.objects.filter(created_by=user).filter(date_filter_created).count()
+            crm_inquiries_created = CRMInquiry.objects.filter(created_by=user).filter(date_filter_created).count()
+            total_inquiries_created = website_inquiries_created + crm_inquiries_created
+            
+            # 2. Inquiries Converted
+            website_converted = Inquiry.objects.filter(converted_by=user).filter(date_filter_updated).count()
+            crm_converted = CRMInquiry.objects.filter(converted_by=user).filter(date_filter_updated).count()
+            
+            # 3. Bookings Created
+            bookings_created = JobCard.objects.filter(created_by=user).filter(date_filter_created).count()
+            
+            # 4. Status Updates
+            on_process_updates = JobCard.objects.filter(on_process_by=user).filter(date_filter_updated).count()
+            done_updates = JobCard.objects.filter(done_by=user).filter(date_filter_updated).count()
+            
+            # 5. Complaint Calls Created
+            complaint_calls_created = JobCard.objects.filter(created_by=user, is_complaint_call=True).filter(date_filter_created).count()
+            
+            # 6. Reminders Created (Renewals)
+            reminders_created = Renewal.objects.filter(created_by=user).filter(date_filter_created).count()
+            
+            # 7. Conversion Rate
+            total_converted = website_converted + crm_converted
+            conversion_rate = 0
+            if total_inquiries_created > 0:
+                conversion_rate = (total_converted / total_inquiries_created) * 100
+            
+            performance_data.append({
+                'staff_id': user.id,
+                'staff_name': user.get_full_name() or user.username,
+                'total_inquiries_created': total_inquiries_created,
+                'website_inquiries_converted': website_converted,
+                'crm_inquiries_converted': crm_converted,
+                'total_bookings_created': bookings_created,
+                'total_on_process_updates': on_process_updates,
+                'total_done_updates': done_updates,
+                'total_complaint_calls_created': complaint_calls_created,
+                'total_reminders_created': reminders_created,
+                'conversion_rate': round(conversion_rate, 2)
+            })
+            
+        return performance_data
+
 class CRMInquiryService:
     """
     Service class for CRM Inquiry-related business logic.
@@ -1094,7 +1209,7 @@ class CRMInquiryService:
         return inquiry
 
     @staticmethod
-    def convert_to_booking(inquiry_id: int) -> JobCard:
+    def convert_to_booking(inquiry_id: int, user=None) -> JobCard:
         """
         Convert a CRM inquiry into a live JobCard/Booking.
         This handles client resolution and job card initialization.
@@ -1122,14 +1237,16 @@ class CRMInquiryService:
                 'status': 'Pending',
                 'schedule_datetime': timezone.now(),
                 'state': client.state or 'Maharashtra',
-                'city': client.city or 'Pune'
+                'city': client.city or 'Pune',
+                'reference': 'CRM Inquiry',
             }
             
             # 3. Create the Job Card
-            job_card = JobCardService.create_jobcard(job_card_data)
+            job_card = JobCardService.create_jobcard(job_card_data, user=user)
             
             # 4. Finalize Inquiry status
             inquiry.status = CRMInquiry.InquiryStatus.CONVERTED
+            inquiry.converted_by = user
             inquiry.remark = f"{inquiry.remark or ''}\n[Converted to Booking {job_card.code}]".strip()
             inquiry.save()
             

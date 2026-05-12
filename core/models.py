@@ -256,6 +256,24 @@ class Inquiry(BaseModel):
         help_text="Whether the inquiry has been read by staff"
     )
     
+    # Tracking fields
+    created_by = models.ForeignKey(
+        'auth.User', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='created_inquiries',
+        verbose_name="Created By"
+    )
+    converted_by = models.ForeignKey(
+        'auth.User', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='converted_inquiries',
+        verbose_name="Converted By"
+    )
+    
     # New fields for website quote form
     premise_type = models.CharField(
         max_length=50, 
@@ -302,6 +320,7 @@ class Inquiry(BaseModel):
         verbose_name="Service Frequency",
         help_text="Whether user wants a one-time treatment or AMC"
     )
+    remark = models.TextField(blank=True, null=True, verbose_name="Remark")
     
     # Reminder fields
     reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")
@@ -606,8 +625,7 @@ class JobCard(BaseModel):
     )
     reference = models.CharField(
         max_length=200,
-        blank=True,
-        null=True,
+        default='Other',
         db_index=True,
         verbose_name="Reference",
         help_text="Source of reference for this job card"
@@ -669,6 +687,32 @@ class JobCard(BaseModel):
         db_index=True
     )
     complaint_note = models.TextField(blank=True, null=True)
+
+    # Tracking fields
+    created_by = models.ForeignKey(
+        'auth.User', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='created_bookings',
+        verbose_name="Created By"
+    )
+    on_process_by = models.ForeignKey(
+        'auth.User', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='on_process_bookings',
+        verbose_name="On Process By"
+    )
+    done_by = models.ForeignKey(
+        'auth.User', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='done_bookings',
+        verbose_name="Done By"
+    )
 
     class Meta:
         ordering = ['-created_at']
@@ -798,6 +842,16 @@ class Renewal(BaseModel):
         verbose_name="Remarks",
         help_text="Additional remarks about the renewal (optional)"
     )
+    
+    # Tracking field
+    created_by = models.ForeignKey(
+        'auth.User', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='created_renewals',
+        verbose_name="Created By"
+    )
 
     class Meta:
         ordering = ['due_date']
@@ -908,6 +962,14 @@ class CRMInquiry(BaseModel):
         blank=True,
         related_name='crm_inquiries'
     )
+    converted_by = models.ForeignKey(
+        'auth.User', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='converted_crm_inquiries',
+        verbose_name="Converted By"
+    )
 
     class Meta:
         ordering = ['-created_at']
@@ -916,6 +978,52 @@ class CRMInquiry(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.name} - {self.mobile}"
+
+
+class Reminder(BaseModel):
+    class InquiryType(models.TextChoices):
+        CRM = 'crm', 'CRM Inquiry'
+        WEBSITE = 'website', 'Website Inquiry'
+
+    class ReminderStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        COMPLETED = 'completed', 'Completed'
+
+    inquiry_type = models.CharField(
+        max_length=20,
+        choices=InquiryType.choices,
+        db_index=True,
+        verbose_name="Inquiry Type"
+    )
+    inquiry_id = models.IntegerField(db_index=True, verbose_name="Inquiry ID")
+    customer_name = models.CharField(max_length=255, verbose_name="Customer Name")
+    mobile_number = models.CharField(max_length=10, validators=[validate_mobile_number], verbose_name="Mobile Number")
+    reminder_date = models.DateField(db_index=True, verbose_name="Reminder Date")
+    reminder_time = models.TimeField(null=True, blank=True, verbose_name="Reminder Time")
+    note = models.TextField(verbose_name="Note")
+    created_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_reminders',
+        verbose_name="Created By"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=ReminderStatus.choices,
+        default=ReminderStatus.PENDING,
+        db_index=True,
+        verbose_name="Status"
+    )
+
+    class Meta:
+        ordering = ['reminder_date', 'reminder_time']
+        verbose_name = 'Reminder'
+        verbose_name_plural = 'Reminders'
+
+    def __str__(self) -> str:
+        return f"Reminder for {self.customer_name} on {self.reminder_date}"
 
 
 class Feedback(BaseModel):

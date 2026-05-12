@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder
 from django.contrib.auth.models import User
 
 
@@ -34,6 +34,9 @@ class TechnicianSerializer(serializers.ModelSerializer):
 
 
 class InquirySerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+    converted_by_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Inquiry
         fields = [
@@ -41,10 +44,22 @@ class InquirySerializer(serializers.ModelSerializer):
             'service_interest', 'state', 'city', 'status', 'is_read', 
             'premise_type', 'premise_size', 'pest_problems', 
             'estimated_price', 'is_inspection_required', 'service_frequency',
+            'remark',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
+            'created_by', 'created_by_name', 'converted_by', 'converted_by_name',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_by', 'converted_by', 'created_at', 'updated_at']
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.get_full_name() or obj.created_by.username
+        return "Website"
+
+    def get_converted_by_name(self, obj):
+        if obj.converted_by:
+            return obj.converted_by.get_full_name() or obj.converted_by.username
+        return None
 
 
 class JobCardSerializer(serializers.ModelSerializer):
@@ -56,6 +71,10 @@ class JobCardSerializer(serializers.ModelSerializer):
     technician_name = serializers.CharField(source='technician.name', read_only=True)
     technician_mobile = serializers.CharField(source='technician.mobile', read_only=True)
     
+    created_by_name = serializers.SerializerMethodField()
+    on_process_by_name = serializers.SerializerMethodField()
+    done_by_name = serializers.SerializerMethodField()
+
     # Nested client data for creation
     client_data = serializers.DictField(write_only=True, required=False, help_text="Client details for creation if client doesn't exist")
 
@@ -74,9 +93,25 @@ class JobCardSerializer(serializers.ModelSerializer):
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'is_complaint_call', 'complaint_parent_booking', 'complaint_status', 'complaint_type', 'priority', 'complaint_note',
             'is_accepted', 'is_service_call', 'accepted_at', 'started_at', 'completed_at',
+            'created_by', 'created_by_name', 'on_process_by', 'on_process_by_name', 'done_by', 'done_by_name',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'code', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'code', 'created_by', 'on_process_by', 'done_by', 'created_at', 'updated_at']
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.get_full_name() or obj.created_by.username
+        return "System"
+
+    def get_on_process_by_name(self, obj):
+        if obj.on_process_by:
+            return obj.on_process_by.get_full_name() or obj.on_process_by.username
+        return None
+
+    def get_done_by_name(self, obj):
+        if obj.done_by:
+            return obj.done_by.get_full_name() or obj.done_by.username
+        return None
     
     def validate(self, data):
         """Custom validation for JobCard creation with client data."""
@@ -111,6 +146,14 @@ class JobCardSerializer(serializers.ModelSerializer):
                     'client_data': {'mobile': 'Mobile number must be exactly 10 digits.'}
                 })
         
+        # Business rule: Reference validation
+        reference = data.get('reference')
+        if reference is None and self.instance:
+            reference = self.instance.reference
+            
+        if not reference or not reference.strip():
+            raise serializers.ValidationError({'reference': 'Reference is required for all bookings.'})
+
         # Business rule: Cancellation reason validation
         status = data.get('status')
         # If updating, check the current status if not provided in data
@@ -155,15 +198,16 @@ class RenewalSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source='jobcard.client.full_name', read_only=True)
     is_paused = serializers.BooleanField(source='jobcard.is_paused', read_only=True)
     urgency_color = serializers.SerializerMethodField()
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
 
     class Meta:
         model = Renewal
         fields = [
             'id', 'jobcard', 'jobcard_code', 'client_name', 'is_paused',
             'due_date', 'status', 'renewal_type', 'urgency_level', 'urgency_color',
-            'remarks', 'created_at', 'updated_at'
+            'remarks', 'created_by', 'created_by_name', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'urgency_color']
+        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at', 'urgency_color']
     
     def get_urgency_color(self, obj):
         """Return color code based on urgency level."""
@@ -176,17 +220,29 @@ class RenewalSerializer(serializers.ModelSerializer):
 
 
 class CRMInquirySerializer(serializers.ModelSerializer):
-    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    created_by_name = serializers.SerializerMethodField()
+    converted_by_name = serializers.SerializerMethodField()
     
     class Meta:
         model = CRMInquiry
         fields = [
             'id', 'name', 'mobile', 'location', 'pest_type', 'remark', 'service_frequency',
             'inquiry_date', 'inquiry_time', 'status', 'created_by', 'created_by_name',
+            'converted_by', 'converted_by_name',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'converted_by']
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.get_full_name() or obj.created_by.username
+        return "System"
+
+    def get_converted_by_name(self, obj):
+        if obj.converted_by:
+            return obj.converted_by.get_full_name() or obj.converted_by.username
+        return None
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
@@ -234,6 +290,25 @@ class ActivityLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActivityLog
         fields = ['id', 'user', 'staff_name', 'action', 'booking_id', 'details', 'created_at']
+
+
+class ReminderSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+    created_at = serializers.DateTimeField(format="%d-%m-%Y %H:%M", read_only=True)
+
+    class Meta:
+        model = Reminder
+        fields = [
+            'id', 'inquiry_type', 'inquiry_id', 'customer_name', 'mobile_number',
+            'reminder_date', 'reminder_time', 'note', 'created_by', 'created_by_name',
+            'status', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_by', 'created_at']
+
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            return obj.created_by.get_full_name() or obj.created_by.username
+        return "System"
 
 
 class StaffSerializer(serializers.ModelSerializer):

@@ -16,12 +16,12 @@ from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder
 from .serializers import (
     ClientSerializer, InquirySerializer, JobCardSerializer, 
     RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, 
     FeedbackSerializer, TechnicianPerformanceSerializer,
-    StaffSerializer, ActivityLogSerializer
+    StaffSerializer, ActivityLogSerializer, ReminderSerializer
 )
 from django.contrib.auth.models import User
 from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField
@@ -307,7 +307,7 @@ class CRMInquiryViewSet(BaseModelViewSet):
     def convert(self, request, pk=None):
         """Action to trigger conversion from Inquiry to Booking."""
         try:
-            job_card = CRMInquiryService.convert_to_booking(pk)
+            job_card = CRMInquiryService.convert_to_booking(pk, user=request.user)
             log_activity(request.user, "Converted Inquiry to Booking", booking_id=job_card.code)
             return response.Response({
                 'message': 'Successfully converted to booking',
@@ -790,7 +790,9 @@ class InquiryViewSet(BaseModelViewSet):
     def create(self, request, *args, **kwargs):
         """Create a new inquiry using service layer."""
         try:
-            inquiry = InquiryService.create_inquiry(request.data)
+            # Pass user if authenticated, otherwise None (public website inquiry)
+            user = request.user if request.user.is_authenticated else None
+            inquiry = InquiryService.create_inquiry(request.data, user=user)
             serializer = self.get_serializer(inquiry)
             return response.Response(serializer.data, status=status.HTTP_201_CREATED)
         except ValidationError as e:
@@ -829,7 +831,7 @@ class InquiryViewSet(BaseModelViewSet):
     def convert(self, request, pk=None):
         """Convert inquiry to job card using service layer."""
         try:
-            jobcard = InquiryService.convert_to_jobcard(pk, request.data)
+            jobcard = InquiryService.convert_to_jobcard(pk, request.data, user=request.user)
             serializer = JobCardSerializer(jobcard)
             return response.Response(serializer.data, status=status.HTTP_201_CREATED)
         except ValidationError as e:
@@ -1507,11 +1509,11 @@ class JobCardViewSet(BaseModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            jobcard = JobCardService.create_jobcard(request.data)
+            jobcard = JobCardService.create_jobcard(request.data, user=request.user)
             
             # Automatically generate renewals for the job card if conditions are met
             try:
-                generated_renewals = RenewalService.generate_renewals_for_jobcard(jobcard)
+                generated_renewals = RenewalService.generate_renewals_for_jobcard(jobcard, user=request.user)
                 logger.info(f"Generated {len(generated_renewals)} renewals for job card {jobcard.code}")
             except Exception as e:
                 logger.warning(f"Failed to generate renewals for job card {jobcard.code}: {e}")
@@ -1597,10 +1599,24 @@ class JobCardViewSet(BaseModelViewSet):
         
         # Perform the update
         try:
+            # Track status changes before update
+            old_status = instance.status
+            new_status = request.data.get('status')
+            
             response_obj = super().update(request, *args, partial=partial, **kwargs)
             
             # Reload instance to get updated values from DB
             instance.refresh_from_db()
+            
+            # Track who changed status
+            if new_status and new_status != old_status:
+                if new_status == JobCard.JobStatus.ON_PROCESS:
+                    instance.on_process_by = request.user
+                    instance.save(update_fields=['on_process_by'])
+                elif new_status == JobCard.JobStatus.DONE:
+                    instance.done_by = request.user
+                    instance.save(update_fields=['done_by'])
+            
             logger.info(f"✅ JobCard {instance.code} updated. New Price in DB: {instance.price}")
             
             # 1. Handle automation when job is marked DONE
@@ -1632,7 +1648,7 @@ class JobCardViewSet(BaseModelViewSet):
             
             if renewal_fields_changed:
                 try:
-                    RenewalService.generate_renewals_for_jobcard(instance)
+                    RenewalService.generate_renewals_for_jobcard(instance, user=request.user)
                 except Exception as e:
                     logger.warning(f"Failed to generate renewals: {e}")
             
@@ -2194,6 +2210,37 @@ class DashboardViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['get'], url_path='counts')
+    def counts(self, request):
+        """
+        Get lightweight counts for sidebar badges.
+        """
+        try:
+            counts = DashboardService.get_dashboard_counts()
+            return response.Response(counts, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error retrieving dashboard counts: {e}")
+            return response.Response(
+                {'error': 'Failed to retrieve dashboard counts'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['get'], url_path='performance')
+    def performance(self, request):
+        """
+        Get staff performance report.
+        """
+        try:
+            period = request.query_params.get('period', 'today')
+            performance_data = DashboardService.get_staff_performance(period)
+            return response.Response(performance_data, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error retrieving staff performance: {e}")
+            return response.Response(
+                {'error': 'Failed to retrieve staff performance report'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 @extend_schema_view(
     list=extend_schema(
@@ -2408,7 +2455,7 @@ class RenewalViewSet(BaseModelViewSet):
     def create(self, request, *args, **kwargs):
         """Create a new renewal using service layer."""
         try:
-            renewal = RenewalService.create_renewal(request.data)
+            renewal = RenewalService.create_renewal(request.data, user=request.user)
             serializer = self.get_serializer(renewal)
             return response.Response(serializer.data, status=status.HTTP_201_CREATED)
         except ValidationError as e:
@@ -2767,6 +2814,22 @@ class GlobalSearchView(views.APIView):
                 'link': f'/crm-inquiries/{inc.id}'
             })
 
+        # 4. Search Reminders
+        reminders = Reminder.objects.filter(
+            Q(customer_name__icontains=query) |
+            Q(mobile_number__icontains=query) |
+            Q(note__icontains=query)
+        ).distinct()[:5]
+
+        for rem in reminders:
+            results.append({
+                'id': rem.id,
+                'title': f"Reminder: {rem.customer_name}",
+                'subtitle': f"{rem.mobile_number} - {rem.note[:30]}...",
+                'type': 'Reminder',
+                'link': f'/jobcards?tab=reminders'
+            })
+
         return response.Response(results)
 
 
@@ -2842,6 +2905,18 @@ class CustomerHistoryView(views.APIView):
                     'note': inc.reminder_note,
                     'status': 'Done' if inc.is_reminder_done else 'Pending'
                 })
+
+        # Also include new unified reminders
+        new_reminders = Reminder.objects.filter(mobile_number=client.mobile)
+        for rem in new_reminders:
+            reminders.append({
+                'id': rem.id,
+                'type': f"{rem.inquiry_type.upper()} Reminder",
+                'date': rem.reminder_date,
+                'time': rem.reminder_time,
+                'note': rem.note,
+                'status': rem.status.capitalize()
+            })
 
         # 5. Technician History
         technicians = set()
@@ -2968,6 +3043,47 @@ class ComplaintAnalyticsView(views.APIView):
             'resolution_rate': round((resolved / total * 100), 1) if total > 0 else 0,
             'technician_stats': list(tech_stats)
         })
+
+
+class ReminderViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for handling Reminders.
+    """
+    queryset = Reminder.objects.all()
+    serializer_class = ReminderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status', 'inquiry_type']
+    search_fields = ['customer_name', 'mobile_number', 'note']
+    ordering_fields = ['reminder_date', 'reminder_time', 'created_at']
+    ordering = ['reminder_date', 'reminder_time']
+
+    def perform_create(self, serializer):
+        inquiry_type = serializer.validated_data.get('inquiry_type')
+        inquiry_id = serializer.validated_data.get('inquiry_id')
+        reminder_date = serializer.validated_data.get('reminder_date')
+        
+        # Check for existing pending reminder for same inquiry and date
+        existing = Reminder.objects.filter(
+            inquiry_type=inquiry_type,
+            inquiry_id=inquiry_id,
+            reminder_date=reminder_date,
+            status=Reminder.ReminderStatus.PENDING
+        ).exists()
+        
+        if existing:
+            raise ValidationError("A pending reminder already exists for this inquiry on this date.")
+            
+        serializer.save(created_by=self.request.user)
+        log_activity(self.request.user, "Created Reminder", details=f"Customer: {serializer.validated_data.get('customer_name')}")
+
+    @decorators.action(detail=True, methods=['post'])
+    def mark_complete(self, request, pk=None):
+        reminder = self.get_object()
+        reminder.status = Reminder.ReminderStatus.COMPLETED
+        reminder.save()
+        log_activity(request.user, "Completed Reminder", details=f"Customer: {reminder.customer_name}")
+        return response.Response({'status': 'Reminder marked as completed'})
 
 
 def log_activity(user, action, booking_id=None, details=None):

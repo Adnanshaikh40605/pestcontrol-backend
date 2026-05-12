@@ -19,6 +19,7 @@ from .views import (
     ComplaintAnalyticsView,
     StaffViewSet,
     ActivityLogViewSet,
+    ReminderViewSet,
 )
 
 # Create router for v1 API
@@ -34,6 +35,7 @@ router.register(r'feedbacks', FeedbackViewSet, basename='feedback')
 router.register(r'complaints', ComplaintViewSet, basename='complaint')
 router.register(r'staff', StaffViewSet, basename='staff')
 router.register(r'activity-logs', ActivityLogViewSet, basename='activity-log')
+router.register(r'reminders', ReminderViewSet, basename='reminder')
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),
