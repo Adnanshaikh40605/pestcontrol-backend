@@ -1,5 +1,29 @@
 from django.contrib import admin
-from .models import Client, Inquiry, JobCard, Renewal
+from .models import Client, Inquiry, JobCard, Renewal, CRMInquiry
+
+
+@admin.register(CRMInquiry)
+class CRMInquiryAdmin(admin.ModelAdmin):
+    list_display = ('name', 'mobile', 'pest_type', 'service_frequency', 'status', 'inquiry_date', 'created_by')
+    search_fields = ('name', 'mobile', 'location', 'pest_type', 'remark')
+    list_filter = ('status', 'pest_type', 'service_frequency', 'inquiry_date')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Customer Info', {
+            'fields': ('name', 'mobile', 'location')
+        }),
+        ('Inquiry Details', {
+            'fields': ('pest_type', 'service_frequency', 'status', 'remark', 'inquiry_date', 'inquiry_time', 'created_by')
+        }),
+        ('Reminder Info', {
+            'fields': ('reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
 
 
 @admin.register(Client)

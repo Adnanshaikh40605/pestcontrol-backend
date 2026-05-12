@@ -883,6 +883,13 @@ class CRMInquiry(BaseModel):
     location = models.CharField(max_length=500, blank=True, null=True)
     pest_type = models.CharField(max_length=255, default='Other')
     remark = models.TextField(blank=True, null=True, verbose_name="Remark")
+    service_frequency = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True, 
+        db_index=True,
+        verbose_name="Service Frequency"
+    )
     
     # Reminder fields
     reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")

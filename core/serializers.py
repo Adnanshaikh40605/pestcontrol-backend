@@ -181,7 +181,7 @@ class CRMInquirySerializer(serializers.ModelSerializer):
     class Meta:
         model = CRMInquiry
         fields = [
-            'id', 'name', 'mobile', 'location', 'pest_type', 'remark', 
+            'id', 'name', 'mobile', 'location', 'pest_type', 'remark', 'service_frequency',
             'inquiry_date', 'inquiry_time', 'status', 'created_by', 'created_by_name',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_at', 'updated_at'
