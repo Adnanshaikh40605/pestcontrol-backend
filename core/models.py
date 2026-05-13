@@ -1041,6 +1041,7 @@ class Feedback(BaseModel):
     )
     feedback_type = models.CharField(max_length=20)  # 'Manual' or 'WhatsApp Link'
     token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    is_read = models.BooleanField(default=False, db_index=True, verbose_name="Is Read")
 
     class Meta:
         ordering = ['-created_at']

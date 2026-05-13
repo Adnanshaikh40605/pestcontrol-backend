@@ -963,6 +963,12 @@ class FeedbackViewSet(BaseModelViewSet):
             return []
         return super().get_authenticators()
 
+    @action(detail=False, methods=['post'], url_path='mark-all-read')
+    def mark_all_read(self, request):
+        """Mark all unread feedbacks as read."""
+        Feedback.objects.filter(is_read=False).update(is_read=True)
+        return response.Response({'status': 'success'})
+
     @action(detail=False, methods=['post'], url_path='generate')
     def generate(self, request):
         """Generate a secure feedback link for a booking."""

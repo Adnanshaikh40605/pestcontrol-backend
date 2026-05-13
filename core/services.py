@@ -1090,7 +1090,7 @@ class DashboardService:
                 "website_leads_unread": Inquiry.objects.filter(is_read=False).count(),
                 "complaint_calls": JobCard.objects.filter(is_complaint_call=True, status='Pending').count(),
                 "reminders": Reminder.objects.filter(status='pending').count(),
-                "feedbacks": Feedback.objects.count()
+                "feedbacks": Feedback.objects.filter(is_read=False).count()
             }
         except Exception as e:
             import logging
