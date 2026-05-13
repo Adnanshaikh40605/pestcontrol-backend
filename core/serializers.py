@@ -152,7 +152,12 @@ class JobCardSerializer(serializers.ModelSerializer):
             reference = self.instance.reference
             
         if not reference or not reference.strip():
-            raise serializers.ValidationError({'reference': 'Reference is required for all bookings.'})
+            # If it's an update and reference is missing/empty, default to 'Other'
+            # to avoid blocking updates (like cancellation) for older records.
+            if self.instance:
+                data['reference'] = 'Other'
+            else:
+                raise serializers.ValidationError({'reference': 'Reference is required for all bookings.'})
 
         # Business rule: Cancellation reason validation
         status = data.get('status')
