@@ -187,7 +187,7 @@ class TechnicianViewSet(BaseModelViewSet):
             completed_count=Count('jobcards', filter=job_filter & Q(jobcards__status='Done'), distinct=True),
             pending_count=Count('jobcards', filter=job_filter & Q(jobcards__status='Pending'), distinct=True),
             on_process_count=Count('jobcards', filter=job_filter & Q(jobcards__status='On Process'), distinct=True),
-            service_calls_count=Count('jobcards', filter=job_filter & Q(jobcards__is_service_call=True), distinct=True),
+            service_calls_count=Count('jobcards', filter=job_filter & Q(jobcards__booking_type__in=[JobCard.BookingType.AMC_FOLLOWUP, JobCard.BookingType.SERVICE_CALL]), distinct=True),
             
             # Revenue calculation (casting CharField price to Float)
             # Using Coalesce to handle None values
@@ -197,9 +197,7 @@ class TechnicianViewSet(BaseModelViewSet):
                     Cast('jobcards__price', FloatField()),
                     filter=job_filter & Q(
                         jobcards__status='Done',
-                        jobcards__included_in_amc=False,
-                        jobcards__is_complaint_call=False,
-                        jobcards__is_followup_visit=False
+                        jobcards__booking_type__in=[JobCard.BookingType.NEW_BOOKING, JobCard.BookingType.AMC_MAIN]
                     )
                 ),
                 Value(0.0, output_field=FloatField())
@@ -259,7 +257,7 @@ class TechnicianViewSet(BaseModelViewSet):
                 revenue=Coalesce(
                     Sum(
                         Cast('price', FloatField()), 
-                        filter=Q(status='Done', included_in_amc=False, is_complaint_call=False, is_followup_visit=False)
+                        filter=Q(status='Done', booking_type__in=[JobCard.BookingType.NEW_BOOKING, JobCard.BookingType.AMC_MAIN])
                     ), 
                     Value(0.0, output_field=FloatField())
                 ),
@@ -1350,8 +1348,11 @@ class JobCardViewSet(BaseModelViewSet):
         
         # Apply strict status filters based on booking_type
         if booking_type == 'pending':
-            # Tab 1: Pending Booking - Strictly PENDING status and NOT a service call (initial booking only)
-            qs = qs.filter(status=JobCard.JobStatus.PENDING, is_service_call=False)
+            # Tab 1: Pending Booking - Strictly PENDING status and NOT a follow-up/service/complaint
+            qs = qs.filter(
+                status=JobCard.JobStatus.PENDING, 
+                booking_type__in=[JobCard.BookingType.NEW_BOOKING, JobCard.BookingType.AMC_MAIN]
+            )
         elif booking_type == 'on_process':
             # Tab 2: On Process - Strictly ON_PROCESS status only
             qs = qs.filter(status=JobCard.JobStatus.ON_PROCESS)
@@ -1370,7 +1371,7 @@ class JobCardViewSet(BaseModelViewSet):
             seven_days_later = today + timezone.timedelta(days=7)
             
             qs = qs.filter(
-                is_service_call=True,
+                booking_type__in=[JobCard.BookingType.AMC_FOLLOWUP, JobCard.BookingType.SERVICE_CALL],
                 schedule_datetime__date__range=[today, seven_days_later]
             ).exclude(status__in=[JobCard.JobStatus.DONE, JobCard.JobStatus.CANCELLED])
         elif booking_type == 'cancelled':
@@ -1380,8 +1381,8 @@ class JobCardViewSet(BaseModelViewSet):
             # Tab 7: Reminders - Initially show all active reminders
             qs = qs.filter(reminder_date__isnull=False, is_reminder_done=False)
         elif booking_type == 'complaint_calls':
-            # Tab 8: Complaint Calls - Strictly is_complaint_call=True
-            qs = qs.filter(is_complaint_call=True)
+            # Tab 8: Complaint Calls - Strictly Complaint Booking Type
+            qs = qs.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL)
         elif booking_type == 'all':
             # No specific tab filter, show all
             pass
@@ -2984,7 +2985,7 @@ class ComplaintViewSet(viewsets.ModelViewSet):
     """
     ViewSet for handling Complaint Calls.
     """
-    queryset = JobCard.objects.filter(is_complaint_call=True)
+    queryset = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL)
     serializer_class = JobCardSerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -3035,6 +3036,7 @@ class ComplaintViewSet(viewsets.ModelViewSet):
             technician_id=request.data.get('technician_id'),
             status=JobCard.JobStatus.PENDING,
             complaint_status=JobCard.ComplaintStatus.OPEN,
+            booking_type=JobCard.BookingType.COMPLAINT_CALL,
             price="0"  # Complaint calls are usually free
         )
 
@@ -3054,14 +3056,14 @@ class ComplaintAnalyticsView(views.APIView):
         tags=['Complaints']
     )
     def get(self, request):
-        total = JobCard.objects.filter(is_complaint_call=True).count()
+        total = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL).count()
         resolved_statuses = [JobCard.ComplaintStatus.RESOLVED, JobCard.ComplaintStatus.CLOSED]
-        resolved = JobCard.objects.filter(is_complaint_call=True, complaint_status__in=resolved_statuses).count()
-        unresolved = JobCard.objects.filter(is_complaint_call=True).exclude(complaint_status__in=resolved_statuses).count()
-        high_priority = JobCard.objects.filter(is_complaint_call=True, priority=JobCard.Priority.HIGH).exclude(complaint_status__in=resolved_statuses).count()
+        resolved = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL, complaint_status__in=resolved_statuses).count()
+        unresolved = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL).exclude(complaint_status__in=resolved_statuses).count()
+        high_priority = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL, priority=JobCard.Priority.HIGH).exclude(complaint_status__in=resolved_statuses).count()
         
         # Technician complaint rate (complaints per technician)
-        tech_stats = JobCard.objects.filter(is_complaint_call=True, technician__isnull=False).values('technician__name').annotate(
+        tech_stats = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL, technician__isnull=False).values('technician__name').annotate(
             count=Count('id')
         ).order_by('-count')
 

@@ -539,9 +539,16 @@ class JobCardService:
             # Multiple job cards can exist for the same client
             jobcard = JobCard(created_by=user, **jobcard_data)
             
-            # Set AMC Main Booking flag if it's the first AMC service
+            # Set AMC Main Booking flag and Booking Type if it's the first AMC service
             if jobcard.service_category == JobCard.ServiceCategory.AMC and jobcard.service_cycle == 1:
                 jobcard.is_amc_main_booking = True
+                jobcard.booking_type = JobCard.BookingType.AMC_MAIN
+            elif jobcard.is_complaint_call:
+                jobcard.booking_type = JobCard.BookingType.COMPLAINT_CALL
+            elif jobcard.is_service_call:
+                jobcard.booking_type = JobCard.BookingType.SERVICE_CALL
+            else:
+                jobcard.booking_type = JobCard.BookingType.NEW_BOOKING
             
             # Auto-calculate next service date if not provided
             if not jobcard.next_service_date:
@@ -656,7 +663,8 @@ class JobCardService:
                         'payment_status': JobCard.PaymentStatus.PAID,  # Mark as paid since it's included in AMC
                         'is_service_call': True,
                         'is_followup_visit': True,
-                        'included_in_amc': jobcard.service_category == JobCard.ServiceCategory.AMC,
+                        'included_in_amc': True, # Always included for auto-generated follow-ups
+                        'booking_type': JobCard.BookingType.AMC_FOLLOWUP if jobcard.service_category == JobCard.ServiceCategory.AMC else JobCard.BookingType.SERVICE_CALL,
                         'created_by': jobcard.created_by,
                     }
                     
@@ -1053,11 +1061,10 @@ class DashboardService:
                                      .order_by('-count'))
             
             # Revenue Stats (Only Done bookings, excluding free follow-ups/complaints)
+            # ONLY count NEW_BOOKING and AMC_MAIN
             revenue_filter = Q(
                 status=JobCard.JobStatus.DONE,
-                included_in_amc=False,
-                is_complaint_call=False,
-                is_followup_visit=False
+                booking_type__in=[JobCard.BookingType.NEW_BOOKING, JobCard.BookingType.AMC_MAIN]
             )
             
             today_revenue = JobCard.objects.filter(
@@ -1103,7 +1110,7 @@ class DashboardService:
             
             return {
                 "website_leads_unread": Inquiry.objects.filter(is_read=False).count(),
-                "complaint_calls": JobCard.objects.filter(is_complaint_call=True, status='Pending').count(),
+                "complaint_calls": JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL, status='Pending').count(),
                 "reminders": Reminder.objects.filter(status='pending').count(),
                 "feedbacks": Feedback.objects.filter(is_read=False).count()
             }
@@ -1174,7 +1181,7 @@ class DashboardService:
             done_updates = JobCard.objects.filter(done_by=user).filter(date_filter_updated).count()
             
             # 5. Complaint Calls Created
-            complaint_calls_created = JobCard.objects.filter(created_by=user, is_complaint_call=True).filter(date_filter_created).count()
+            complaint_calls_created = JobCard.objects.filter(created_by=user, booking_type=JobCard.BookingType.COMPLAINT_CALL).filter(date_filter_created).count()
             
             # 6. Reminders Created (Renewals)
             reminders_created = Renewal.objects.filter(created_by=user).filter(date_filter_created).count()

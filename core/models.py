@@ -428,11 +428,26 @@ class JobCard(BaseModel):
         RESOLVED = 'Resolved', 'Resolved'
         CLOSED = 'Closed', 'Closed'
 
+    class BookingType(models.TextChoices):
+        NEW_BOOKING = 'New Booking', 'New Booking'
+        AMC_MAIN = 'AMC Main Booking', 'AMC Main Booking'
+        AMC_FOLLOWUP = 'AMC Follow-up', 'AMC Follow-up'
+        SERVICE_CALL = 'Service Call', 'Service Call'
+        COMPLAINT_CALL = 'Complaint Call', 'Complaint Call'
+
     class Priority(models.TextChoices):
         LOW = 'Low', 'Low'
         MEDIUM = 'Medium', 'Medium'
         HIGH = 'High', 'High'
 
+    booking_type = models.CharField(
+        max_length=50,
+        choices=BookingType.choices,
+        default=BookingType.NEW_BOOKING,
+        db_index=True,
+        verbose_name="Booking Type",
+        help_text="Categorizes the type of booking for revenue and UI display"
+    )
     code = models.CharField(
         max_length=20, 
         unique=True, 
@@ -797,6 +812,19 @@ class JobCard(BaseModel):
         if self.service_cycle > 1:
             self.is_service_call = True
             
+        # Ensure booking_type is set (fallback for direct object creation)
+        if not self.booking_type:
+            if self.is_complaint_call:
+                self.booking_type = self.BookingType.COMPLAINT_CALL
+            elif self.is_followup_visit or self.included_in_amc:
+                self.booking_type = self.BookingType.AMC_FOLLOWUP
+            elif self.is_service_call:
+                self.booking_type = self.BookingType.SERVICE_CALL
+            elif self.service_category == self.ServiceCategory.AMC and self.service_cycle == 1:
+                self.booking_type = self.BookingType.AMC_MAIN
+            else:
+                self.booking_type = self.BookingType.NEW_BOOKING
+                
         super().save(*args, **kwargs)
 
         # Generate code after initial save when PK is available

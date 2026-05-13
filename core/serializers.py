@@ -87,7 +87,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'id', 'code', 'client', 'client_name', 'client_mobile', 'client_state', 'client_notes', 'client_data',
             'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_datetime', 
             'time_slot', 'state', 'city',
-            'price', 'client_address',
+            'price', 'price_display', 'client_address',
             'payment_status', 'payment_mode', 'assigned_to', 'technician', 'technician_name', 'technician_mobile', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
             'extra_notes', 'cancellation_reason', 'removal_remarks', 
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
@@ -99,6 +99,8 @@ class JobCardSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'code', 'created_by', 'on_process_by', 'done_by', 'created_at', 'updated_at']
 
+    price_display = serializers.SerializerMethodField()
+    
     def get_created_by_name(self, obj):
         if obj.created_by:
             return obj.created_by.get_full_name() or obj.created_by.username
@@ -113,6 +115,15 @@ class JobCardSerializer(serializers.ModelSerializer):
         if obj.done_by:
             return obj.done_by.get_full_name() or obj.done_by.username
         return None
+
+    def get_price_display(self, obj):
+        if obj.booking_type == JobCard.BookingType.AMC_FOLLOWUP or obj.included_in_amc:
+            return "Included in AMC"
+        if obj.booking_type == JobCard.BookingType.COMPLAINT_CALL:
+            return "Free (Complaint)"
+        if obj.booking_type == JobCard.BookingType.SERVICE_CALL and obj.service_cycle > 1:
+             return "Included in Service"
+        return obj.price
     
     def validate(self, data):
         """Custom validation for JobCard creation with client data."""
