@@ -847,6 +847,12 @@ class InquiryViewSet(BaseModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['post'], url_path='mark-all-read')
+    def mark_all_read(self, request):
+        """Mark all unread inquiries as read."""
+        Inquiry.objects.filter(is_read=False).update(is_read=True)
+        return response.Response({'status': 'success'})
+
     @extend_schema(
         summary="Mark Inquiry as Read",
         description="Mark an inquiry as read to track which inquiries have been reviewed",
