@@ -93,6 +93,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'is_complaint_call', 'complaint_parent_booking', 'complaint_status', 'complaint_type', 'priority', 'complaint_note',
             'is_accepted', 'is_service_call', 'accepted_at', 'started_at', 'completed_at',
+            'is_amc_main_booking', 'is_followup_visit', 'included_in_amc',
             'created_by', 'created_by_name', 'on_process_by', 'on_process_by_name', 'done_by', 'done_by_name',
             'created_at', 'updated_at'
         ]

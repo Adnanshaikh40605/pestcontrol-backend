@@ -714,6 +714,26 @@ class JobCard(BaseModel):
         verbose_name="Done By"
     )
 
+    # AMC and Revenue Flow Fields
+    is_amc_main_booking = models.BooleanField(
+        default=False, 
+        db_index=True, 
+        verbose_name="Is AMC Main Booking",
+        help_text="True if this is the first/paid booking of an AMC package"
+    )
+    is_followup_visit = models.BooleanField(
+        default=False, 
+        db_index=True, 
+        verbose_name="Is Follow-up Visit",
+        help_text="True if this is a follow-up service (AMC or BedBug)"
+    )
+    included_in_amc = models.BooleanField(
+        default=False, 
+        db_index=True, 
+        verbose_name="Included in AMC",
+        help_text="True if this service is free/included in a previously paid AMC"
+    )
+
     class Meta:
         ordering = ['-created_at']
         indexes = [

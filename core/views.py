@@ -191,10 +191,16 @@ class TechnicianViewSet(BaseModelViewSet):
             
             # Revenue calculation (casting CharField price to Float)
             # Using Coalesce to handle None values
+            # Excluding free follow-ups/complaints from revenue
             total_revenue=Coalesce(
                 Sum(
                     Cast('jobcards__price', FloatField()),
-                    filter=job_filter & Q(jobcards__status='Done')
+                    filter=job_filter & Q(
+                        jobcards__status='Done',
+                        jobcards__included_in_amc=False,
+                        jobcards__is_complaint_call=False,
+                        jobcards__is_followup_visit=False
+                    )
                 ),
                 Value(0.0, output_field=FloatField())
             ),
@@ -250,7 +256,13 @@ class TechnicianViewSet(BaseModelViewSet):
             
             stats = technician.jobcards.filter(month_filter).aggregate(
                 completed=Count('id', filter=Q(status='Done')),
-                revenue=Coalesce(Sum(Cast('price', FloatField()), filter=Q(status='Done')), Value(0.0, output_field=FloatField())),
+                revenue=Coalesce(
+                    Sum(
+                        Cast('price', FloatField()), 
+                        filter=Q(status='Done', included_in_amc=False, is_complaint_call=False, is_followup_visit=False)
+                    ), 
+                    Value(0.0, output_field=FloatField())
+                ),
                 avg_rating=Avg('feedbacks__rating')
             )
             
@@ -2881,6 +2893,12 @@ class CustomerHistoryView(views.APIView):
         paid_services = 0
         
         for jc in jobcards:
+            # Only count revenue for main bookings, exclude free follow-ups and complaints
+            if jc.included_in_amc or jc.is_complaint_call or jc.is_followup_visit:
+                if jc.payment_status == JobCard.PaymentStatus.PAID:
+                    paid_services += 1
+                continue
+
             try:
                 price_str = str(jc.price).replace('₹', '').replace(',', '').strip()
                 p = float(price_str) if price_str else 0

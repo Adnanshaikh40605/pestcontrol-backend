@@ -539,6 +539,10 @@ class JobCardService:
             # Multiple job cards can exist for the same client
             jobcard = JobCard(created_by=user, **jobcard_data)
             
+            # Set AMC Main Booking flag if it's the first AMC service
+            if jobcard.service_category == JobCard.ServiceCategory.AMC and jobcard.service_cycle == 1:
+                jobcard.is_amc_main_booking = True
+            
             # Auto-calculate next service date if not provided
             if not jobcard.next_service_date:
                 next_date, max_cycle = JobCardService.calculate_next_service_date(jobcard)
@@ -632,27 +636,31 @@ class JobCardService:
                     
                     # Prepare data for next job
                     # Note: next_job will automatically have is_service_call=True via model save logic
-                    next_job = JobCard.objects.create(
-                        client=jobcard.client,
-                        service_type=jobcard.service_type,
-                        service_category=jobcard.service_category,
-                        schedule_datetime=jobcard.next_service_date,
-                        service_cycle=jobcard.service_cycle + 1,
-                        max_cycle=jobcard.max_cycle,
-                        parent_job=jobcard,
-                        commercial_type=jobcard.commercial_type,
-                        property_type=jobcard.property_type,
-                        bhk_size=jobcard.bhk_size,
-                        contract_duration=jobcard.contract_duration,
-                        price=jobcard.price,
-                        client_address=jobcard.client_address,
-                        state=jobcard.state,
-                        city=jobcard.city,
-                        status=JobCard.JobStatus.PENDING,
-                        payment_status=JobCard.PaymentStatus.UNPAID,
-                        is_service_call=True,
-                        created_by=jobcard.created_by,
-                    )
+                    next_job_data = {
+                        'client': jobcard.client,
+                        'service_type': jobcard.service_type,
+                        'service_category': jobcard.service_category,
+                        'schedule_datetime': jobcard.next_service_date,
+                        'service_cycle': jobcard.service_cycle + 1,
+                        'max_cycle': jobcard.max_cycle,
+                        'parent_job': jobcard,
+                        'commercial_type': jobcard.commercial_type,
+                        'property_type': jobcard.property_type,
+                        'bhk_size': jobcard.bhk_size,
+                        'contract_duration': jobcard.contract_duration,
+                        'price': "0",  # Follow-up visits are free
+                        'client_address': jobcard.client_address,
+                        'state': jobcard.state,
+                        'city': jobcard.city,
+                        'status': JobCard.JobStatus.PENDING,
+                        'payment_status': JobCard.PaymentStatus.PAID,  # Mark as paid since it's included in AMC
+                        'is_service_call': True,
+                        'is_followup_visit': True,
+                        'included_in_amc': jobcard.service_category == JobCard.ServiceCategory.AMC,
+                        'created_by': jobcard.created_by,
+                    }
+                    
+                    next_job = JobCard.objects.create(**next_job_data)
                     
                     # Calculate next service date for the NEWLY created job
                     next_next_date, _ = JobCardService.calculate_next_service_date(next_job)
@@ -1044,14 +1052,21 @@ class DashboardService:
                                      .annotate(count=Count('property_type'))
                                      .order_by('-count'))
             
-            # Revenue Stats (Only Done bookings)
-            today_revenue = JobCard.objects.filter(
+            # Revenue Stats (Only Done bookings, excluding free follow-ups/complaints)
+            revenue_filter = Q(
                 status=JobCard.JobStatus.DONE,
+                included_in_amc=False,
+                is_complaint_call=False,
+                is_followup_visit=False
+            )
+            
+            today_revenue = JobCard.objects.filter(
+                revenue_filter,
                 schedule_datetime__date=today
             ).aggregate(total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField())))['total']
             
             month_revenue = JobCard.objects.filter(
-                status=JobCard.JobStatus.DONE,
+                revenue_filter,
                 schedule_datetime__year=today.year,
                 schedule_datetime__month=today.month
             ).aggregate(total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField())))['total']
