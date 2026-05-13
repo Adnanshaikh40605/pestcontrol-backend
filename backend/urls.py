@@ -1,19 +1,3 @@
-"""
-URL configuration for backend project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/5.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
 from django.contrib import admin
 from django.urls import path, include
 from django.http import HttpResponse, JsonResponse
@@ -45,14 +29,48 @@ urlpatterns = [
     path('health/', health, name='health'),
     path('admin/', admin.site.urls),
     
-    # Authentication endpoints
+    # Authentication endpoints (CRM Staff)
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
     
-    # Swagger UI Documentation (schema endpoint is internal, not exposed)
+    # ── CRM Swagger Docs (Admin APIs) ──
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    
+    # ── Partner App Swagger Docs (Mobile APIs only) ──
+    path(
+        'api/partner/schema/',
+        SpectacularAPIView.as_view(
+            urlconf=None,
+            custom_settings={
+                'TITLE': 'PestControl Partner App API',
+                'DESCRIPTION': (
+                    '## Partner App API — For Flutter Mobile App\n\n'
+                    'This documentation covers all APIs used by the **Technician Partner Mobile App**.\n\n'
+                    '### Authentication\n'
+                    'All protected endpoints require a `Bearer` token obtained from `/api/partner/login/`.\n\n'
+                    'Add to headers:\n'
+                    '```\nAuthorization: Bearer <access_token>\n```\n\n'
+                    '### Flow\n'
+                    '1. Register → Login → Get Token\n'
+                    '2. View Available Bookings → Accept → Start Service → End Service\n'
+                    '3. View Profile & Earnings'
+                ),
+                'VERSION': '1.0.0',
+                'SERVERS': [
+                    {'url': 'https://pestcontrol-backend-production.up.railway.app', 'description': 'Production'},
+                    {'url': 'http://localhost:8000', 'description': 'Local Dev'},
+                ],
+            }
+        ),
+        name='partner-schema'
+    ),
+    path(
+        'api/partner/docs/',
+        SpectacularSwaggerView.as_view(url_name='partner-schema'),
+        name='partner-swagger-ui'
+    ),
     
     # Frontend pages
     path('api-docs/', api_docs_view, name='api_docs'),

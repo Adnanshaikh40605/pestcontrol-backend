@@ -117,6 +117,11 @@ class JobCardSerializer(serializers.ModelSerializer):
     schedule_datetime = serializers.DateTimeField(required=False, allow_null=True)
     created_at = serializers.DateTimeField(format="%d-%m-%Y %H:%M", read_only=True)
 
+    is_accepted = serializers.BooleanField(read_only=True)
+    is_service_call = serializers.BooleanField(read_only=True)
+    
+    partner_name = serializers.CharField(source='partner.full_name', read_only=True)
+
     class Meta:
         model = JobCard
         fields = [
@@ -125,7 +130,9 @@ class JobCardSerializer(serializers.ModelSerializer):
             'time_slot', 'state', 'city',
             'master_country', 'master_country_name', 'master_state', 'master_state_name', 'master_city', 'master_city_name', 'master_location', 'master_location_name', 'full_address',
             'price', 'price_display', 'client_address',
-            'payment_status', 'payment_mode', 'assigned_to', 'technician', 'technician_name', 'technician_mobile', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
+            'payment_status', 'payment_mode', 'assigned_to', 'technician', 'technician_name', 'technician_mobile', 
+            'partner', 'partner_name', 'partner_status',
+            'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
             'extra_notes', 'cancellation_reason', 'removal_remarks', 
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'is_complaint_call', 'complaint_parent_booking', 'complaint_status', 'complaint_type', 'priority', 'complaint_note',

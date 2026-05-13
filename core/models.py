@@ -730,9 +730,33 @@ class JobCard(BaseModel):
     is_reminder_done = models.BooleanField(default=False, db_index=True, verbose_name="Is Reminder Done")
 
     # Partner App Workflow Fields
+    class PartnerStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending (Not yet accepted)'
+        ACCEPTED = 'accepted', 'Accepted'
+        IN_SERVICE = 'in_service', 'Service Started'
+        COMPLETED = 'completed', 'Service Completed'
+        REJECTED = 'rejected', 'Rejected by Technician'
+
     is_read = models.BooleanField(default=False, verbose_name="Is Read")
     is_accepted = models.BooleanField(default=False, verbose_name="Is Accepted")
     is_service_call = models.BooleanField(default=False, verbose_name="Is Service Call")
+    partner_status = models.CharField(
+        max_length=20,
+        choices=PartnerStatus.choices,
+        default=PartnerStatus.PENDING,
+        db_index=True,
+        verbose_name="Partner App Status",
+        help_text="Status in the Technician Partner App workflow"
+    )
+    partner = models.ForeignKey(
+        'partner.Partner',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_jobs',
+        verbose_name="Assigned Partner",
+        help_text="Partner App technician assigned to this booking"
+    )
     accepted_at = models.DateTimeField(null=True, blank=True, verbose_name="Accepted At")
     started_at = models.DateTimeField(null=True, blank=True, verbose_name="Started At")
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name="Completed At")
