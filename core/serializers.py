@@ -1,6 +1,36 @@
 from rest_framework import serializers
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder, Country, State, City, Location
 from django.contrib.auth.models import User
+
+
+class CountrySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Country
+        fields = ['id', 'name', 'is_active']
+
+
+class StateSerializer(serializers.ModelSerializer):
+    country_name = serializers.CharField(source='country.name', read_only=True)
+
+    class Meta:
+        model = State
+        fields = ['id', 'country', 'country_name', 'name', 'is_active']
+
+
+class CitySerializer(serializers.ModelSerializer):
+    state_name = serializers.CharField(source='state.name', read_only=True)
+
+    class Meta:
+        model = City
+        fields = ['id', 'state', 'state_name', 'name', 'is_active']
+
+
+class LocationSerializer(serializers.ModelSerializer):
+    city_name = serializers.CharField(source='city.name', read_only=True)
+
+    class Meta:
+        model = Location
+        fields = ['id', 'city', 'city_name', 'name', 'is_active']
 
 
 class ClientSerializer(serializers.ModelSerializer):
@@ -71,6 +101,12 @@ class JobCardSerializer(serializers.ModelSerializer):
     technician_name = serializers.CharField(source='technician.name', read_only=True)
     technician_mobile = serializers.CharField(source='technician.mobile', read_only=True)
     
+    # Master Location Display Names
+    master_country_name = serializers.CharField(source='master_country.name', read_only=True)
+    master_state_name = serializers.CharField(source='master_state.name', read_only=True)
+    master_city_name = serializers.CharField(source='master_city.name', read_only=True)
+    master_location_name = serializers.CharField(source='master_location.name', read_only=True)
+
     created_by_name = serializers.SerializerMethodField()
     on_process_by_name = serializers.SerializerMethodField()
     done_by_name = serializers.SerializerMethodField()
@@ -87,6 +123,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'id', 'code', 'client', 'client_name', 'client_mobile', 'client_state', 'client_notes', 'client_data',
             'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_datetime', 
             'time_slot', 'state', 'city',
+            'master_country', 'master_country_name', 'master_state', 'master_state_name', 'master_city', 'master_city_name', 'master_location', 'master_location_name', 'full_address',
             'price', 'price_display', 'client_address',
             'payment_status', 'payment_mode', 'assigned_to', 'technician', 'technician_name', 'technician_mobile', 'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
             'extra_notes', 'cancellation_reason', 'removal_remarks', 

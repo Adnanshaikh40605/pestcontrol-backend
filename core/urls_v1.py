@@ -20,6 +20,10 @@ from .views import (
     StaffViewSet,
     ActivityLogViewSet,
     ReminderViewSet,
+    CountryViewSet,
+    StateViewSet,
+    CityViewSet,
+    LocationViewSet,
 )
 
 # Create router for v1 API
@@ -36,6 +40,10 @@ router.register(r'complaints', ComplaintViewSet, basename='complaint')
 router.register(r'staff', StaffViewSet, basename='staff')
 router.register(r'activity-logs', ActivityLogViewSet, basename='activity-log')
 router.register(r'reminders', ReminderViewSet, basename='reminder')
+router.register(r'countries', CountryViewSet, basename='country')
+router.register(r'states', StateViewSet, basename='state')
+router.register(r'cities', CityViewSet, basename='city')
+router.register(r'locations', LocationViewSet, basename='location')
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),

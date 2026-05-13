@@ -32,6 +32,58 @@ class BaseModel(models.Model):
         ordering = ['-created_at']
 
 
+class Country(BaseModel):
+    name = models.CharField(max_length=100, unique=True, db_index=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name_plural = "Countries"
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class State(BaseModel):
+    country = models.ForeignKey(Country, on_delete=models.CASCADE, related_name='states')
+    name = models.CharField(max_length=100, db_index=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ('country', 'name')
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name}, {self.country.name}"
+
+
+class City(BaseModel):
+    state = models.ForeignKey(State, on_delete=models.CASCADE, related_name='cities')
+    name = models.CharField(max_length=100, db_index=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ('state', 'name')
+        verbose_name_plural = "Cities"
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name}, {self.state.name}"
+
+
+class Location(BaseModel):
+    city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='locations')
+    name = models.CharField(max_length=255, db_index=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ('city', 'name')
+        ordering = ['name']
+
+    def __str__(self):
+        return f"{self.name}, {self.city.name}"
+
+
 class Client(BaseModel):
     full_name = models.CharField(
         max_length=255, 
@@ -550,8 +602,15 @@ class JobCard(BaseModel):
         db_index=True,
         verbose_name="Time Slot"
     )
-    state = models.CharField(max_length=100, blank=True, null=True, db_index=True, verbose_name="State")
-    city = models.CharField(max_length=100, blank=True, null=True, db_index=True, verbose_name="City")
+    state = models.CharField(max_length=100, blank=True, null=True, db_index=True, verbose_name="State (Legacy)")
+    city = models.CharField(max_length=100, blank=True, null=True, db_index=True, verbose_name="City (Legacy)")
+    
+    # New Master Location System
+    master_country = models.ForeignKey(Country, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Country (Master)")
+    master_state = models.ForeignKey(State, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="State (Master)")
+    master_city = models.ForeignKey(City, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="City (Master)")
+    master_location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Location (Master)")
+    full_address = models.TextField(blank=True, null=True, verbose_name="Full Address")
     
     client_address = models.TextField(
         blank=True,

@@ -16,12 +16,13 @@ from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder, Country, State, City, Location
 from .serializers import (
     ClientSerializer, InquirySerializer, JobCardSerializer, 
     RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, 
     FeedbackSerializer, TechnicianPerformanceSerializer,
-    StaffSerializer, ActivityLogSerializer, ReminderSerializer
+    StaffSerializer, ActivityLogSerializer, ReminderSerializer,
+    CountrySerializer, StateSerializer, CitySerializer, LocationSerializer
 )
 from django.contrib.auth.models import User
 from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField
@@ -97,6 +98,58 @@ class BaseModelViewSet(viewsets.ModelViewSet):
         """Override create to add logging."""
         logger.info(f"Creating {self.get_serializer_class().Meta.model.__name__}")
         return super().create(request, *args, **kwargs)
+
+
+class CountryViewSet(BaseModelViewSet):
+    queryset = Country.objects.all()
+    serializer_class = CountrySerializer
+    permission_classes = [permissions.IsAuthenticated]
+    search_fields = ['name']
+    filterset_fields = ['is_active']
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAdminUser()]
+
+
+class StateViewSet(BaseModelViewSet):
+    queryset = State.objects.all()
+    serializer_class = StateSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    search_fields = ['name']
+    filterset_fields = ['country', 'is_active']
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAdminUser()]
+
+
+class CityViewSet(BaseModelViewSet):
+    queryset = City.objects.all()
+    serializer_class = CitySerializer
+    permission_classes = [permissions.IsAuthenticated]
+    search_fields = ['name']
+    filterset_fields = ['state', 'is_active']
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAdminUser()]
+
+
+class LocationViewSet(BaseModelViewSet):
+    queryset = Location.objects.all()
+    serializer_class = LocationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    search_fields = ['name']
+    filterset_fields = ['city', 'is_active']
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAdminUser()]
     
     def update(self, request, *args, **kwargs):
         """Override update to add logging."""
