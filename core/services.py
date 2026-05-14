@@ -1022,6 +1022,18 @@ class DashboardService:
             total_technicians = Technician.objects.filter(is_active=True).count()
             renewals = Renewal.objects.filter(renewal_filters).count()
             
+            # Quotation counts
+            from .models import Quotation
+            quotation_filters = Q()
+            if from_date:
+                quotation_filters &= Q(created_at__date__gte=from_date)
+            if to_date:
+                quotation_filters &= Q(created_at__date__lte=to_date)
+                
+            total_quotations = Quotation.objects.filter(quotation_filters).count()
+            approved_quotations = Quotation.objects.filter(quotation_filters, status='Approved').count()
+            converted_quotations = Quotation.objects.filter(quotation_filters, status='Converted').count()
+            
             # Service Category Breakdown
             category_stats = {
                 'one_time': JobCard.objects.filter(jobcard_filters, service_category=JobCard.ServiceCategory.ONE_TIME).count(),
@@ -1086,6 +1098,9 @@ class DashboardService:
                 'total_clients': total_clients,
                 'total_technicians': total_technicians,
                 'renewals': renewals,
+                'total_quotations': total_quotations,
+                'approved_quotations': approved_quotations,
+                'converted_quotations': converted_quotations,
                 'today_revenue': today_revenue,
                 'month_revenue': month_revenue,
                 'category_stats': category_stats,
@@ -1105,14 +1120,15 @@ class DashboardService:
         """Get lightweight counts for sidebar badges."""
         try:
             from django.utils import timezone
-            from .models import Inquiry, JobCard, CRMInquiry, Feedback, Reminder
+            from .models import Inquiry, JobCard, CRMInquiry, Feedback, Reminder, Quotation
             today = timezone.now().date()
             
             return {
                 "website_leads_unread": Inquiry.objects.filter(is_read=False).count(),
                 "complaint_calls": JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL, status='Pending').count(),
                 "reminders": Reminder.objects.filter(status='pending').count(),
-                "feedbacks": Feedback.objects.filter(is_read=False).count()
+                "feedbacks": Feedback.objects.filter(is_read=False).count(),
+                "pending_quotations": Quotation.objects.filter(status='Sent').count()
             }
         except Exception as e:
             import logging

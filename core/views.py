@@ -16,13 +16,14 @@ from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder, Country, State, City, Location
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder, Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm, QuotationHistory
 from .serializers import (
     ClientSerializer, InquirySerializer, JobCardSerializer, 
     RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, 
     FeedbackSerializer, TechnicianPerformanceSerializer,
     StaffSerializer, ActivityLogSerializer, ReminderSerializer,
-    CountrySerializer, StateSerializer, CitySerializer, LocationSerializer
+    CountrySerializer, StateSerializer, CitySerializer, LocationSerializer,
+    QuotationSerializer, QuotationItemSerializer, QuotationHistorySerializer
 )
 from django.contrib.auth.models import User
 from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField
@@ -3169,6 +3170,112 @@ class ReminderViewSet(viewsets.ModelViewSet):
         reminder.save()
         log_activity(request.user, "Completed Reminder", details=f"Customer: {reminder.customer_name}")
         return response.Response({'status': 'Reminder marked as completed'})
+
+
+class QuotationViewSet(BaseModelViewSet):
+    queryset = Quotation.objects.all()
+    serializer_class = QuotationSerializer
+    search_fields = ['quotation_no', 'customer_name', 'mobile', 'company_name']
+    filterset_fields = ['status', 'quotation_type', 'is_amc']
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Get summary statistics for the quotation dashboard."""
+        qs = self.get_queryset()
+        stats = {
+            'total': qs.count(),
+            'pending': qs.filter(status='Sent').count(),
+            'approved': qs.filter(status='Approved').count(),
+            'converted': qs.filter(status='Converted').count(),
+            'revenue': qs.filter(status='Converted').aggregate(total=Sum('grand_total'))['total'] or 0
+        }
+        return response.Response(stats)
+
+    @action(detail=True, methods=['post'])
+    def convert_to_booking(self, request, pk=None):
+        """Convert an approved quotation into a booking (JobCard)."""
+        quotation = self.get_object()
+        
+        if quotation.status != 'Approved' and quotation.status != 'Sent':
+             # For flexibility, we allow 'Sent' too, but ideally 'Approved'
+             pass
+
+        try:
+            # 1. Create or Get Client
+            client, created = Client.objects.get_or_create(
+                mobile=quotation.mobile,
+                defaults={
+                    'full_name': quotation.customer_name,
+                    'email': quotation.email,
+                    'address': quotation.address,
+                    'city': quotation.city,
+                    'state': quotation.state,
+                }
+            )
+
+            # 2. Create Main Job Card
+            main_job = JobCard.objects.create(
+                client=client,
+                service_type=", ".join([item.service_name for item in quotation.items.all()]),
+                price=str(quotation.grand_total),
+                service_category=JobCard.ServiceCategory.AMC if quotation.is_amc else JobCard.ServiceCategory.ONE_TIME,
+                client_address=quotation.address,
+                city=quotation.city,
+                state=quotation.state,
+                status=JobCard.JobStatus.PENDING,
+                created_by=request.user,
+                is_amc_main_booking=quotation.is_amc,
+                max_cycle=quotation.visit_count if quotation.is_amc else 1,
+                service_cycle=1,
+                extra_notes=f"Converted from Quotation {quotation.quotation_no}. {quotation.notes or ''}"
+            )
+
+            # 3. If AMC, create follow-up visits (placeholder bookings)
+            if quotation.is_amc and quotation.visit_count > 1:
+                for i in range(2, quotation.visit_count + 1):
+                    JobCard.objects.create(
+                        client=client,
+                        service_type=main_job.service_type,
+                        price="0", # Follow-ups have no revenue
+                        service_category=JobCard.ServiceCategory.AMC,
+                        client_address=quotation.address,
+                        city=quotation.city,
+                        state=quotation.state,
+                        status=JobCard.JobStatus.PENDING,
+                        created_by=request.user,
+                        is_followup_visit=True,
+                        included_in_amc=True,
+                        parent_job=main_job,
+                        service_cycle=i,
+                        max_cycle=quotation.visit_count
+                    )
+
+            # 4. Update Quotation Status
+            quotation.status = Quotation.QuotationStatus.CONVERTED
+            quotation.save()
+
+            # 5. Log History
+            QuotationHistory.objects.create(
+                quotation=quotation,
+                action="Converted to Booking",
+                details=f"Quotation converted to JobCard {main_job.code} by {request.user.username}",
+                performed_by=request.user
+            )
+
+            log_activity(request.user, "Converted Quotation to Booking", booking_id=main_job.code)
+
+            return response.Response({
+                'message': 'Successfully converted to booking',
+                'booking_id': main_job.id,
+                'booking_code': main_job.code
+            })
+
+        except Exception as e:
+            logger.error(f"Error converting quotation: {e}")
+            return response.Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 def log_activity(user, action, booking_id=None, details=None):

@@ -24,6 +24,7 @@ from .views import (
     StateViewSet,
     CityViewSet,
     LocationViewSet,
+    QuotationViewSet,
 )
 
 # Create router for v1 API
@@ -44,6 +45,7 @@ router.register(r'countries', CountryViewSet, basename='country')
 router.register(r'states', StateViewSet, basename='state')
 router.register(r'cities', CityViewSet, basename='city')
 router.register(r'locations', LocationViewSet, basename='location')
+router.register(r'quotations', QuotationViewSet, basename='quotation')
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),

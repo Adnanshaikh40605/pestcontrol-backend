@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder, Country, State, City, Location
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder, Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm, QuotationHistory
 from django.contrib.auth.models import User
 
 
@@ -419,3 +419,116 @@ class StaffSerializer(serializers.ModelSerializer):
             user.set_password(password)
             user.save()
         return user
+
+
+class QuotationItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuotationItem
+        fields = ['id', 'service_name', 'frequency', 'quantity', 'rate', 'total', 'description']
+
+
+class QuotationScopeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuotationScope
+        fields = ['id', 'title', 'content']
+
+
+class QuotationPaymentTermSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuotationPaymentTerm
+        fields = ['id', 'term', 'description']
+
+
+class QuotationHistorySerializer(serializers.ModelSerializer):
+    performed_by_name = serializers.CharField(source='performed_by.get_full_name', read_only=True)
+    created_at = serializers.DateTimeField(format="%d-%m-%Y %H:%M", read_only=True)
+
+    class Meta:
+        model = QuotationHistory
+        fields = ['id', 'action', 'details', 'performed_by', 'performed_by_name', 'created_at']
+
+
+class QuotationSerializer(serializers.ModelSerializer):
+    items = QuotationItemSerializer(many=True)
+    scopes = QuotationScopeSerializer(many=True, required=False)
+    payment_terms = QuotationPaymentTermSerializer(many=True, required=False)
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    created_at = serializers.DateTimeField(format="%d-%m-%Y %H:%M", read_only=True)
+
+    class Meta:
+        model = Quotation
+        fields = [
+            'id', 'quotation_no', 'invoice_no', 'reference_no',
+            'customer_name', 'mobile', 'email', 'address', 'city', 'state', 'pincode',
+            'contact_person', 'company_name', 'quotation_type', 'status',
+            'total_amount', 'discount', 'tax_amount', 'grand_total',
+            'is_amc', 'visit_count', 'contract_amount',
+            'expiry_date', 'created_by', 'created_by_name', 'license_number',
+            'notes', 'terms_and_conditions',
+            'items', 'scopes', 'payment_terms', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'quotation_no', 'invoice_no', 'created_by', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        scopes_data = validated_data.pop('scopes', [])
+        payment_terms_data = validated_data.pop('payment_terms', [])
+        
+        quotation = Quotation.objects.create(**validated_data)
+        
+        for item_data in items_data:
+            QuotationItem.objects.create(quotation=quotation, **item_data)
+            
+        for scope_data in scopes_data:
+            QuotationScope.objects.create(quotation=quotation, **scope_data)
+            
+        for term_data in payment_terms_data:
+            QuotationPaymentTerm.objects.create(quotation=quotation, **term_data)
+            
+        # Log creation in history
+        QuotationHistory.objects.create(
+            quotation=quotation,
+            action="Quotation Created",
+            details=f"Quotation {quotation.quotation_no} created by {quotation.created_by.username if quotation.created_by else 'System'}",
+            performed_by=quotation.created_by
+        )
+        
+        return quotation
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('items', None)
+        scopes_data = validated_data.pop('scopes', None)
+        payment_terms_data = validated_data.pop('payment_terms', None)
+        
+        # Update basic fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Update items if provided
+        if items_data is not None:
+            instance.items.all().delete()
+            for item_data in items_data:
+                QuotationItem.objects.create(quotation=instance, **item_data)
+                
+        # Update scopes if provided
+        if scopes_data is not None:
+            instance.scopes.all().delete()
+            for scope_data in scopes_data:
+                QuotationScope.objects.create(quotation=instance, **scope_data)
+                
+        # Update payment terms if provided
+        if payment_terms_data is not None:
+            instance.payment_terms.all().delete()
+            for term_data in payment_terms_data:
+                QuotationPaymentTerm.objects.create(quotation=instance, **term_data)
+                
+        # Log update in history
+        QuotationHistory.objects.create(
+            quotation=instance,
+            action="Quotation Updated",
+            details=f"Quotation {instance.quotation_no} updated",
+            performed_by=self.context.get('request').user if 'request' in self.context else None
+        )
+        
+        return instance

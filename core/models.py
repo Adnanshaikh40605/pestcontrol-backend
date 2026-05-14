@@ -1203,3 +1203,135 @@ class ActivityLog(BaseModel):
     def __str__(self) -> str:
         staff_name = f"{self.user.first_name} {self.user.last_name}" if self.user else "System"
         return f"{staff_name} - {self.action} - {self.created_at.strftime('%d-%m-%Y %H:%M')}"
+
+
+class Quotation(BaseModel):
+    class QuotationStatus(models.TextChoices):
+        DRAFT = 'Draft', 'Draft'
+        SENT = 'Sent', 'Sent'
+        APPROVED = 'Approved', 'Approved'
+        REJECTED = 'Rejected', 'Rejected'
+        CONVERTED = 'Converted', 'Converted to Booking'
+        EXPIRED = 'Expired', 'Expired'
+
+    class QuotationType(models.TextChoices):
+        RESIDENTIAL = 'Residential', 'Residential'
+        COMMERCIAL = 'Commercial', 'Commercial'
+        SOCIETY = 'Society', 'Society'
+        OFFICE = 'Office', 'Office'
+        RESTAURANT = 'Restaurant', 'Restaurant'
+        CLINIC_HOSPITAL = 'Clinic/Hospital', 'Clinic/Hospital'
+        AMC_PACKAGE = 'AMC Package', 'AMC Package'
+        ONE_TIME = 'One Time Service', 'One Time Service'
+
+    quotation_no = models.CharField(max_length=50, unique=True, db_index=True)
+    invoice_no = models.CharField(max_length=50, blank=True, null=True, db_index=True)
+    reference_no = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Customer Details
+    customer_name = models.CharField(max_length=255, db_index=True)
+    mobile = models.CharField(max_length=10, validators=[validate_mobile_number], db_index=True)
+    email = models.EmailField(blank=True, null=True)
+    address = models.TextField()
+    city = models.CharField(max_length=100)
+    state = models.CharField(max_length=100, default='Maharashtra')
+    pincode = models.CharField(max_length=10, blank=True, null=True)
+    contact_person = models.CharField(max_length=255, blank=True, null=True)
+    company_name = models.CharField(max_length=255, blank=True, null=True)
+    
+    quotation_type = models.CharField(max_length=50, choices=QuotationType.choices)
+    status = models.CharField(max_length=20, choices=QuotationStatus.choices, default=QuotationStatus.DRAFT)
+    
+    # Financial Details
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    discount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    
+    # AMC Details
+    is_amc = models.BooleanField(default=False)
+    visit_count = models.IntegerField(default=1)
+    contract_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    
+    # Metadata
+    expiry_date = models.DateField(null=True, blank=True)
+    created_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True, related_name='created_quotations')
+    license_number = models.CharField(max_length=50, default='LAID020185')
+    
+    notes = models.TextField(blank=True, null=True)
+    terms_and_conditions = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Quotation'
+        verbose_name_plural = 'Quotations'
+
+    def __str__(self) -> str:
+        return f"{self.quotation_no} - {self.customer_name}"
+
+    def save(self, *args, **kwargs):
+        if not self.quotation_no:
+            # Generate Quotation Number QT-YYYY-XXXXX
+            year = timezone.now().year
+            last_quotation = Quotation.objects.filter(quotation_no__startswith=f'QT-{year}').order_by('id').last()
+            if last_quotation:
+                try:
+                    last_no = int(last_quotation.quotation_no.split('-')[-1])
+                    new_no = last_no + 1
+                except (ValueError, IndexError):
+                    new_no = 1
+            else:
+                new_no = 1
+            self.quotation_no = f'QT-{year}-{new_no:05d}'
+        
+        if not self.invoice_no:
+            year = timezone.now().year
+            self.invoice_no = f'INV-{year}-{self.quotation_no.split("-")[-1]}'
+
+        super().save(*args, **kwargs)
+
+
+class QuotationItem(BaseModel):
+    quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='items')
+    service_name = models.CharField(max_length=255)
+    frequency = models.CharField(max_length=100)  # e.g., "12 Service"
+    quantity = models.IntegerField(default=1)
+    rate = models.DecimalField(max_digits=12, decimal_places=2)
+    total = models.DecimalField(max_digits=12, decimal_places=2)
+    description = models.TextField(blank=True, null=True)
+
+    def __str__(self) -> str:
+        return f"{self.service_name} for {self.quotation.quotation_no}"
+
+
+class QuotationScope(BaseModel):
+    quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='scopes')
+    title = models.CharField(max_length=255)
+    content = models.TextField()
+
+    def __str__(self) -> str:
+        return f"Scope: {self.title} for {self.quotation.quotation_no}"
+
+
+class QuotationPaymentTerm(BaseModel):
+    quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='payment_terms')
+    term = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+
+    def __str__(self) -> str:
+        return f"Payment Term: {self.term} for {self.quotation.quotation_no}"
+
+
+class QuotationHistory(BaseModel):
+    quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='history')
+    action = models.CharField(max_length=255)
+    details = models.TextField(blank=True, null=True)
+    performed_by = models.ForeignKey('auth.User', on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Quotation History'
+        verbose_name_plural = 'Quotation Histories'
+
+    def __str__(self) -> str:
+        return f"{self.action} on {self.quotation.quotation_no}"
