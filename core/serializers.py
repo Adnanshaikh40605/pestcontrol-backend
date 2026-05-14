@@ -157,6 +157,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'is_complaint_call', 'complaint_parent_booking', 'complaint_status', 'complaint_type', 'priority', 'complaint_note',
             'is_accepted', 'is_service_call', 'accepted_at', 'started_at', 'completed_at',
             'is_amc_main_booking', 'is_followup_visit', 'included_in_amc',
+            'booking_priority',
             'created_by', 'created_by_name', 'on_process_by', 'on_process_by_name', 'done_by', 'done_by_name',
             'created_at', 'updated_at'
         ]
