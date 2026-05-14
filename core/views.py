@@ -139,6 +139,19 @@ class CityViewSet(BaseModelViewSet):
             return [permissions.IsAuthenticated()]
         return [permissions.IsAdminUser()]
 
+    @decorators.action(detail=False, methods=['post'], url_path='bulk-create')
+    def bulk_create(self, request):
+        """Bulk create cities from a list of JSON objects."""
+        data = request.data
+        if not isinstance(data, list):
+            return response.Response({"error": "Data must be a list of objects"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        serializer = self.get_serializer(data=data, many=True)
+        if serializer.is_valid():
+            serializer.save()
+            return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+        return response.Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class LocationViewSet(BaseModelViewSet):
     queryset = Location.objects.all()
@@ -151,6 +164,19 @@ class LocationViewSet(BaseModelViewSet):
         if self.action in ['list', 'retrieve']:
             return [permissions.IsAuthenticated()]
         return [permissions.IsAdminUser()]
+
+    @decorators.action(detail=False, methods=['post'], url_path='bulk-create')
+    def bulk_create(self, request):
+        """Bulk create locations from a list of JSON objects."""
+        data = request.data
+        if not isinstance(data, list):
+            return response.Response({"error": "Data must be a list of objects"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        serializer = self.get_serializer(data=data, many=True)
+        if serializer.is_valid():
+            serializer.save()
+            return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+        return response.Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     def update(self, request, *args, **kwargs):
         """Override update to add logging."""
