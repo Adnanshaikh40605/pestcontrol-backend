@@ -113,6 +113,26 @@ class CountryViewSet(BaseModelViewSet):
             return [permissions.IsAuthenticated()]
         return [permissions.IsAdminUser()]
 
+    @decorators.action(detail=False, methods=['post'], url_path='bulk-create')
+    def bulk_create(self, request):
+        """Bulk create countries from a list of JSON objects."""
+        data = request.data
+        if not isinstance(data, list):
+            return response.Response({"error": "Data must be a list of objects"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        for i, item in enumerate(data):
+            if not isinstance(item, dict):
+                return response.Response({
+                    "error": f"Item at index {i} must be a dictionary (object), but got {type(item).__name__}",
+                    "received_value": item
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(data=data, many=True)
+        if serializer.is_valid():
+            serializer.save()
+            return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+        return response.Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class StateViewSet(BaseModelViewSet):
     queryset = State.objects.all()
@@ -125,6 +145,26 @@ class StateViewSet(BaseModelViewSet):
         if self.action in ['list', 'retrieve']:
             return [permissions.IsAuthenticated()]
         return [permissions.IsAdminUser()]
+
+    @decorators.action(detail=False, methods=['post'], url_path='bulk-create')
+    def bulk_create(self, request):
+        """Bulk create states from a list of JSON objects."""
+        data = request.data
+        if not isinstance(data, list):
+            return response.Response({"error": "Data must be a list of objects"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        for i, item in enumerate(data):
+            if not isinstance(item, dict):
+                return response.Response({
+                    "error": f"Item at index {i} must be a dictionary (object), but got {type(item).__name__}",
+                    "received_value": item
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = self.get_serializer(data=data, many=True)
+        if serializer.is_valid():
+            serializer.save()
+            return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+        return response.Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class CityViewSet(BaseModelViewSet):
