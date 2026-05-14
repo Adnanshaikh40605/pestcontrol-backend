@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0062_alter_location_unique_together_and_more'),
+        ('core', '0062_data_populate_normalized_name'),
     ]
 
     operations = [
