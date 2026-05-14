@@ -453,7 +453,7 @@ class QuotationSerializer(serializers.ModelSerializer):
     scopes = QuotationScopeSerializer(many=True, required=False)
     payment_terms = QuotationPaymentTermSerializer(many=True, required=False)
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
-    created_at = serializers.DateTimeField(format="%d-%m-%Y %H:%M", read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = Quotation
