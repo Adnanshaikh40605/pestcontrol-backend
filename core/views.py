@@ -75,6 +75,16 @@ def health_check(request):
 # LoginRateThrottle moved to core.auth module to avoid duplication
 
 
+from rest_framework.pagination import PageNumberPagination
+
+
+class LargePagination(PageNumberPagination):
+    """Pagination for master data endpoints (Countries, States, Cities, Locations)."""
+    page_size = 100
+    page_size_query_param = 'page_size'
+    max_page_size = 2000
+
+
 class BaseModelViewSet(viewsets.ModelViewSet):
     """Base viewset with common functionality."""
     permission_classes = [permissions.IsAuthenticated]
@@ -82,19 +92,19 @@ class BaseModelViewSet(viewsets.ModelViewSet):
     throttle_classes = [UserRateThrottle, AnonRateThrottle]
     ordering_fields = ['created_at', 'updated_at']
     ordering = ['-created_at']  # Default ordering (latest first)
-    
+
     def handle_exception(self, exc):
         """Custom exception handling."""
         logger.error(f"API Error in {self.__class__.__name__}: {exc}", exc_info=True)
-        
+
         if isinstance(exc, ValidationError):
             return response.Response(
                 {'error': 'Validation failed', 'details': exc.message_dict},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         return super().handle_exception(exc)
-    
+
     def create(self, request, *args, **kwargs):
         """Override create to add logging."""
         logger.info(f"Creating {self.get_serializer_class().Meta.model.__name__}")
@@ -105,6 +115,7 @@ class CountryViewSet(BaseModelViewSet):
     queryset = Country.objects.all()
     serializer_class = CountrySerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = LargePagination
     search_fields = ['name']
     filterset_fields = ['is_active']
 
@@ -138,6 +149,7 @@ class StateViewSet(BaseModelViewSet):
     queryset = State.objects.all()
     serializer_class = StateSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = LargePagination
     search_fields = ['name']
     filterset_fields = ['country', 'is_active']
 
@@ -171,6 +183,7 @@ class CityViewSet(BaseModelViewSet):
     queryset = City.objects.all()
     serializer_class = CitySerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = LargePagination
     search_fields = ['name']
     filterset_fields = ['state', 'is_active']
 
@@ -205,6 +218,7 @@ class LocationViewSet(BaseModelViewSet):
     queryset = Location.objects.all()
     serializer_class = LocationSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = LargePagination
     search_fields = ['name']
     filterset_fields = ['city', 'is_active']
 
