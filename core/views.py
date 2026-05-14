@@ -229,24 +229,67 @@ class LocationViewSet(BaseModelViewSet):
 
     @decorators.action(detail=False, methods=['post'], url_path='bulk-create')
     def bulk_create(self, request):
-        """Bulk create locations from a list of JSON objects."""
+        """Bulk create locations from a list of JSON objects with duplicate skipping."""
         data = request.data
         if not isinstance(data, list):
             return response.Response({"error": "Data must be a list of objects"}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Validate each item is a dictionary
-        for i, item in enumerate(data):
-            if not isinstance(item, dict):
-                return response.Response({
-                    "error": f"Item at index {i} must be a dictionary (object), but got {type(item).__name__}",
-                    "received_value": item
-                }, status=status.HTTP_400_BAD_REQUEST)
+        added_count = 0
+        skipped_count = 0
+        to_create = []
+        
+        # Get existing normalized names for the cities involved to optimize checks
+        city_ids = set(item.get('city') for item in data if item.get('city'))
+        existing_locations = Location.objects.filter(city_id__in=city_ids).values_list('city_id', 'normalized_name')
+        existing_set = set(existing_locations)
 
-        serializer = self.get_serializer(data=data, many=True)
-        if serializer.is_valid():
-            serializer.save()
-            return response.Response(serializer.data, status=status.HTTP_201_CREATED)
-        return response.Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            
+            name = item.get('name')
+            city_id = item.get('city')
+            
+            if not name or not city_id:
+                skipped_count += 1
+                continue
+            
+            normalized_name = Location.normalize_text(name)
+            
+            if (int(city_id), normalized_name) in existing_set:
+                skipped_count += 1
+                # Log duplicate block
+                ActivityLog.objects.create(
+                    user=request.user,
+                    action="Duplicate Location Blocked",
+                    details=f"Blocked duplicate location '{name}' in city ID {city_id} during bulk upload."
+                )
+                continue
+            
+            # Add to create list and existing_set to avoid duplicates within the same batch
+            to_create.append(Location(
+                name=name,
+                city_id=city_id,
+                normalized_name=normalized_name,
+                is_active=item.get('is_active', True)
+            ))
+            existing_set.add((int(city_id), normalized_name))
+            added_count += 1
+
+        if to_create:
+            Location.objects.bulk_create(to_create)
+            # Log success
+            ActivityLog.objects.create(
+                user=request.user,
+                action="Bulk Locations Added",
+                details=f"Added {added_count} locations and skipped {skipped_count} duplicates."
+            )
+
+        return response.Response({
+            "added": added_count,
+            "skipped": skipped_count,
+            "total": len(data)
+        }, status=status.HTTP_201_CREATED)
     
     def update(self, request, *args, **kwargs):
         """Override update to add logging."""

@@ -74,14 +74,33 @@ class City(BaseModel):
 class Location(BaseModel):
     city = models.ForeignKey(City, on_delete=models.CASCADE, related_name='locations')
     name = models.CharField(max_length=255, db_index=True)
+    normalized_name = models.CharField(max_length=255, db_index=True, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        unique_together = ('city', 'name')
+        unique_together = ('city', 'normalized_name')
         ordering = ['name']
 
     def __str__(self):
         return f"{self.name}, {self.city.name}"
+
+    @staticmethod
+    def normalize_text(text):
+        if not text:
+            return ""
+        return "".join(text.split()).lower()
+
+    def save(self, *args, **kwargs):
+        self.normalized_name = self.normalize_text(self.name)
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        # Soft delete protection
+        if self.jobcards.exists():
+            self.is_active = False
+            self.save()
+            return
+        super().delete(*args, **kwargs)
 
 
 class Client(BaseModel):
@@ -1066,6 +1085,12 @@ class CRMInquiry(BaseModel):
     name = models.CharField(max_length=255, db_index=True)
     mobile = models.CharField(max_length=10, validators=[validate_mobile_number], db_index=True)
     location = models.CharField(max_length=500, blank=True, null=True)
+    
+    # Master Geographic Data
+    master_country = models.ForeignKey(Country, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Country (Master)")
+    master_state = models.ForeignKey(State, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="State (Master)")
+    master_city = models.ForeignKey(City, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="City (Master)")
+    master_location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Location (Master)")
     pest_type = models.CharField(max_length=255, default='Other')
     remark = models.TextField(blank=True, null=True, verbose_name="Remark")
     service_frequency = models.CharField(
@@ -1235,6 +1260,12 @@ class Quotation(BaseModel):
     address = models.TextField()
     city = models.CharField(max_length=100)
     state = models.CharField(max_length=100, default='Maharashtra')
+    
+    # Master Geographic Data
+    master_country = models.ForeignKey(Country, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Country (Master)")
+    master_state = models.ForeignKey(State, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="State (Master)")
+    master_city = models.ForeignKey(City, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="City (Master)")
+    master_location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Location (Master)")
     pincode = models.CharField(max_length=10, blank=True, null=True)
     contact_person = models.CharField(max_length=255, blank=True, null=True)
     company_name = models.CharField(max_length=255, blank=True, null=True)

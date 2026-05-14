@@ -30,7 +30,26 @@ class LocationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Location
-        fields = ['id', 'city', 'city_name', 'name', 'is_active']
+        fields = ['id', 'city', 'city_name', 'name', 'normalized_name', 'is_active']
+        read_only_fields = ['normalized_name']
+
+    def validate(self, data):
+        name = data.get('name')
+        city = data.get('city')
+        
+        if name and city:
+            normalized_name = Location.normalize_text(name)
+            
+            # Check if duplicate exists
+            queryset = Location.objects.filter(city=city, normalized_name=normalized_name)
+            
+            if self.instance:
+                queryset = queryset.exclude(pk=self.instance.pk)
+            
+            if queryset.exists():
+                raise serializers.ValidationError({"error": "Location already exists in this city."})
+        
+        return data
 
 
 class ClientSerializer(serializers.ModelSerializer):
@@ -284,10 +303,18 @@ class CRMInquirySerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField()
     converted_by_name = serializers.SerializerMethodField()
     
+    # Master Location Display Names
+    master_country_name = serializers.CharField(source='master_country.name', read_only=True)
+    master_state_name = serializers.CharField(source='master_state.name', read_only=True)
+    master_city_name = serializers.CharField(source='master_city.name', read_only=True)
+    master_location_name = serializers.CharField(source='master_location.name', read_only=True)
+    
     class Meta:
         model = CRMInquiry
         fields = [
-            'id', 'name', 'mobile', 'location', 'pest_type', 'remark', 'service_frequency',
+            'id', 'name', 'mobile', 'location', 
+            'master_country', 'master_country_name', 'master_state', 'master_state_name', 'master_city', 'master_city_name', 'master_location', 'master_location_name',
+            'pest_type', 'remark', 'service_frequency',
             'inquiry_date', 'inquiry_time', 'status', 'created_by', 'created_by_name',
             'converted_by', 'converted_by_name',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
@@ -455,11 +482,18 @@ class QuotationSerializer(serializers.ModelSerializer):
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
 
+    # Master Location Display Names
+    master_country_name = serializers.CharField(source='master_country.name', read_only=True)
+    master_state_name = serializers.CharField(source='master_state.name', read_only=True)
+    master_city_name = serializers.CharField(source='master_city.name', read_only=True)
+    master_location_name = serializers.CharField(source='master_location.name', read_only=True)
+
     class Meta:
         model = Quotation
         fields = [
             'id', 'quotation_no', 'invoice_no', 'reference_no',
             'customer_name', 'mobile', 'email', 'address', 'city', 'state', 'pincode',
+            'master_country', 'master_country_name', 'master_state', 'master_state_name', 'master_city', 'master_city_name', 'master_location', 'master_location_name',
             'contact_person', 'company_name', 'quotation_type', 'status',
             'total_amount', 'discount', 'tax_amount', 'grand_total',
             'is_amc', 'visit_count', 'contract_amount',
