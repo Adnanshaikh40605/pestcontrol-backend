@@ -599,6 +599,13 @@ class JobCard(BaseModel):
         verbose_name="Status",
         help_text="Current status of the job card"
     )
+    completed_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Completed At",
+        help_text="Date and time when the job was marked as Done"
+    )
     service_type = models.CharField(
         max_length=500, 
         blank=True,
@@ -910,6 +917,14 @@ class JobCard(BaseModel):
     def save(self, *args, **kwargs):
         creating = self.pk is None
         
+        # Auto-set completed_at when status becomes Done
+        if not creating:
+            old_instance = JobCard.objects.get(pk=self.pk)
+            if old_instance.status != self.JobStatus.DONE and self.status == self.JobStatus.DONE:
+                self.completed_at = timezone.now()
+        elif self.status == self.JobStatus.DONE:
+            self.completed_at = timezone.now()
+
         # Auto-set is_service_call if it's a follow-up cycle
         if self.service_cycle > 1:
             self.is_service_call = True
@@ -1084,6 +1099,13 @@ class CRMInquiry(BaseModel):
 
     name = models.CharField(max_length=255, db_index=True)
     mobile = models.CharField(max_length=10, validators=[validate_mobile_number], db_index=True)
+    email = models.EmailField(
+        blank=True, 
+        null=True, 
+        db_index=True,
+        verbose_name="Email Address",
+        help_text="Email address of the inquirer"
+    )
     location = models.CharField(max_length=500, blank=True, null=True)
     
     # Master Geographic Data

@@ -222,6 +222,17 @@ class LocationViewSet(BaseModelViewSet):
     search_fields = ['name', 'city__name', 'city__state__name']
     filterset_fields = ['city', 'is_active']
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
+        if q:
+            qs = qs.filter(
+                Q(name__icontains=q) | 
+                Q(city__name__icontains=q) | 
+                Q(city__state__name__icontains=q)
+            ).select_related('city', 'city__state')
+        return qs
+
     @decorators.action(detail=False, methods=['get'])
     def search(self, request):
         """Dedicated search for dropdowns."""
@@ -522,9 +533,22 @@ class CRMInquiryViewSet(BaseModelViewSet):
     """
     queryset = CRMInquiry.objects.all()
     serializer_class = CRMInquirySerializer
-    search_fields = ['name', 'mobile', 'location']
+    search_fields = ['id', 'name', 'mobile', 'email', 'pest_type', 'location']
     filterset_fields = ['status', 'pest_type', 'inquiry_date']
     
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
+        if q:
+            qs = qs.filter(
+                Q(name__icontains=q) | 
+                Q(mobile__icontains=q) | 
+                Q(email__icontains=q) | 
+                Q(location__icontains=q) |
+                Q(pest_type__icontains=q)
+            )
+        return qs
+
     def perform_create(self, serializer):
         """Automatically set the creator of the inquiry."""
         instance = serializer.save(created_by=self.request.user)
@@ -996,9 +1020,21 @@ class InquiryViewSet(BaseModelViewSet):
     queryset = Inquiry.objects.all()
     serializer_class = InquirySerializer
     filterset_fields = ['status', 'city']
-    search_fields = ['name', 'mobile', 'email', 'service_interest']
+    search_fields = ['id', 'name', 'mobile', 'email', 'service_interest']
     ordering_fields = ['created_at', 'updated_at', 'name', 'status', 'city']
     ordering = ['-created_at']  # Default: latest inquiries first
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
+        if q:
+            qs = qs.filter(
+                Q(name__icontains=q) | 
+                Q(mobile__icontains=q) | 
+                Q(email__icontains=q) | 
+                Q(service_interest__icontains=q)
+            )
+        return qs
 
     def get_permissions(self):
         """Allow unauthenticated public creation of inquiries."""
@@ -1547,7 +1583,7 @@ class JobCardViewSet(BaseModelViewSet):
     queryset = JobCard.objects.select_related('client').prefetch_related('renewals').all()
     serializer_class = JobCardSerializer
     filterset_fields = ['status', 'payment_status', 'client__city', 'client__mobile', 'job_type', 'commercial_type', 'service_category', 'contract_duration', 'is_paused', 'assigned_to']
-    search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type', 'assigned_to', 'area', 'commercial_type']
+    search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type', 'assigned_to', 'master_location__name', 'commercial_type']
     ordering_fields = [
         'id', 'code', 'created_at', 'updated_at', 'schedule_datetime', 'status', 'payment_status', 
         'client__full_name', 'client__city', 'job_type', 'service_category', 'contract_duration'
@@ -1561,7 +1597,7 @@ class JobCardViewSet(BaseModelViewSet):
         
         # 1. Handle Booking Type Categories (Tabs)
         booking_type = self.request.query_params.get('booking_type', '').lower()
-        logger.info(f"🔍 JobCard list requested with booking_type: {booking_type}")
+        logger.info(f"JobCard list requested with booking_type: {booking_type}")
         
         # Apply strict status filters based on booking_type
         if booking_type == 'pending':
@@ -1604,8 +1640,8 @@ class JobCardViewSet(BaseModelViewSet):
             # No specific tab filter, show all
             pass
         
-        # 2. Handle Sorting Priority for Pending + On Process
-        if booking_type in ['pending', 'on_process']:
+        # 2. Handle Sorting Priority for Pending + On Process + Done
+        if booking_type in ['pending', 'on_process', 'done']:
             # Sort by: Today bookings first, Tomorrow second, Future bookings after
             
             # Use Asia/Kolkata for comparison
@@ -1622,8 +1658,8 @@ class JobCardViewSet(BaseModelViewSet):
                     When(schedule_datetime__date__lt=today_date, then=Value(4)), # Past bookings
                     default=Value(5),
                     output_field=IntegerField(),
-                )
-            ).order_by('booking_priority', 'schedule_datetime')
+                ),
+            ).order_by('booking_priority', '-schedule_datetime')
         else:
             # Default ordering for other tabs or no booking_type
             qs = qs.order_by('-created_at')
@@ -1666,7 +1702,7 @@ class JobCardViewSet(BaseModelViewSet):
             qs = qs.filter(reminder_date__in=[today, tomorrow])
             
         final_qs = qs.distinct()
-        logger.info(f"✅ JobCard list returning {final_qs.count()} records for booking_type: {booking_type}")
+        logger.info(f"JobCard list returning {final_qs.count()} records for booking_type: {booking_type}")
         return final_qs
     
     def list(self, request, *args, **kwargs):
@@ -2270,8 +2306,6 @@ class DashboardViewSet(viewsets.GenericViewSet):
     permission_classes = [permissions.IsAuthenticated]
     throttle_classes = [UserRateThrottle, AnonRateThrottle]
     
-    @method_decorator(cache_page(300))  # Cache for 5 minutes
-    @method_decorator(vary_on_headers('Authorization'))
     @decorators.action(detail=False, methods=['get'], url_path='statistics')
     def statistics(self, request):
         """
@@ -3340,6 +3374,18 @@ class QuotationViewSet(BaseModelViewSet):
     serializer_class = QuotationSerializer
     search_fields = ['quotation_no', 'customer_name', 'mobile', 'company_name']
     filterset_fields = ['status', 'quotation_type', 'is_amc']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
+        if q:
+            qs = qs.filter(
+                Q(quotation_no__icontains=q) | 
+                Q(customer_name__icontains=q) | 
+                Q(mobile__icontains=q) | 
+                Q(company_name__icontains=q)
+            )
+        return qs
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)

@@ -1074,21 +1074,39 @@ class DashboardService:
             
             # Revenue Stats (Only Done bookings, excluding free follow-ups/complaints)
             # ONLY count NEW_BOOKING and AMC_MAIN
-            revenue_filter = Q(
+            # Logic: Today and Yesterday Revenue should be based on completed_at
+            
+            revenue_filter_base = Q(
                 status=JobCard.JobStatus.DONE,
                 booking_type__in=[JobCard.BookingType.NEW_BOOKING, JobCard.BookingType.AMC_MAIN]
             )
             
+            yesterday = today - timezone.timedelta(days=1)
+            
             today_revenue = JobCard.objects.filter(
-                revenue_filter,
-                schedule_datetime__date=today
+                revenue_filter_base,
+                completed_at__date=today
             ).aggregate(total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField())))['total']
             
-            month_revenue = JobCard.objects.filter(
-                revenue_filter,
-                schedule_datetime__year=today.year,
-                schedule_datetime__month=today.month
+            yesterday_revenue = JobCard.objects.filter(
+                revenue_filter_base,
+                completed_at__date=yesterday
             ).aggregate(total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField())))['total']
+
+            # For the filtered range revenue
+            range_revenue = 0
+            if from_date or to_date:
+                range_filter = Q(revenue_filter_base)
+                if from_date:
+                    range_filter &= Q(completed_at__date__gte=from_date)
+                if to_date:
+                    range_filter &= Q(completed_at__date__lte=to_date)
+                
+                range_revenue = JobCard.objects.filter(range_filter).aggregate(
+                    total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField()))
+                )['total']
+            else:
+                range_revenue = today_revenue
 
             return {
                 'total_inquiries': total_inquiries,
@@ -1102,7 +1120,8 @@ class DashboardService:
                 'approved_quotations': approved_quotations,
                 'converted_quotations': converted_quotations,
                 'today_revenue': today_revenue,
-                'month_revenue': month_revenue,
+                'yesterday_revenue': yesterday_revenue,
+                'range_revenue': range_revenue,
                 'category_stats': category_stats,
                 'status_stats': status_stats,
                 'job_type_stats': job_type_stats,
