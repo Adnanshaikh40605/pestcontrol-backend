@@ -219,8 +219,32 @@ class LocationViewSet(BaseModelViewSet):
     serializer_class = LocationSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = LargePagination
-    search_fields = ['name']
+    search_fields = ['name', 'city__name', 'city__state__name']
     filterset_fields = ['city', 'is_active']
+
+    @decorators.action(detail=False, methods=['get'])
+    def search(self, request):
+        """Dedicated search for dropdowns."""
+        q = request.query_params.get('q', '')
+        if not q:
+            return response.Response([])
+        
+        # Limit to 20 results for performance
+        locations = Location.objects.filter(
+            Q(name__icontains=q) | 
+            Q(city__name__icontains=q) | 
+            Q(city__state__name__icontains=q)
+        ).select_related('city', 'city__state')[:20]
+        
+        results = [{
+            'id': loc.id,
+            'name': loc.name,
+            'city_name': loc.city.name,
+            'state_name': loc.city.state.name,
+            'display_name': f"{loc.name}, {loc.city.name}"
+        } for loc in locations]
+        
+        return response.Response(results)
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
