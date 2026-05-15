@@ -1618,6 +1618,24 @@ class JobCardViewSet(BaseModelViewSet):
         
         return qs
 
+    def perform_update(self, serializer):
+        # Get old status to compare
+        old_status = self.get_object().status
+        instance = serializer.save()
+        
+        # If status changed to Done, set completed_at if not already set
+        if instance.status == JobCard.JobStatus.DONE and old_status != JobCard.JobStatus.DONE:
+            if not instance.completed_at:
+                instance.completed_at = timezone.now()
+                instance.save(update_fields=['completed_at'])
+            log_activity(self.request.user, "Marked Job Done", details=f"Job: {instance.code}, Client: {instance.client.full_name}")
+            logger.info(f"Job {instance.code} marked as Done by {self.request.user}")
+        elif instance.status == JobCard.JobStatus.CANCELLED and old_status != JobCard.JobStatus.CANCELLED:
+            log_activity(self.request.user, "Cancelled Job", details=f"Job: {instance.code}, Reason: {instance.cancellation_reason}")
+            logger.info(f"Job {instance.code} cancelled by {self.request.user}")
+        else:
+            log_activity(self.request.user, "Updated Job", details=f"Job: {instance.code}")
+
     def get_queryset(self):
         qs = super().get_queryset()
         if not self.request or self.action != 'list':

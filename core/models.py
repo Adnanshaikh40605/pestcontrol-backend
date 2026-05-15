@@ -599,6 +599,24 @@ class JobCard(BaseModel):
         verbose_name="Status",
         help_text="Current status of the job card"
     )
+    class CreationSource(models.TextChoices):
+        MANUAL = 'manual', 'Manual'
+        AMC_AUTO = 'amc_auto', 'AMC Auto'
+        REMINDER_AUTO = 'reminder_auto', 'Reminder Auto'
+        COMPLAINT_AUTO = 'complaint_auto', 'Complaint Auto'
+        SYSTEM = 'system', 'System'
+        MIGRATION = 'migration', 'Migration'
+        API = 'api', 'API'
+
+    creation_source = models.CharField(
+        max_length=50,
+        choices=CreationSource.choices,
+        default=CreationSource.MANUAL,
+        db_index=True,
+        verbose_name="Creation Source",
+        help_text="Where this booking was created from"
+    )
+
     completed_at = models.DateTimeField(
         blank=True,
         null=True,
@@ -867,6 +885,13 @@ class JobCard(BaseModel):
             models.Index(fields=['job_type', 'status']),
             models.Index(fields=['commercial_type', 'status']),
             models.Index(fields=['contract_duration', 'commercial_type']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['parent_job', 'service_cycle'],
+                name='unique_amc_cycle_per_parent',
+                condition=models.Q(parent_job__isnull=False)
+            ),
         ]
         verbose_name = 'Job Card'
         verbose_name_plural = 'Job Cards'

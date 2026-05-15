@@ -356,6 +356,7 @@ class JobCardService:
     """Service class for JobCard-related business logic."""
     
     @staticmethod
+    @transaction.atomic
     def create_jobcard(data: Dict[str, Any], user=None) -> JobCard:
         """
         Create a NEW job card with client get_or_create pattern.
@@ -535,9 +536,31 @@ class JobCardService:
                 jobcard_data['client_address'] = client.address
                 logger.info(f"Using client's address for jobcard: {client.address}")
             
+            # DUPLICATE SAFETY CHECK (Idempotency)
+            # Prevent double-submits from frontend creating identical jobs within a short timeframe
+            # Or same date/service/client combination
+            if jobcard_data.get('schedule_datetime'):
+                import dateutil.parser
+                try:
+                    schedule_date = dateutil.parser.parse(str(jobcard_data['schedule_datetime'])).date()
+                    duplicate_check = JobCard.objects.filter(
+                        client=client,
+                        service_type=jobcard_data.get('service_type'),
+                        schedule_datetime__date=schedule_date
+                    ).order_by('-created_at').first()
+                    
+                    if duplicate_check:
+                        # Check if it was created very recently (within 5 minutes) to avoid double clicks
+                        time_diff = timezone.now() - duplicate_check.created_at
+                        if time_diff.total_seconds() < 300:
+                            logger.warning(f"DUPLICATE CREATION BLOCKED for client {client.id}, service {jobcard_data.get('service_type')}")
+                            return duplicate_check
+                except Exception as e:
+                    logger.warning(f"Error checking for duplicate: {e}")
+
             # IMPORTANT: Always create a NEW job card - never update existing ones
             # Multiple job cards can exist for the same client
-            jobcard = JobCard(created_by=user, **jobcard_data)
+            jobcard = JobCard(created_by=user, creation_source=JobCard.CreationSource.API, **jobcard_data)
             
             # Set AMC Main Booking flag and Booking Type if it's the first AMC service
             if jobcard.service_category == JobCard.ServiceCategory.AMC and jobcard.service_cycle == 1:
@@ -638,48 +661,59 @@ class JobCardService:
                     service_cycle=jobcard.service_cycle + 1
                 ).exists()
                 
-                if not existing_next:
-                    logger.info(f"Creating follow-up cycle {jobcard.service_cycle + 1} for JobCard {jobcard.code}")
-                    
-                    # Prepare data for next job
-                    # Note: next_job will automatically have is_service_call=True via model save logic
-                    next_job_data = {
-                        'client': jobcard.client,
-                        'service_type': jobcard.service_type,
-                        'service_category': jobcard.service_category,
-                        'schedule_datetime': jobcard.next_service_date,
-                        'service_cycle': jobcard.service_cycle + 1,
-                        'max_cycle': jobcard.max_cycle,
-                        'parent_job': jobcard,
-                        'commercial_type': jobcard.commercial_type,
-                        'property_type': jobcard.property_type,
-                        'bhk_size': jobcard.bhk_size,
-                        'contract_duration': jobcard.contract_duration,
-                        'price': "0",  # Follow-up visits are free
-                        'client_address': jobcard.client_address,
-                        'state': jobcard.state,
-                        'city': jobcard.city,
-                        'status': JobCard.JobStatus.PENDING,
-                        'payment_status': JobCard.PaymentStatus.PAID,  # Mark as paid since it's included in AMC
-                        'is_service_call': True,
-                        'is_followup_visit': True,
-                        'included_in_amc': True, # Always included for auto-generated follow-ups
-                        'booking_type': JobCard.BookingType.AMC_FOLLOWUP if jobcard.service_category == JobCard.ServiceCategory.AMC else JobCard.BookingType.SERVICE_CALL,
-                        'created_by': jobcard.created_by,
-                    }
-                    
-                    next_job = JobCard.objects.create(**next_job_data)
-                    
-                    # Calculate next service date for the NEWLY created job
-                    next_next_date, _ = JobCardService.calculate_next_service_date(next_job)
-                    if next_job.service_cycle < next_job.max_cycle:
-                        next_job.next_service_date = next_next_date
-                        next_job.save(update_fields=['next_service_date'])
-                    
-                    logger.info(f"✅ Successfully auto-created follow-up job {next_job.code} for job {jobcard.code}")
-                    return next_job
-                else:
-                    logger.info(f"Follow-up for {jobcard.code} already exists, skipping duplicate creation.")
+                # Double safety: Check if ANY booking for this customer/service/date exists
+                # regardless of parent_job to catch cases where relation broke
+                duplicate_safety_check = JobCard.objects.filter(
+                    client=jobcard.client,
+                    service_type=jobcard.service_type,
+                    schedule_datetime__date=jobcard.next_service_date,
+                    service_cycle=jobcard.service_cycle + 1
+                ).exists()
+                
+                if existing_next or duplicate_safety_check:
+                    logger.info(f"Follow-up for {jobcard.code} already exists (Relation: {existing_next}, Loose Match: {duplicate_safety_check}), skipping duplicate creation.")
+                    return None
+
+                logger.info(f"Creating follow-up cycle {jobcard.service_cycle + 1} for JobCard {jobcard.code}")
+                
+                # Prepare data for next job
+                # Note: next_job will automatically have is_service_call=True via model save logic
+                next_job_data = {
+                    'client': jobcard.client,
+                    'service_type': jobcard.service_type,
+                    'service_category': jobcard.service_category,
+                    'schedule_datetime': jobcard.next_service_date,
+                    'service_cycle': jobcard.service_cycle + 1,
+                    'max_cycle': jobcard.max_cycle,
+                    'parent_job': jobcard,
+                    'commercial_type': jobcard.commercial_type,
+                    'property_type': jobcard.property_type,
+                    'bhk_size': jobcard.bhk_size,
+                    'contract_duration': jobcard.contract_duration,
+                    'price': "0",  # Follow-up visits are free
+                    'client_address': jobcard.client_address,
+                    'state': jobcard.state,
+                    'city': jobcard.city,
+                    'status': JobCard.JobStatus.PENDING,
+                    'payment_status': JobCard.PaymentStatus.PAID,  # Mark as paid since it's included in AMC
+                    'is_service_call': True,
+                    'is_followup_visit': True,
+                    'included_in_amc': True, # Always included for auto-generated follow-ups
+                    'booking_type': JobCard.BookingType.AMC_FOLLOWUP if jobcard.service_category == JobCard.ServiceCategory.AMC else JobCard.BookingType.SERVICE_CALL,
+                    'created_by': jobcard.created_by,
+                    'creation_source': JobCard.CreationSource.AMC_AUTO,
+                }
+                
+                next_job = JobCard.objects.create(**next_job_data)
+                
+                # Calculate next service date for the NEWLY created job
+                next_next_date, _ = JobCardService.calculate_next_service_date(next_job)
+                if next_job.service_cycle < next_job.max_cycle:
+                    next_job.next_service_date = next_next_date
+                    next_job.save(update_fields=['next_service_date'])
+                
+                logger.info(f"✅ Successfully auto-created follow-up job {next_job.code} for job {jobcard.code}")
+                return next_job
         return None
     
 
@@ -1072,26 +1106,40 @@ class DashboardService:
                                      .annotate(count=Count('property_type'))
                                      .order_by('-count'))
             
-            # Revenue Stats (Only Done bookings, excluding free follow-ups/complaints)
-            # ONLY count NEW_BOOKING and AMC_MAIN
-            # Logic: Today and Yesterday Revenue should be based on completed_at
-            
+            # Revenue Stats (Only Done bookings, excluding complaints)
+            # We include NEW_BOOKING, AMC_MAIN, AMC_FOLLOWUP, and SERVICE_CALL if they have a price
             revenue_filter_base = Q(
                 status=JobCard.JobStatus.DONE,
-                booking_type__in=[JobCard.BookingType.NEW_BOOKING, JobCard.BookingType.AMC_MAIN]
+                booking_type__in=[
+                    JobCard.BookingType.NEW_BOOKING, 
+                    JobCard.BookingType.AMC_MAIN,
+                    JobCard.BookingType.AMC_FOLLOWUP,
+                    JobCard.BookingType.SERVICE_CALL
+                ]
             )
             
             yesterday = today - timezone.timedelta(days=1)
+            month_start = today.replace(day=1)
             
-            today_revenue = JobCard.objects.filter(
-                revenue_filter_base,
-                completed_at__date=today
-            ).aggregate(total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField())))['total']
-            
-            yesterday_revenue = JobCard.objects.filter(
-                revenue_filter_base,
-                completed_at__date=yesterday
-            ).aggregate(total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField())))['total']
+            # Helper to aggregate revenue safely from CharField 'price'
+            def get_revenue(filters):
+                return JobCard.objects.filter(filters).aggregate(
+                    total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField()))
+                )['total']
+
+            # Use completed_at if available, fallback to updated_at for legacy/manual marks
+            today_revenue = get_revenue(revenue_filter_base & Q(completed_at__date=today))
+            if today_revenue == 0: # Fallback check
+                today_revenue = get_revenue(revenue_filter_base & Q(updated_at__date=today, completed_at__isnull=True))
+
+            yesterday_revenue = get_revenue(revenue_filter_base & Q(completed_at__date=yesterday))
+            if yesterday_revenue == 0:
+                yesterday_revenue = get_revenue(revenue_filter_base & Q(updated_at__date=yesterday, completed_at__isnull=True))
+
+            # Monthly Revenue for the target chart (Current Month)
+            month_revenue = get_revenue(revenue_filter_base & Q(completed_at__date__gte=month_start))
+            if month_revenue == 0:
+                month_revenue = get_revenue(revenue_filter_base & Q(updated_at__date__gte=month_start, completed_at__isnull=True))
 
             # For the filtered range revenue
             range_revenue = 0
@@ -1102,12 +1150,12 @@ class DashboardService:
                 if to_date:
                     range_filter &= Q(completed_at__date__lte=to_date)
                 
-                range_revenue = JobCard.objects.filter(range_filter).aggregate(
-                    total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField()))
-                )['total']
+                range_revenue = get_revenue(range_filter)
             else:
-                range_revenue = today_revenue
+                range_revenue = month_revenue # Default to monthly if no range
 
+            logger.info(f"Dashboard Revenue Stats - Today: {today_revenue}, Yesterday: {yesterday_revenue}, Month: {month_revenue}, Range: {range_revenue}")
+            
             return {
                 'total_inquiries': total_inquiries,
                 'total_web_inquiries': total_web_inquiries,
@@ -1121,6 +1169,7 @@ class DashboardService:
                 'converted_quotations': converted_quotations,
                 'today_revenue': today_revenue,
                 'yesterday_revenue': yesterday_revenue,
+                'month_revenue': month_revenue,
                 'range_revenue': range_revenue,
                 'category_stats': category_stats,
                 'status_stats': status_stats,
