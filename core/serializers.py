@@ -138,6 +138,10 @@ class JobCardSerializer(serializers.ModelSerializer):
 
     is_accepted = serializers.BooleanField(read_only=True)
     is_service_call = serializers.BooleanField(read_only=True)
+    booking_priority = serializers.SerializerMethodField()
+
+    def get_booking_priority(self, obj):
+        return getattr(obj, 'booking_priority', 0)
     
     partner_name = serializers.CharField(source='partner.full_name', read_only=True)
 

@@ -1590,6 +1590,34 @@ class JobCardViewSet(BaseModelViewSet):
     ]
     ordering = ['-created_at']  # Default: latest job cards first
 
+    def filter_queryset(self, queryset):
+        # Apply default filters first
+        qs = super().filter_queryset(queryset)
+        
+        # 1. Handle Sorting Priority for Pending + On Process + Done
+        # We do this here so it overrides any 'ordering' parameter from the URL
+        booking_type = self.request.query_params.get('booking_type', '').lower()
+        if booking_type in ['pending', 'on_process', 'done']:
+            # Use Asia/Kolkata for comparison
+            tz = pytz.timezone('Asia/Kolkata')
+            now_local = timezone.now().astimezone(tz)
+            today_date = now_local.date()
+            tomorrow_date = today_date + timezone.timedelta(days=1)
+            
+            # Use booking_priority to match serializer
+            qs = qs.annotate(
+                booking_priority=Case(
+                    When(schedule_datetime__date=today_date, then=Value(1)),
+                    When(schedule_datetime__date=tomorrow_date, then=Value(2)),
+                    When(schedule_datetime__date__gt=tomorrow_date, then=Value(3)),
+                    When(schedule_datetime__date__lt=today_date, then=Value(4)),
+                    default=Value(5),
+                    output_field=IntegerField(),
+                ),
+            ).order_by('booking_priority', '-schedule_datetime')
+        
+        return qs
+
     def get_queryset(self):
         qs = super().get_queryset()
         if not self.request or self.action != 'list':
@@ -1601,24 +1629,19 @@ class JobCardViewSet(BaseModelViewSet):
         
         # Apply strict status filters based on booking_type
         if booking_type == 'pending':
-            # Tab 1: Pending Booking - Strictly PENDING status and NOT a follow-up/service/complaint
             qs = qs.filter(
                 status=JobCard.JobStatus.PENDING, 
                 booking_type__in=[JobCard.BookingType.NEW_BOOKING, JobCard.BookingType.AMC_MAIN]
             )
         elif booking_type == 'on_process':
-            # Tab 2: On Process - Strictly ON_PROCESS status only
             qs = qs.filter(status=JobCard.JobStatus.ON_PROCESS)
         elif booking_type == 'done':
-            # Tab 3: Done - Strictly DONE status only
             qs = qs.filter(status=JobCard.JobStatus.DONE)
         elif booking_type == 'upcoming_renewals':
-            # Tab 4: Upcoming Renewals - Today + Tomorrow only
             today = timezone.now().date()
             tomorrow = today + timezone.timedelta(days=1)
             qs = qs.filter(renewals__status='Due', renewals__due_date__in=[today, tomorrow]).distinct()
         elif booking_type == 'upcoming_services':
-            # Tab 5: Upcoming Services - Only show services for the next 7 days
             tz = pytz.timezone('Asia/Kolkata')
             today = timezone.now().astimezone(tz).date()
             seven_days_later = today + timezone.timedelta(days=7)
@@ -1628,41 +1651,14 @@ class JobCardViewSet(BaseModelViewSet):
                 schedule_datetime__date__range=[today, seven_days_later]
             ).exclude(status__in=[JobCard.JobStatus.DONE, JobCard.JobStatus.CANCELLED])
         elif booking_type == 'cancelled':
-            # Tab 6: Cancelled - Strictly CANCELLED status only
             qs = qs.filter(status=JobCard.JobStatus.CANCELLED)
         elif booking_type == 'reminders':
-            # Tab 7: Reminders - Initially show all active reminders
             qs = qs.filter(reminder_date__isnull=False, is_reminder_done=False)
         elif booking_type == 'complaint_calls':
-            # Tab 8: Complaint Calls - Strictly Complaint Booking Type
             qs = qs.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL)
-        elif booking_type == 'all':
-            # No specific tab filter, show all
-            pass
         
-        # 2. Handle Sorting Priority for Pending + On Process + Done
-        if booking_type in ['pending', 'on_process', 'done']:
-            # Sort by: Today bookings first, Tomorrow second, Future bookings after
-            
-            # Use Asia/Kolkata for comparison
-            tz = pytz.timezone('Asia/Kolkata')
-            now_local = timezone.now().astimezone(tz)
-            today_date = now_local.date()
-            tomorrow_date = today_date + timezone.timedelta(days=1)
-            
-            qs = qs.annotate(
-                booking_priority=Case(
-                    When(schedule_datetime__date=today_date, then=Value(1)),
-                    When(schedule_datetime__date=tomorrow_date, then=Value(2)),
-                    When(schedule_datetime__date__gt=tomorrow_date, then=Value(3)),
-                    When(schedule_datetime__date__lt=today_date, then=Value(4)), # Past bookings
-                    default=Value(5),
-                    output_field=IntegerField(),
-                ),
-            ).order_by('booking_priority', '-schedule_datetime')
-        else:
-            # Default ordering for other tabs or no booking_type
-            qs = qs.order_by('-created_at')
+        # Default ordering handled in filter_queryset or Meta
+        return qs
 
         # 3. Handle Robust Search (Explicitly)
         # Check for both 'q' and 'search' parameters for frontend compatibility
