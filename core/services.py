@@ -300,12 +300,7 @@ class InquiryService:
                         name=inquiry.name,
                         mobile=inquiry.mobile,
                         email=inquiry.email,
-                        city=inquiry.city,
-                        address=inquiry.message, # Use message as detailed address if available
-                        flat_number=inquiry.flat_number,
-                        building_name=inquiry.building_name,
-                        landmark=inquiry.landmark,
-                        area=inquiry.area
+                        city=inquiry.city
                     )
                 except ValidationError as e:
                     # Provide more specific error message for mobile number conflicts
@@ -322,10 +317,6 @@ class InquiryService:
                 'schedule_datetime': conversion_data.get('schedule_datetime', timezone.now()),
                 'price': conversion_data.get('price', ''),
                 'payment_status': JobCard.PaymentStatus.UNPAID,
-                'flat_number': inquiry.flat_number,
-                'building_name': inquiry.building_name,
-                'landmark': inquiry.landmark,
-                'area': inquiry.area,
                 'created_by': user,
                 'reference': 'Website',
             }
