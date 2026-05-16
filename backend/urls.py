@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
 from django.http import HttpResponse, JsonResponse
 from rest_framework_simplejwt.views import (
     TokenRefreshView,
@@ -11,6 +13,7 @@ from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
 )
+from blog.views import SitemapXMLView, RobotsTxtView
 
 def health(request):
     return JsonResponse({
@@ -79,4 +82,15 @@ urlpatterns = [
     # API endpoints
     path('api/', include('core.urls')),
     path('api/partner/', include('partner.urls')),
+
+    # Blog CMS APIs
+    path('api/', include('blog.urls', namespace='blog')),
+
+    # SEO endpoints (served at root level for crawlers)
+    path('sitemap.xml', SitemapXMLView.as_view(), name='sitemap'),
+    path('robots.txt', RobotsTxtView.as_view(), name='robots'),
 ]
+
+# Local media only — S3 URLs are served directly from the bucket
+if not getattr(settings, 'USE_AWS', False):
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

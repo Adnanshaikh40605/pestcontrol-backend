@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Completed Jobs - PestControl Pro</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "inverse-primary": "#72dd81",
+                      "outline": "#6e7a6c",
+                      "outline-variant": "#becaba",
+                      "surface-container": "#eaf0e5",
+                      "surface-container-lowest": "#ffffff",
+                      "on-tertiary-fixed-variant": "#861c3e",
+                      "secondary-container": "#316bf3",
+                      "on-error": "#ffffff",
+                      "on-secondary": "#ffffff",
+                      "secondary": "#0051d5",
+                      "surface-container-highest": "#dee4da",
+                      "surface-container-high": "#e4eadf",
+                      "on-primary": "#ffffff",
+                      "secondary-fixed-dim": "#b4c5ff",
+                      "on-background": "#171d17",
+                      "danger": "#EF4444",
+                      "on-tertiary": "#ffffff",
+                      "background": "#F7FAF8",
+                      "surface-container-low": "#eff6eb",
+                      "primary-fixed": "#8efa9a",
+                      "tertiary-container": "#c24b6b",
+                      "tertiary-fixed-dim": "#ffb1c0",
+                      "primary-container": "#0c8737",
+                      "inverse-on-surface": "#edf3e8",
+                      "border": "#E4E7EC",
+                      "error-container": "#ffdad6",
+                      "on-tertiary-fixed": "#3f0017",
+                      "warning": "#F59E0B",
+                      "on-secondary-fixed": "#00174b",
+                      "tertiary": "#a23353",
+                      "on-primary-fixed": "#002107",
+                      "surface-tint": "#006e2a",
+                      "secondary-fixed": "#dbe1ff",
+                      "on-surface-variant": "#3f4a3e",
+                      "primary-fixed-dim": "#72dd81",
+                      "success-bg": "#E8F5EC",
+                      "surface-dim": "#d6dcd1",
+                      "text-primary": "#111827",
+                      "surface": "#FFFFFF",
+                      "primary": "#006b28",
+                      "surface-variant": "#dee4da",
+                      "tag-orange": "#EA580C",
+                      "on-secondary-container": "#fefcff",
+                      "success-text": "#16A34A",
+                      "on-tertiary-container": "#fffbff",
+                      "on-secondary-fixed-variant": "#003ea8",
+                      "inverse-surface": "#2c322b",
+                      "info-blue": "#2563EB",
+                      "on-error-container": "#93000a",
+                      "tag-purple": "#7C3AED",
+                      "surface-bright": "#f5fbf0",
+                      "error": "#ba1a1a",
+                      "on-primary-container": "#f7fff2",
+                      "text-secondary": "#6B7280",
+                      "on-primary-fixed-variant": "#00531d",
+                      "tertiary-fixed": "#ffd9df",
+                      "on-surface": "#171d17"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "section-gap": "20px",
+                      "screen-edge": "20px",
+                      "touch-target-min": "48px",
+                      "element-gap": "12px",
+                      "card-padding": "16px"
+              },
+              "fontFamily": {
+                      "label-lg": ["Inter"],
+                      "body-md": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "label-sm": ["Inter"],
+                      "headline-lg": ["Manrope"],
+                      "headline-sm": ["Manrope"],
+                      "headline-md": ["Manrope"]
+              },
+              "fontSize": {
+                      "label-lg": ["13px", {"lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "600"}],
+                      "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                      "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "500"}],
+                      "label-sm": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                      "headline-lg": ["24px", {"lineHeight": "32px", "fontWeight": "800"}],
+                      "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}],
+                      "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "700"}]
+              }
+            }
+          }
+        }
+      </script>
+<style>
+        body {
+            -webkit-tap-highlight-color: transparent;
+        }
+      </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background min-h-screen pb-24 antialiased selection:bg-primary/20 selection:text-primary">
+<!-- TopAppBar -->
+<header class="bg-surface dark:bg-surface-dim docked full-width top-0 sticky z-50 border-b border-border dark:border-outline-variant flat no shadows flex justify-between items-center px-screen-edge py-3 w-full">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full overflow-hidden bg-surface-container-high border border-border shrink-0">
+<img alt="Technician Profile" class="w-full h-full object-cover" data-alt="A close-up headshot of a professional male pest control technician wearing a neat green uniform polo shirt. He is smiling confidently in an outdoor setting with soft, natural daylight. The image has a clean, corporate, high-resolution aesthetic suitable for a service app profile picture." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBGdfSwHYxWkkSaZdqWSt010NNJjeljsDZvZg1JztL3JgDK0dBhjA3Wfj0lQUBcxsrvUkzsrtSY4BcGJCDLNJGHzSQcSEm04gBE6_bAXq_LaXz-Wh-m0Lg1ivHgkh72LshzT_Eu_bxdTBmk8YgFkbQIBH4770c4DdLK82OJi6OXxIoQn13SvYb-lxREafmVers8FdpU1KfsVQ_d6kMeF9UK8PMa8nLuob-xrYlUmU1gjcKKjJxOKLuit8xly8lQk1mOro_dU2fHA0X9"/>
+</div>
+<img alt="PestControl Pro Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCCz5GGwXSzoGZt88finQRaD8ZxGdVykNyPc3TGzZGJaeryWoi8UpKB90I5zYfs_mKTu9ykvEZk_9Vtvb21HAZ7aoQaLZxxkqr_-O7l2aRq1oHZorgpCFLwFpAQqDfxquUn81T9-IkS8dkKkEBi3SE07k0sLQFS3zMjnBNAD0-lvP38qkVPD-yVekkaPmh3Cr-UGMP82rBRRUQfjxt5T407YCMtWJwOoSolIcDMXJvLKqSTrL_V0Yza14XWtUU3udjI-32cKUAJe58G"/>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-low transition-colors scale-95 active:opacity-80 transition-all focus:outline-none focus:ring-2 focus:ring-primary/50">
+<span class="material-symbols-outlined" data-icon="notifications" style="font-variation-settings: 'FILL' 0;">notifications</span>
+</button>
+</header>
+<!-- Main Content -->
+<main class="px-screen-edge pt-section-gap max-w-3xl mx-auto">
+<div class="flex items-center justify-between mb-element-gap">
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Completed Jobs</h2>
+<div class="flex items-center gap-1 text-text-secondary bg-surface-container rounded-full px-3 py-1">
+<span class="font-label-sm text-label-sm">This Week</span>
+<span class="material-symbols-outlined text-[16px]">expand_more</span>
+</div>
+</div>
+<div class="flex flex-col gap-element-gap">
+<!-- Card 1 -->
+<article class="bg-surface rounded-xl border border-border p-card-padding shadow-[0_4px_12px_rgba(0,0,0,0.04)] relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-primary"></div>
+<div class="flex justify-between items-start mb-3">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="font-label-sm text-label-sm text-text-secondary">#BKG-8892</span>
+<span class="bg-primary/10 text-primary font-label-sm text-label-sm px-2 py-0.5 rounded-full">Rodent Control</span>
+</div>
+<h3 class="font-body-lg text-body-lg text-text-primary">Sarah Jenkins</h3>
+</div>
+<div class="flex flex-col items-end">
+<span class="bg-success-bg text-success-text border border-success-text/20 font-label-sm text-label-sm px-2 py-0.5 rounded-full flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
+                            Paid
+                        </span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-y-3 gap-x-4 mt-4 pt-4 border-t border-border/50">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-text-secondary text-[20px] shrink-0">calendar_month</span>
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary">COMPLETION</p>
+<p class="font-body-md text-body-md text-text-primary">Oct 12, 14:30</p>
+</div>
+</div>
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-text-secondary text-[20px] shrink-0">payments</span>
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary">PAYMENT MODE</p>
+<p class="font-body-md text-body-md text-text-primary">Online (Card)</p>
+</div>
+</div>
+</div>
+</article>
+<!-- Card 2 -->
+<article class="bg-surface rounded-xl border border-border p-card-padding shadow-[0_4px_12px_rgba(0,0,0,0.04)] relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-primary"></div>
+<div class="flex justify-between items-start mb-3">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="font-label-sm text-label-sm text-text-secondary">#BKG-8889</span>
+<span class="bg-primary/10 text-primary font-label-sm text-label-sm px-2 py-0.5 rounded-full">Termite Inspection</span>
+</div>
+<h3 class="font-body-lg text-body-lg text-text-primary">Michael Chang</h3>
+</div>
+<div class="flex flex-col items-end">
+<span class="bg-success-bg text-success-text border border-success-text/20 font-label-sm text-label-sm px-2 py-0.5 rounded-full flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
+                            Paid
+                        </span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-y-3 gap-x-4 mt-4 pt-4 border-t border-border/50">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-text-secondary text-[20px] shrink-0">calendar_month</span>
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary">COMPLETION</p>
+<p class="font-body-md text-body-md text-text-primary">Oct 11, 09:15</p>
+</div>
+</div>
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-text-secondary text-[20px] shrink-0">payments</span>
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary">PAYMENT MODE</p>
+<p class="font-body-md text-body-md text-text-primary">Cash</p>
+</div>
+</div>
+</div>
+</article>
+<!-- Card 3 -->
+<article class="bg-surface rounded-xl border border-border p-card-padding shadow-[0_4px_12px_rgba(0,0,0,0.04)] relative overflow-hidden opacity-80">
+<div class="absolute top-0 left-0 w-1 h-full bg-outline-variant"></div>
+<div class="flex justify-between items-start mb-3">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="font-label-sm text-label-sm text-text-secondary">#BKG-8875</span>
+<span class="bg-outline-variant/20 text-outline font-label-sm text-label-sm px-2 py-0.5 rounded-full">General Spray</span>
+</div>
+<h3 class="font-body-lg text-body-lg text-text-primary">Riverfront Apartments</h3>
+</div>
+<div class="flex flex-col items-end">
+<span class="bg-surface-container-highest text-on-surface-variant border border-outline-variant/50 font-label-sm text-label-sm px-2 py-0.5 rounded-full flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">pending</span>
+                            Pending
+                        </span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-y-3 gap-x-4 mt-4 pt-4 border-t border-border/50">
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-text-secondary text-[20px] shrink-0">calendar_month</span>
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary">COMPLETION</p>
+<p class="font-body-md text-body-md text-text-primary">Oct 09, 16:00</p>
+</div>
+</div>
+<div class="flex items-start gap-2">
+<span class="material-symbols-outlined text-text-secondary text-[20px] shrink-0">payments</span>
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary">PAYMENT MODE</p>
+<p class="font-body-md text-body-md text-text-primary">Invoice Sent</p>
+</div>
+</div>
+</div>
+</article>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="md:hidden bg-surface dark:bg-inverse-surface fixed bottom-0 w-full z-50 border-t border-border dark:border-outline-variant shadow-sm fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-4 pt-2 bg-surface dark:bg-inverse-surface">
+<button class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 rounded-xl focus:outline-none">
+<span class="material-symbols-outlined mb-1" data-icon="calendar_today" style="font-variation-settings: 'FILL' 0;">calendar_today</span>
+<span class="font-label-sm text-label-sm">Bookings</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 rounded-xl focus:outline-none">
+<span class="material-symbols-outlined mb-1" data-icon="assignment_turned_in" style="font-variation-settings: 'FILL' 0;">assignment_turned_in</span>
+<span class="font-label-sm text-label-sm">Accepted</span>
+</button>
+<button class="flex flex-col items-center justify-center bg-primary-container dark:bg-primary text-on-primary-container dark:text-on-primary rounded-xl px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 focus:outline-none">
+<span class="material-symbols-outlined mb-1" data-icon="verified" style="font-variation-settings: 'FILL' 1;">verified</span>
+<span class="font-label-sm text-label-sm">Completed</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 rounded-xl focus:outline-none">
+<span class="material-symbols-outlined mb-1" data-icon="person" style="font-variation-settings: 'FILL' 0;">person</span>
+<span class="font-label-sm text-label-sm">Profile</span>
+</button>
+</nav>
+<!-- Desktop Sidebar (Hidden on mobile) -->
+<aside class="hidden md:flex flex-col w-64 fixed left-0 top-[65px] h-[calc(100vh-65px)] bg-surface border-r border-border p-4 gap-2">
+<button class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:bg-surface-container-low transition-colors rounded-xl focus:outline-none text-left">
+<span class="material-symbols-outlined" data-icon="calendar_today" style="font-variation-settings: 'FILL' 0;">calendar_today</span>
+<span class="font-body-lg text-body-lg">Bookings</span>
+</button>
+<button class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:bg-surface-container-low transition-colors rounded-xl focus:outline-none text-left">
+<span class="material-symbols-outlined" data-icon="assignment_turned_in" style="font-variation-settings: 'FILL' 0;">assignment_turned_in</span>
+<span class="font-body-lg text-body-lg">Accepted</span>
+</button>
+<button class="flex items-center gap-3 bg-primary-container text-on-primary-container px-4 py-3 transition-colors rounded-xl focus:outline-none text-left font-bold">
+<span class="material-symbols-outlined" data-icon="verified" style="font-variation-settings: 'FILL' 1;">verified</span>
+<span class="font-body-lg text-body-lg">Completed</span>
+</button>
+<button class="flex items-center gap-3 text-on-surface-variant px-4 py-3 hover:bg-surface-container-low transition-colors rounded-xl focus:outline-none text-left">
+<span class="material-symbols-outlined" data-icon="person" style="font-variation-settings: 'FILL' 0;">person</span>
+<span class="font-body-lg text-body-lg">Profile</span>
+</button>
+</aside>
+</body></html>

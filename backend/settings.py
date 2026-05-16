@@ -35,7 +35,9 @@ ALLOWED_HOSTS = ['api.vacationbna.site', '.railway.app', '.up.railway.app', 'loc
 
 CSRF_TRUSTED_ORIGINS = [
     "https://api.vacationbna.site",
-    "https://pestcontrol-crm-frontend.vercel.app"
+    "https://pestcontrol-crm-frontend.vercel.app",
+    "https://www.pestcontrol99.com",
+    "https://pestcontrol99.com",
 ]
 # adnan
 # Telegram integration settings
@@ -59,6 +61,7 @@ INSTALLED_APPS = [
     'drf_spectacular',  # OpenAPI 3.0 documentation
     'core',
     'partner',
+    'blog',
 ]
 
 MIDDLEWARE = [
@@ -151,6 +154,63 @@ if (BASE_DIR / 'static').exists():
         BASE_DIR / 'static',
     ]
 
+# Media files (user-uploaded content: blog images, etc.)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# AWS S3 — blog images (set USE_AWS=True in .env)
+USE_AWS = config('USE_AWS', default=False, cast=bool)
+
+if USE_AWS:
+    AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID')
+    AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY')
+    AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME')
+    AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='ap-south-1')
+    AWS_S3_SIGNATURE_VERSION = 's3v4'
+    AWS_S3_FILE_OVERWRITE = False
+    AWS_QUERYSTRING_AUTH = False
+    AWS_DEFAULT_ACL = None
+    AWS_S3_OBJECT_PARAMETERS = {
+        'CacheControl': 'max-age=31536000, public',
+    }
+    AWS_LOCATION = config('AWS_LOCATION', default='')
+    AWS_S3_CUSTOM_DOMAIN = config(
+        'AWS_S3_CUSTOM_DOMAIN',
+        default=f'{AWS_STORAGE_BUCKET_NAME}.s3.{AWS_S3_REGION_NAME}.amazonaws.com',
+    )
+
+    STORAGES = {
+        'default': {
+            'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
+        },
+        'staticfiles': {
+            'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+        },
+    }
+    MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/'
+    if AWS_LOCATION:
+        MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/{AWS_LOCATION.strip("/")}/'
+else:
+    STORAGES = {
+        'default': {
+            'BACKEND': 'django.core.files.storage.FileSystemStorage',
+            'OPTIONS': {
+                'location': MEDIA_ROOT,
+                'base_url': MEDIA_URL,
+            },
+        },
+        'staticfiles': {
+            'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+        },
+    }
+
+# Public website base URL (used for sitemap generation)
+SITE_BASE_URL = config('SITE_BASE_URL', default='https://www.pestcontrol99.com')
+
+# Blog CMS settings
+BLOG_IMAGE_MAX_SIZE_MB = 10
+BLOG_CACHE_TTL = 300          # 5 minutes
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -184,7 +244,8 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',
         'user': '1000/hour',
-        'login': '5/min'
+        'login': '5/min',
+        'blog_view_track': '60/hour',
     }
 }
 
@@ -218,7 +279,9 @@ SIMPLE_JWT = {
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
-    "https://pestcontrol-crm-frontend.vercel.app"
+    "https://pestcontrol-crm-frontend.vercel.app",
+    "https://www.pestcontrol99.com",
+    "https://pestcontrol99.com",
 ]
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_HEADERS = [

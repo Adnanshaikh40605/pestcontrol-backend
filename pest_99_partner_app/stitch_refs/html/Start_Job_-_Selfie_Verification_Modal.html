@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PestControl Pro - Start Service Verification</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary": "#0051d5",
+                        "surface-bright": "#f5fbf0",
+                        "info-blue": "#2563EB",
+                        "on-tertiary-fixed-variant": "#861c3e",
+                        "outline-variant": "#becaba",
+                        "inverse-on-surface": "#edf3e8",
+                        "error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#3f0017",
+                        "tertiary-fixed-dim": "#ffb1c0",
+                        "secondary-container": "#316bf3",
+                        "primary": "#006b28",
+                        "tertiary-container": "#c24b6b",
+                        "on-secondary-fixed-variant": "#003ea8",
+                        "surface-dim": "#d6dcd1",
+                        "surface": "#FFFFFF",
+                        "tag-purple": "#7C3AED",
+                        "surface-container-high": "#e4eadf",
+                        "on-error": "#ffffff",
+                        "text-secondary": "#6B7280",
+                        "warning": "#F59E0B",
+                        "on-surface-variant": "#3f4a3e",
+                        "outline": "#6e7a6c",
+                        "text-primary": "#111827",
+                        "secondary-fixed": "#dbe1ff",
+                        "inverse-surface": "#2c322b",
+                        "error": "#ba1a1a",
+                        "on-tertiary-container": "#fffbff",
+                        "on-secondary": "#ffffff",
+                        "on-secondary-fixed": "#00174b",
+                        "on-primary": "#ffffff",
+                        "surface-container-low": "#eff6eb",
+                        "tag-orange": "#EA580C",
+                        "danger": "#EF4444",
+                        "surface-container": "#eaf0e5",
+                        "primary-fixed-dim": "#72dd81",
+                        "on-primary-fixed": "#002107",
+                        "on-primary-fixed-variant": "#00531d",
+                        "tertiary": "#a23353",
+                        "surface-tint": "#006e2a",
+                        "tertiary-fixed": "#ffd9df",
+                        "inverse-primary": "#72dd81",
+                        "background": "#F7FAF8",
+                        "on-surface": "#171d17",
+                        "primary-container": "#0c8737",
+                        "on-primary-container": "#f7fff2",
+                        "surface-variant": "#dee4da",
+                        "on-secondary-container": "#fefcff",
+                        "success-bg": "#E8F5EC",
+                        "border": "#E4E7EC",
+                        "on-background": "#171d17",
+                        "surface-container-highest": "#dee4da",
+                        "success-text": "#16A34A",
+                        "primary-fixed": "#8efa9a",
+                        "secondary-fixed-dim": "#b4c5ff",
+                        "on-tertiary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "surface-container-lowest": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "card-padding": "16px",
+                        "section-gap": "20px",
+                        "element-gap": "12px",
+                        "touch-target-min": "48px",
+                        "screen-edge": "20px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Manrope"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Manrope"],
+                        "label-lg": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "headline-lg": ["Manrope"],
+                        "body-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "700"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "500"}],
+                        "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}],
+                        "label-lg": ["13px", {"lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "600"}],
+                        "label-sm": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                        "headline-lg": ["24px", {"lineHeight": "32px", "fontWeight": "800"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .bottom-sheet-overlay {
+            background-color: rgba(0, 0, 0, 0.4);
+        }
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-md min-h-screen">
+<!-- Top App Bar -->
+<header class="bg-surface dark:bg-surface-dim flex justify-between items-center px-screen-edge py-3 w-full docked full-width top-0 sticky z-50 shadow-sm">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary">
+<img alt="Technician Profile Picture" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDsAUQNE2rPOuA4lawdcu9rrZ9WdhymdUlxwD7SK57DhJVL4gYEw0OmI0Fr8qekh13a2RK7KcKXvbqwc-XvEXxSTU_3FuM67k_Gt6RQOSktwk1fwCjCaS-X9zvgtq0eU9p9GBYRzIRESE1tuqv0MF9M1u40zCiftTmzKAEGP5F4oUBJAJkBwcnXPaCGu5_dJ8dVa9MocO8S1A4Z_iLCrO8MVvgOWGq-Mk_VikaezczQjs0SNcT_EYVMZztkrl4Et4nrV2mCxTMN-RTv"/>
+</div>
+<h1 class="text-headline-sm font-headline-sm text-primary dark:text-primary-fixed">PestControl Pro</h1>
+</div>
+<button class="material-symbols-outlined text-primary dark:text-primary-fixed p-2 hover:bg-surface-container-low transition-colors rounded-full" data-icon="notifications">notifications</button>
+</header>
+<!-- Background Content (Booking Details) -->
+<main class="px-screen-edge py-section-gap pb-32">
+<div class="mb-section-gap">
+<div class="flex items-center gap-2 mb-4">
+<span class="bg-primary-container text-on-primary-container px-3 py-1 rounded-full font-label-sm text-label-sm">#BK-8821</span>
+<span class="bg-tag-orange/20 text-tag-orange px-3 py-1 rounded-full font-label-sm text-label-sm">Active Service</span>
+</div>
+<h2 class="font-headline-lg text-headline-lg mb-2">Rodent Control Service</h2>
+<p class="text-on-surface-variant font-body-lg text-body-lg">124 Oakwood Gardens, Seattle, WA</p>
+</div>
+<div class="space-y-4">
+<div class="bg-surface border border-border p-card-padding rounded-xl shadow-[0px_4px_12px_rgba(0,0,0,0.04)]">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-on-surface-variant font-label-sm text-label-sm uppercase">Customer</p>
+<p class="font-headline-sm text-headline-sm">Sarah Jenkins</p>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full bg-secondary-container text-on-secondary-container">
+<span class="material-symbols-outlined" data-icon="call">call</span>
+</button>
+</div>
+<div class="flex items-center gap-4 py-3 border-t border-border">
+<div class="flex flex-col">
+<span class="text-on-surface-variant font-label-sm text-label-sm">Scheduled</span>
+<span class="font-body-lg text-body-lg">10:30 AM - Today</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Modal Backdrop -->
+<div class="fixed inset-0 bottom-sheet-overlay z-[60] flex items-end justify-center">
+<!-- Bottom Sheet Modal -->
+<div class="bg-surface w-full max-w-lg rounded-t-[28px] overflow-hidden shadow-2xl flex flex-col items-center">
+<!-- Drag Handle -->
+<div class="w-12 h-1 bg-outline-variant rounded-full mt-3 mb-6"></div>
+<div class="px-screen-edge w-full">
+<div class="text-center mb-6">
+<h3 class="font-headline-lg text-headline-lg text-on-surface mb-2">Start Service Verification</h3>
+<p class="text-on-surface-variant font-body-lg text-body-lg">Capture a live selfie before starting service.</p>
+</div>
+<!-- Camera Preview Area -->
+<div class="relative w-full aspect-square bg-surface-container-low rounded-[40px] border-2 border-dashed border-outline-variant flex flex-col items-center justify-center overflow-hidden mb-6 group transition-all">
+<div class="flex flex-col items-center gap-4 text-outline z-10">
+<div class="w-20 h-20 rounded-full bg-surface-container flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined !text-[48px]" data-icon="photo_camera">photo_camera</span>
+</div>
+<span class="font-label-lg text-label-lg">Preview will appear here</span>
+</div>
+<!-- framing indicators -->
+<div class="absolute top-8 left-8 w-12 h-12 border-t-4 border-l-4 border-primary/20 rounded-tl-2xl"></div>
+<div class="absolute top-8 right-8 w-12 h-12 border-t-4 border-r-4 border-primary/20 rounded-tr-2xl"></div>
+<div class="absolute bottom-8 left-8 w-12 h-12 border-b-4 border-l-4 border-primary/20 rounded-bl-2xl"></div>
+<div class="absolute bottom-8 right-8 w-12 h-12 border-b-4 border-r-4 border-primary/20 rounded-br-2xl"></div>
+<!-- Success Message (Initially Hidden) -->
+<div class="absolute inset-0 bg-success-bg/90 backdrop-blur-sm z-20 flex flex-col items-center justify-center opacity-0 pointer-events-none transition-opacity duration-300" id="success-overlay">
+<div class="bg-success-text text-white w-16 h-16 rounded-full flex items-center justify-center mb-4">
+<span class="material-symbols-outlined !text-[32px]" data-icon="check">check</span>
+</div>
+<p class="text-success-text font-headline-sm text-headline-sm">✓ Selfie Captured Successfully</p>
+</div>
+</div>
+<!-- Primary Action -->
+<div class="mb-4">
+<button class="w-full bg-primary text-on-primary font-headline-sm text-headline-sm h-[56px] rounded-xl flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-md">
+<span class="material-symbols-outlined" data-icon="face_check" style="font-variation-settings: 'FILL' 1;">face</span>
+                    Capture Selfie
+                </button>
+</div>
+<!-- Secondary Actions -->
+<div class="flex gap-4 mb-8">
+<button class="flex-1 border border-border bg-surface text-on-surface font-label-lg text-label-lg h-[52px] rounded-xl flex items-center justify-center gap-2 hover:bg-surface-container-low transition-colors active:scale-[0.98]">
+<span class="material-symbols-outlined text-[20px]" data-icon="camera_front">camera_front</span>
+                    Open Camera
+                </button>
+<button class="flex-1 border border-border bg-surface text-on-surface font-label-lg text-label-lg h-[52px] rounded-xl flex items-center justify-center gap-2 hover:bg-surface-container-low transition-colors active:scale-[0.98]">
+<span class="material-symbols-outlined text-[20px]" data-icon="refresh">refresh</span>
+                    Retake
+                </button>
+</div>
+</div>
+<!-- Bottom safe area padding -->
+<div class="h-6 w-full bg-surface"></div>
+</div>
+</div>
+<!-- Bottom Nav Bar -->
+<nav class="fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-4 pt-2 bg-surface dark:bg-inverse-surface border-t border-border dark:border-outline-variant shadow-sm z-50">
+<div class="flex flex-col items-center justify-center bg-primary-container dark:bg-primary text-on-primary-container dark:text-on-primary rounded-xl px-4 py-1">
+<span class="material-symbols-outlined" data-icon="calendar_today">calendar_today</span>
+<span class="font-label-sm text-label-sm">Bookings</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1">
+<span class="material-symbols-outlined" data-icon="assignment_turned_in">assignment_turned_in</span>
+<span class="font-label-sm text-label-sm">Accepted</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1">
+<span class="material-symbols-outlined" data-icon="verified">verified</span>
+<span class="font-label-sm text-label-sm">Completed</span>
+</div>
+<div class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1">
+<span class="material-symbols-outlined" data-icon="person">person</span>
+<span class="font-label-sm text-label-sm">Profile</span>
+</div>
+</nav>
+</body></html>

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Booking Detail - PestControl Pro</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-secondary-fixed-variant": "#003ea8",
+                        "surface-variant": "#dee4da",
+                        "tertiary-fixed": "#ffd9df",
+                        "on-secondary": "#ffffff",
+                        "background": "#F7FAF8",
+                        "outline": "#6e7a6c",
+                        "info-blue": "#2563EB",
+                        "surface-container-low": "#eff6eb",
+                        "on-tertiary-container": "#fffbff",
+                        "on-primary-fixed": "#002107",
+                        "success-text": "#16A34A",
+                        "on-error": "#ffffff",
+                        "surface-bright": "#f5fbf0",
+                        "primary": "#006b28",
+                        "on-secondary-fixed": "#00174b",
+                        "tertiary-container": "#c24b6b",
+                        "surface-container-lowest": "#ffffff",
+                        "secondary-fixed-dim": "#b4c5ff",
+                        "surface-container-high": "#e4eadf",
+                        "border": "#E4E7EC",
+                        "warning": "#F59E0B",
+                        "on-tertiary-fixed": "#3f0017",
+                        "error-container": "#ffdad6",
+                        "text-primary": "#111827",
+                        "on-primary-container": "#f7fff2",
+                        "on-surface-variant": "#3f4a3e",
+                        "tertiary": "#a23353",
+                        "surface-container": "#eaf0e5",
+                        "on-primary-fixed-variant": "#00531d",
+                        "inverse-on-surface": "#edf3e8",
+                        "success-bg": "#E8F5EC",
+                        "primary-fixed-dim": "#72dd81",
+                        "surface-container-highest": "#dee4da",
+                        "on-primary": "#ffffff",
+                        "text-secondary": "#6B7280",
+                        "on-secondary-container": "#fefcff",
+                        "tag-orange": "#EA580C",
+                        "secondary": "#0051d5",
+                        "on-surface": "#171d17",
+                        "inverse-surface": "#2c322b",
+                        "surface-dim": "#d6dcd1",
+                        "on-background": "#171d17",
+                        "on-tertiary": "#ffffff",
+                        "danger": "#EF4444",
+                        "on-tertiary-fixed-variant": "#861c3e",
+                        "inverse-primary": "#72dd81",
+                        "primary-fixed": "#8efa9a",
+                        "outline-variant": "#becaba",
+                        "secondary-container": "#316bf3",
+                        "tertiary-fixed-dim": "#ffb1c0",
+                        "tag-purple": "#7C3AED",
+                        "secondary-fixed": "#dbe1ff",
+                        "primary-container": "#0c8737",
+                        "on-error-container": "#93000a",
+                        "surface": "#FFFFFF",
+                        "error": "#ba1a1a",
+                        "surface-tint": "#006e2a"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "2xl": "1.125rem", // 18px equivalent
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "section-gap": "20px",
+                        "screen-edge": "20px",
+                        "element-gap": "12px",
+                        "card-padding": "16px",
+                        "touch-target-min": "48px"
+                    },
+                    fontFamily: {
+                        "body-md": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "label-lg": ["Inter"],
+                        "headline-sm": ["Manrope"],
+                        "headline-md": ["Manrope"],
+                        "headline-lg": ["Manrope"],
+                        "body-lg": ["Inter"]
+                    },
+                    fontSize: {
+                        "body-md": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                        "label-sm": ["11px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "700" }],
+                        "label-lg": ["13px", { lineHeight: "18px", letterSpacing: "0.02em", fontWeight: "600" }],
+                        "headline-sm": ["18px", { lineHeight: "24px", fontWeight: "600" }],
+                        "headline-md": ["20px", { lineHeight: "28px", fontWeight: "700" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", fontWeight: "800" }],
+                        "body-lg": ["16px", { lineHeight: "24px", fontWeight: "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+<style data-stitch-cursor=""></style><style data-stitch-scroll-lock=""></style></head>
+<body class="bg-background text-on-surface font-body-md min-h-screen pb-32">
+<!-- TopAppBar -->
+<header class="bg-surface dark:bg-surface-dim docked full-width top-0 sticky z-50 border-b border-border dark:border-outline-variant flat no shadows flex justify-between items-center px-screen-edge py-3 w-full">
+<button class="h-touch-target-min w-touch-target-min flex items-center justify-center -ml-3 text-on-surface-variant hover:bg-surface-container-low transition-colors scale-95 active:opacity-80 transition-all rounded-full">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">arrow_back</span>
+</button>
+<img alt="PestControl 99 Logo" class="h-8 object-contain mx-auto" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCCz5GGwXSzoGZt88finQRaD8ZxGdVykNyPc3TGzZGJaeryWoi8UpKB90I5zYfs_mKTu9ykvEZk_9Vtvb21HAZ7aoQaLZxxkqr_-O7l2aRq1oHZorgpCFLwFpAQqDfxquUn81T9-IkS8dkKkEBi3SE07k0sLQFS3zMjnBNAD0-lvP38qkVPD-yVekkaPmh3Cr-UGMP82rBRRUQfjxt5T407YCMtWJwOoSolIcDMXJvLKqSTrL_V0Yza14XWtUU3udjI-32cKUAJe58G"/>
+<button class="h-touch-target-min w-touch-target-min flex items-center justify-center -mr-3 text-on-surface-variant hover:bg-surface-container-low transition-colors scale-95 active:opacity-80 transition-all rounded-full">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">notifications</span>
+</button>
+</header>
+<main class="p-screen-edge space-y-section-gap max-w-2xl mx-auto">
+<!-- Customer Information Section -->
+<section class="bg-surface border border-border rounded-2xl p-card-padding shadow-[0_4px_12px_rgba(0,0,0,0.04)]">
+<h2 class="font-headline-sm text-headline-sm text-text-primary mb-element-gap">Customer Information</h2>
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center gap-3">
+<div class="w-12 h-12 rounded-full bg-surface-container flex items-center justify-center text-primary font-headline-md text-headline-md">
+                        SJ
+                    </div>
+<div>
+<p class="font-body-lg text-body-lg text-text-primary">Sarah Jenkins</p>
+<p class="font-body-md text-body-md text-text-secondary">Customer</p>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="w-10 h-10 rounded-full bg-success-bg text-primary flex items-center justify-center hover:bg-surface-container-low transition-colors active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">call</span>
+</button>
+<button class="w-10 h-10 rounded-full bg-blue-50 text-info-blue flex items-center justify-center hover:bg-blue-100 transition-colors active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">chat</span>
+</button>
+</div>
+</div>
+<div class="bg-background rounded-lg p-3 flex items-start gap-3 mb-4">
+<span class="material-symbols-outlined text-text-secondary mt-0.5" style="font-variation-settings: 'FILL' 0;">location_on</span>
+<p class="font-body-md text-body-md text-text-primary">124 Oakwood Drive, Maplewood District</p>
+</div>
+<button class="w-full min-h-[52px] border border-primary text-primary font-label-lg text-label-lg rounded-xl flex items-center justify-center gap-2 hover:bg-surface-container-low transition-colors active:scale-95">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">map</span>
+                Open in Maps
+            </button>
+</section>
+<!-- Property Information Section -->
+<section class="bg-surface border border-border rounded-2xl p-card-padding">
+<h2 class="font-headline-sm text-headline-sm text-text-primary mb-element-gap">Property Details</h2>
+<div class="grid grid-cols-2 gap-4 mb-4">
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary uppercase mb-1">Type</p>
+<p class="font-body-md text-body-md text-text-primary font-medium">Residential (Villa)</p>
+</div>
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary uppercase mb-1">Size</p>
+<p class="font-body-md text-body-md text-text-primary font-medium">4 BHK</p>
+</div>
+</div>
+<div class="bg-surface-container-low rounded-lg p-3 border-l-4 border-warning">
+<p class="font-label-sm text-label-sm text-text-secondary uppercase mb-1">Notes</p>
+<p class="font-body-md text-body-md text-text-primary italic">"Customer mentioned sightings in the kitchen and backyard. Please check the attic as well."</p>
+</div>
+</section>
+<!-- Service Information Section -->
+<section class="bg-surface border border-border rounded-2xl p-card-padding">
+<div class="flex justify-between items-center mb-element-gap">
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Service Details</h2>
+<span class="bg-orange-100 text-tag-orange font-label-sm text-label-sm px-2 py-1 rounded-md uppercase tracking-wider">AMC Visit</span>
+</div>
+<div class="space-y-4">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-red-50 text-danger flex items-center justify-center">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">pest_control</span>
+</div>
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary uppercase mb-0.5">Pest Type</p>
+<p class="font-body-lg text-body-lg text-text-primary font-medium">Termites</p>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-blue-50 text-info-blue flex items-center justify-center">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">science</span>
+</div>
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary uppercase mb-0.5">Treatment</p>
+<p class="font-body-md text-body-md text-text-primary">Chemical Spray + Baiting</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Schedule Section -->
+<section class="bg-surface border border-border rounded-2xl p-card-padding flex justify-between items-center">
+<div>
+<h2 class="font-headline-sm text-headline-sm text-text-primary mb-1">Schedule</h2>
+<div class="flex items-center gap-2 text-text-secondary">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 0;">calendar_today</span>
+<p class="font-body-md text-body-md">Today, Oct 24</p>
+</div>
+</div>
+<div class="text-right">
+<div class="flex items-center justify-end gap-1 text-primary">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">schedule</span>
+<p class="font-headline-md text-headline-md">14:00 - 16:00</p>
+</div>
+</div>
+</section>
+<!-- Pricing Section -->
+<section class="bg-surface border border-border rounded-2xl p-card-padding">
+<h2 class="font-headline-sm text-headline-sm text-text-primary mb-3">Payment</h2>
+<div class="flex justify-between items-center">
+<div>
+<p class="font-label-sm text-label-sm text-text-secondary uppercase mb-1">Service Amount</p>
+<p class="font-headline-md text-headline-md text-text-primary">₹4,500</p>
+</div>
+<div class="flex items-center gap-1.5 bg-red-50 text-danger px-3 py-1.5 rounded-full">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">pending</span>
+<span class="font-label-lg text-label-lg">Unpaid</span>
+</div>
+</div>
+</section>
+</main>
+<!-- Sticky Bottom CTA -->
+<div class="fixed bottom-0 left-0 w-full bg-surface border-t border-border p-screen-edge pb-8 z-40 shadow-[0_-4px_12px_rgba(0,0,0,0.04)]">
+<div class="max-w-2xl mx-auto">
+<button class="w-full min-h-[52px] bg-primary text-on-primary font-headline-sm text-headline-sm rounded-xl flex items-center justify-center gap-2 hover:bg-surface-tint transition-colors active:scale-95 shadow-sm">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                End Service
+            </button>
+</div>
+</div>
+</body></html>

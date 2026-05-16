@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PestControl Pro - Accepted</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "danger": "#EF4444",
+                      "surface-container-low": "#eff6eb",
+                      "inverse-surface": "#2c322b",
+                      "on-error": "#ffffff",
+                      "error-container": "#ffdad6",
+                      "secondary": "#0051d5",
+                      "inverse-primary": "#72dd81",
+                      "on-tertiary-fixed-variant": "#861c3e",
+                      "surface-container-highest": "#dee4da",
+                      "tertiary-fixed": "#ffd9df",
+                      "secondary-fixed-dim": "#b4c5ff",
+                      "on-tertiary-fixed": "#3f0017",
+                      "on-primary-fixed-variant": "#00531d",
+                      "on-secondary-fixed-variant": "#003ea8",
+                      "primary-fixed-dim": "#72dd81",
+                      "on-secondary-fixed": "#00174b",
+                      "on-background": "#171d17",
+                      "success-text": "#16A34A",
+                      "on-secondary-container": "#fefcff",
+                      "background": "#F7FAF8",
+                      "text-secondary": "#6B7280",
+                      "on-secondary": "#ffffff",
+                      "warning": "#F59E0B",
+                      "tag-purple": "#7C3AED",
+                      "info-blue": "#2563EB",
+                      "surface-container-high": "#e4eadf",
+                      "secondary-container": "#316bf3",
+                      "success-bg": "#E8F5EC",
+                      "text-primary": "#111827",
+                      "on-primary": "#ffffff",
+                      "surface": "#FFFFFF",
+                      "surface-dim": "#d6dcd1",
+                      "on-tertiary-container": "#fffbff",
+                      "secondary-fixed": "#dbe1ff",
+                      "error": "#ba1a1a",
+                      "surface-tint": "#006e2a",
+                      "surface-container": "#eaf0e5",
+                      "on-error-container": "#93000a",
+                      "surface-container-lowest": "#ffffff",
+                      "primary-container": "#0c8737",
+                      "tertiary": "#a23353",
+                      "surface-variant": "#dee4da",
+                      "tertiary-container": "#c24b6b",
+                      "tag-orange": "#EA580C",
+                      "surface-bright": "#f5fbf0",
+                      "on-surface-variant": "#3f4a3e",
+                      "border": "#E4E7EC",
+                      "tertiary-fixed-dim": "#ffb1c0",
+                      "primary": "#006b28",
+                      "primary-fixed": "#8efa9a",
+                      "on-tertiary": "#ffffff",
+                      "on-primary-container": "#f7fff2",
+                      "on-primary-fixed": "#002107",
+                      "on-surface": "#171d17",
+                      "outline": "#6e7a6c",
+                      "inverse-on-surface": "#edf3e8",
+                      "outline-variant": "#becaba"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "section-gap": "20px",
+                      "screen-edge": "20px",
+                      "card-padding": "16px",
+                      "element-gap": "12px",
+                      "touch-target-min": "48px"
+              },
+              "fontFamily": {
+                      "label-sm": ["Inter"],
+                      "body-lg": ["Inter"],
+                      "headline-lg": ["Manrope"],
+                      "headline-sm": ["Manrope"],
+                      "label-lg": ["Inter"],
+                      "body-md": ["Inter"],
+                      "headline-md": ["Manrope"]
+              },
+              "fontSize": {
+                      "label-sm": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                      "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "500" }],
+                      "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "800" }],
+                      "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+                      "label-lg": ["13px", { "lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                      "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                      "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "700" }]
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background antialiased pb-24 md:pb-0 min-h-screen">
+<!-- TopAppBar -->
+<header class="bg-surface dark:bg-surface-dim border-b border-border dark:border-outline-variant docked full-width top-0 sticky z-50 flat no shadows flex justify-between items-center px-screen-edge py-3 w-full relative">
+<div class="w-8 h-8 rounded-full bg-surface-container-high overflow-hidden flex-shrink-0 relative z-10">
+<img alt="Technician Profile Picture" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCbFTTNb4WZKVHtomRtAGnNDahw2sn-8j0dhkDdMp1qFhcSqsakZJIUwl11_D43F2UEEWLI3rpeeXRDTUKZ_3w6uzTGmaYQJk3PgXRfyzlpcaW-H6trq9NPFb48Uh7-tmasHTDpQB_fO_XGW8PiJCs_MCiDNOfrnbtpBwrfKs30KrAw87Yy5e-8aN0qYaJjFxPmsmTogR7OCgf55jIN_NlYslNZdV0iOaVd03FLfcti7L-5zGRx4xsU-w3hPs2pGAGIbcKDgc8UIZ04"/>
+</div>
+<div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none">
+<img alt="PestControl 99 Logo" class="h-10 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCCz5GGwXSzoGZt88finQRaD8ZxGdVykNyPc3TGzZGJaeryWoi8UpKB90I5zYfs_mKTu9ykvEZk_9Vtvb21HAZ7aoQaLZxxkqr_-O7l2aRq1oHZorgpCFLwFpAQqDfxquUn81T9-IkS8dkKkEBi3SE07k0sLQFS3zMjnBNAD0-lvP38qkVPD-yVekkaPmh3Cr-UGMP82rBRRUQfjxt5T407YCMtWJwOoSolIcDMXJvLKqSTrL_V0Yza14XWtUU3udjI-32cKUAJe58G"/>
+</div>
+<button class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low transition-colors scale-95 active:opacity-80 transition-all text-primary dark:text-primary-fixed flex-shrink-0 relative z-10">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+</header>
+<!-- Main Content -->
+<main class="w-full max-w-md mx-auto px-screen-edge pt-4 md:max-w-3xl">
+<!-- Segmented Control (Tabs) -->
+<div class="flex bg-surface-container-low rounded-lg p-1 mb-section-gap">
+<a class="flex-1 text-center py-2 rounded-md font-label-lg text-label-lg text-on-surface-variant hover:bg-surface-container-high transition-colors" href="#">New</a>
+<a class="flex-1 text-center py-2 rounded-md font-label-lg text-label-lg bg-surface shadow-sm text-primary font-bold" href="#">Accepted</a>
+</div>
+<!-- Accepted Bookings List -->
+<div class="space-y-6">
+<!-- Card 1: Initial State -->
+<article class="bg-surface border border-border rounded-[16px] p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-shadow">
+<div class="flex justify-between items-start mb-4">
+<div class="space-y-2">
+<div class="flex flex-wrap items-center gap-2">
+<span class="font-label-sm text-[10px] bg-error-container text-error px-2.5 py-0.5 rounded-full uppercase tracking-wider">High Priority</span>
+<span class="font-label-sm text-[10px] bg-surface-container-high text-on-surface-variant px-2.5 py-0.5 rounded-full uppercase tracking-wider">AMC Visit</span>
+<span class="font-label-sm text-[10px] text-text-secondary">#BKG-4921</span>
+</div>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Sarah Jenkins</h2>
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-success-bg text-success-text font-label-sm text-label-sm w-fit">
+<span class="material-symbols-outlined text-[14px]">schedule</span>
+                            1h 30m left
+                        </div>
+</div>
+<div class="text-right">
+<div class="font-label-lg text-label-lg text-primary">Today, 2:00 PM</div>
+<div class="font-body-md text-body-md text-text-secondary">In 1h 30m</div>
+</div>
+</div>
+<div class="flex items-start gap-2 mb-5 text-text-secondary">
+<span class="material-symbols-outlined text-[20px] shrink-0 mt-0.5">location_on</span>
+<p class="font-body-md text-body-md leading-relaxed">124 Oakwood Drive, Maplewood District</p>
+</div>
+<div class="flex items-center gap-3 mb-4">
+<button class="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-surface-container-low text-primary font-label-lg text-label-lg hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-[18px]">call</span>
+                        Call
+                    </button>
+<button class="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-surface-container-low text-primary font-label-lg text-label-lg hover:bg-surface-container-highest transition-colors">
+<span class="material-symbols-outlined text-[18px]">directions</span>
+                        Maps
+                    </button>
+</div>
+<div class="flex gap-3">
+<button class="flex-1 py-3 px-4 rounded-xl bg-surface text-primary border border-primary font-label-lg text-label-lg text-center hover:bg-surface-container-low transition-all">View Details</button>
+<button class="flex-1 py-3 px-4 rounded-xl bg-primary text-on-primary font-label-lg text-label-lg text-center hover:bg-primary-container transition-all flex items-center justify-center gap-2 shadow-sm">
+<span class="material-symbols-outlined text-[20px]">play_arrow</span>
+                        Start Job
+                    </button>
+</div>
+</article>
+<!-- Card 2: In Service State -->
+<article class="bg-surface border border-border rounded-[16px] p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-shadow">
+<div class="flex justify-between items-start mb-4">
+<div class="space-y-2">
+<div class="flex flex-wrap items-center gap-2">
+<span class="font-label-sm text-[10px] bg-info-blue/10 text-info-blue px-2.5 py-0.5 rounded-full uppercase tracking-wider font-bold">IN SERVICE</span>
+<span class="font-label-sm text-[10px] bg-surface-container-high text-on-surface-variant px-2.5 py-0.5 rounded-full uppercase tracking-wider">Service Call</span>
+<span class="font-label-sm text-[10px] text-text-secondary">#BKG-4918</span>
+</div>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Michael Chang</h2>
+<div class="space-y-0.5">
+<p class="font-body-md text-body-md text-success-text font-semibold flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-success-text animate-pulse"></span>
+                                Started at 2:15 PM
+                            </p>
+<p class="font-label-lg text-label-lg text-text-secondary">Running for 25 mins</p>
+</div>
+</div>
+<div class="text-right">
+<div class="font-label-lg text-label-lg text-primary">Today, 4:30 PM</div>
+<div class="font-body-md text-body-md text-info-blue font-medium">Ongoing</div>
+</div>
+</div>
+<div class="flex items-start gap-2 mb-5 text-text-secondary">
+<span class="material-symbols-outlined text-[20px] shrink-0 mt-0.5">location_on</span>
+<p class="font-body-md text-body-md leading-relaxed">89B Tech Park Blvd, Suite 400</p>
+</div>
+<div class="flex gap-3">
+<button class="flex-1 py-3 px-4 rounded-xl bg-surface text-primary border border-primary font-label-lg text-label-lg text-center hover:bg-surface-container-low transition-all">View Details</button>
+<button class="flex-1 py-3 px-4 rounded-xl bg-primary text-on-primary font-label-lg text-label-lg text-center hover:bg-primary-container transition-all shadow-sm">End Service</button>
+</div>
+</article>
+</div>
+</main>
+<!-- BottomNavBar -->
+<nav class="md:hidden fixed bottom-0 w-full z-50 border-t border-border dark:border-outline-variant shadow-sm flex justify-around items-center px-4 pb-4 pt-2 bg-surface dark:bg-inverse-surface">
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:text-primary">calendar_today</span>
+<span class="font-label-sm text-label-sm group-hover:text-primary">Bookings</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary-container dark:bg-primary text-on-primary-container dark:text-on-primary rounded-xl px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150" href="#">
+<span class="material-symbols-outlined mb-1" style="font-variation-settings: 'FILL' 1;">assignment_turned_in</span>
+<span class="font-label-sm text-label-sm">Accepted</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:text-primary">verified</span>
+<span class="font-label-sm text-label-sm group-hover:text-primary">Completed</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 group" href="#">
+<span class="material-symbols-outlined mb-1 group-hover:text-primary">person</span>
+<span class="font-label-sm text-label-sm group-hover:text-primary">Profile</span>
+</a>
+</nav>
+</body></html>

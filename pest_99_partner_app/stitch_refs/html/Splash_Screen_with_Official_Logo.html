@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Pest 99 - Partner App</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-dim": "#d6dcd1",
+                        "on-background": "#171d17",
+                        "inverse-surface": "#2c322b",
+                        "on-surface": "#171d17",
+                        "danger": "#EF4444",
+                        "on-tertiary": "#ffffff",
+                        "success-bg": "#E8F5EC",
+                        "inverse-on-surface": "#edf3e8",
+                        "tag-orange": "#EA580C",
+                        "secondary": "#0051d5",
+                        "text-secondary": "#6B7280",
+                        "on-secondary-container": "#fefcff",
+                        "surface-container-highest": "#dee4da",
+                        "on-primary": "#ffffff",
+                        "primary-fixed-dim": "#72dd81",
+                        "error": "#ba1a1a",
+                        "surface": "#FFFFFF",
+                        "on-error-container": "#93000a",
+                        "primary-container": "#0c8737",
+                        "secondary-fixed": "#dbe1ff",
+                        "tag-purple": "#7C3AED",
+                        "tertiary-fixed-dim": "#ffb1c0",
+                        "surface-tint": "#006e2a",
+                        "outline-variant": "#becaba",
+                        "primary-fixed": "#8efa9a",
+                        "on-tertiary-fixed-variant": "#861c3e",
+                        "inverse-primary": "#72dd81",
+                        "secondary-container": "#316bf3",
+                        "surface-bright": "#f5fbf0",
+                        "on-error": "#ffffff",
+                        "on-secondary-fixed": "#00174b",
+                        "primary": "#006b28",
+                        "tertiary-fixed": "#ffd9df",
+                        "on-secondary": "#ffffff",
+                        "background": "#F7FAF8",
+                        "surface-variant": "#dee4da",
+                        "on-secondary-fixed-variant": "#003ea8",
+                        "success-text": "#16A34A",
+                        "on-primary-fixed": "#002107",
+                        "on-tertiary-container": "#fffbff",
+                        "surface-container-low": "#eff6eb",
+                        "outline": "#6e7a6c",
+                        "info-blue": "#2563EB",
+                        "on-primary-container": "#f7fff2",
+                        "text-primary": "#111827",
+                        "on-primary-fixed-variant": "#00531d",
+                        "surface-container": "#eaf0e5",
+                        "tertiary": "#a23353",
+                        "on-surface-variant": "#3f4a3e",
+                        "surface-container-high": "#e4eadf",
+                        "secondary-fixed-dim": "#b4c5ff",
+                        "surface-container-lowest": "#ffffff",
+                        "tertiary-container": "#c24b6b",
+                        "error-container": "#ffdad6",
+                        "on-tertiary-fixed": "#3f0017",
+                        "warning": "#F59E0B",
+                        "border": "#E4E7EC"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "card-padding": "16px",
+                        "touch-target-min": "48px",
+                        "element-gap": "12px",
+                        "section-gap": "20px",
+                        "screen-edge": "20px"
+                    },
+                    "fontFamily": {
+                        "label-sm": ["Inter"],
+                        "label-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-lg": ["Manrope"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Manrope"],
+                        "headline-md": ["Manrope"]
+                    },
+                    "fontSize": {
+                        "label-sm": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                        "label-lg": ["13px", { "lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "800" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "500" }],
+                        "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "700" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-primary h-screen w-full overflow-hidden flex flex-col relative antialiased selection:bg-surface-tint selection:text-on-primary">
+<div class="flex-1 flex flex-col items-center justify-center w-full px-screen-edge z-10">
+<div class="flex flex-col items-center justify-center space-y-6">
+<div class="w-64 bg-surface rounded-2xl p-4 shadow-xl flex items-center justify-center">
+<img alt="Pest 99 Logo" class="w-full h-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCCz5GGwXSzoGZt88finQRaD8ZxGdVykNyPc3TGzZGJaeryWoi8UpKB90I5zYfs_mKTu9ykvEZk_9Vtvb21HAZ7aoQaLZxxkqr_-O7l2aRq1oHZorgpCFLwFpAQqDfxquUn81T9-IkS8dkKkEBi3SE07k0sLQFS3zMjnBNAD0-lvP38qkVPD-yVekkaPmh3Cr-UGMP82rBRRUQfjxt5T407YCMtWJwOoSolIcDMXJvLKqSTrL_V0Yza14XWtUU3udjI-32cKUAJe58G"/>
+</div>
+<h1 class="font-headline-lg text-[40px] leading-none text-on-primary tracking-tight text-center">
+                Pest 99
+            </h1>
+</div>
+</div>
+<div class="absolute bottom-12 left-0 w-full flex flex-col items-center justify-center px-screen-edge z-10 space-y-3">
+<div class="w-40 h-1.5 bg-primary-fixed-dim/30 rounded-full overflow-hidden">
+<div class="w-2/5 h-full bg-on-primary rounded-full"></div>
+</div>
+<p class="font-label-sm text-label-sm text-on-primary/80 uppercase tracking-widest">Loading Operations</p>
+</div>
+</body></html>

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PestControl Pro - Technician Profile</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-tertiary-container": "#fffbff",
+                        "surface-container-high": "#e4eadf",
+                        "on-error-container": "#93000a",
+                        "success-bg": "#E8F5EC",
+                        "tertiary-container": "#c24b6b",
+                        "background": "#F7FAF8",
+                        "surface-dim": "#d6dcd1",
+                        "tertiary-fixed": "#ffd9df",
+                        "surface-container": "#eaf0e5",
+                        "on-primary-fixed": "#002107",
+                        "danger": "#EF4444",
+                        "secondary-fixed-dim": "#b4c5ff",
+                        "inverse-primary": "#72dd81",
+                        "outline-variant": "#becaba",
+                        "outline": "#6e7a6c",
+                        "surface-container-highest": "#dee4da",
+                        "on-secondary-container": "#fefcff",
+                        "on-tertiary-fixed": "#3f0017",
+                        "primary-fixed-dim": "#72dd81",
+                        "on-primary-container": "#f7fff2",
+                        "on-surface-variant": "#3f4a3e",
+                        "on-error": "#ffffff",
+                        "on-background": "#171d17",
+                        "on-secondary-fixed-variant": "#003ea8",
+                        "tertiary-fixed-dim": "#ffb1c0",
+                        "inverse-on-surface": "#edf3e8",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-tint": "#006e2a",
+                        "secondary": "#0051d5",
+                        "on-tertiary": "#ffffff",
+                        "tertiary": "#a23353",
+                        "primary": "#006b28",
+                        "info-blue": "#2563EB",
+                        "on-primary-fixed-variant": "#00531d",
+                        "secondary-fixed": "#dbe1ff",
+                        "text-secondary": "#6B7280",
+                        "tag-purple": "#7C3AED",
+                        "surface-variant": "#dee4da",
+                        "surface": "#FFFFFF",
+                        "inverse-surface": "#2c322b",
+                        "on-secondary-fixed": "#00174b",
+                        "secondary-container": "#316bf3",
+                        "primary-container": "#0c8737",
+                        "on-tertiary-fixed-variant": "#861c3e",
+                        "border": "#E4E7EC",
+                        "on-primary": "#ffffff",
+                        "text-primary": "#111827",
+                        "surface-bright": "#f5fbf0",
+                        "on-secondary": "#ffffff",
+                        "tag-orange": "#EA580C",
+                        "error": "#ba1a1a",
+                        "error-container": "#ffdad6",
+                        "success-text": "#16A34A",
+                        "surface-container-low": "#eff6eb",
+                        "on-surface": "#171d17",
+                        "warning": "#F59E0B",
+                        "primary-fixed": "#8efa9a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "touch-target-min": "48px",
+                        "screen-edge": "20px",
+                        "element-gap": "12px",
+                        "card-padding": "16px",
+                        "section-gap": "20px"
+                    },
+                    "fontFamily": {
+                        "headline-sm": ["Manrope"],
+                        "body-lg": ["Inter"],
+                        "headline-md": ["Manrope"],
+                        "body-md": ["Inter"],
+                        "label-lg": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "headline-lg": ["Manrope"]
+                    },
+                    "fontSize": {
+                        "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "500" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "700" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-lg": ["13px", { "lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                        "label-sm": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "fontWeight": "800" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined.filled {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-on-background antialiased pb-24">
+<!-- TopAppBar -->
+<header class="bg-surface dark:bg-surface-dim docked full-width top-0 sticky z-50 border-b border-border dark:border-outline-variant flat no shadows flex justify-between items-center px-screen-edge py-3 w-full hidden md:flex">
+<div class="flex items-center gap-element-gap">
+<img alt="Technician Profile Picture" class="w-10 h-10 rounded-full object-cover" data-alt="A close-up portrait of a professional pest control technician wearing a clean, modern uniform. The lighting is bright and even, highlighting a friendly, trustworthy expression. The background is slightly blurred to keep the focus on the technician, conveying a sense of reliability and expertise suitable for a service industry app avatar." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBED3Si8cYLPQNVxvidfMRPbnPpxz2ZjC5nlHMbSBE65BjD_PacfEhaCv7DYpO35yKQsIcvX6Bessz5IECln_JcNF9P9NM87IpCO3uv8-i1ToXgQjUvTJ4r00Pl1zO4pg1GsNr84HcWZVFWJzZxEURA6Ysx6fLolKZOnLEu4A_c57WYrb-J1GL1vQUEYAx9giNzEw9e0_QZtqcM19CzWdtpgXwUVY_mXFrFvo2jUbBjGaydGFVX7aPopirgO6AMOp8lkaqvOIAPyHnd"/>
+<img alt="Pest Control 99 Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCCz5GGwXSzoGZt88finQRaD8ZxGdVykNyPc3TGzZGJaeryWoi8UpKB90I5zYfs_mKTu9ykvEZk_9Vtvb21HAZ7aoQaLZxxkqr_-O7l2aRq1oHZorgpCFLwFpAQqDfxquUn81T9-IkS8dkKkEBi3SE07k0sLQFS3zMjnBNAD0-lvP38qkVPD-yVekkaPmh3Cr-UGMP82rBRRUQfjxt5T407YCMtWJwOoSolIcDMXJvLKqSTrL_V0Yza14XWtUU3udjI-32cKUAJe58G"/>
+</div>
+<nav class="flex gap-6 items-center">
+<a class="text-on-surface-variant hover:bg-surface-container-low transition-colors px-2 py-1 rounded scale-95 active:opacity-80 transition-all font-body-lg text-body-lg" href="#">Bookings</a>
+<a class="text-on-surface-variant hover:bg-surface-container-low transition-colors px-2 py-1 rounded scale-95 active:opacity-80 transition-all font-body-lg text-body-lg" href="#">Accepted</a>
+<a class="text-on-surface-variant hover:bg-surface-container-low transition-colors px-2 py-1 rounded scale-95 active:opacity-80 transition-all font-body-lg text-body-lg" href="#">Completed</a>
+<a class="text-primary font-bold hover:bg-surface-container-low transition-colors px-2 py-1 rounded scale-95 active:opacity-80 transition-all font-body-lg text-body-lg" href="#">Profile</a>
+</nav>
+<button class="text-primary dark:text-primary-fixed hover:bg-surface-container-low transition-colors p-2 rounded-full scale-95 active:opacity-80 transition-all">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+</header>
+<!-- Mobile Top App Bar (Simplified for mobile view) -->
+<header class="bg-surface docked top-0 sticky z-50 flex justify-between items-center px-screen-edge py-3 w-full md:hidden shadow-sm">
+<img alt="Pest Control 99 Logo" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCCz5GGwXSzoGZt88finQRaD8ZxGdVykNyPc3TGzZGJaeryWoi8UpKB90I5zYfs_mKTu9ykvEZk_9Vtvb21HAZ7aoQaLZxxkqr_-O7l2aRq1oHZorgpCFLwFpAQqDfxquUn81T9-IkS8dkKkEBi3SE07k0sLQFS3zMjnBNAD0-lvP38qkVPD-yVekkaPmh3Cr-UGMP82rBRRUQfjxt5T407YCMtWJwOoSolIcDMXJvLKqSTrL_V0Yza14XWtUU3udjI-32cKUAJe58G"/>
+<button class="text-on-surface-variant p-2 rounded-full">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+</header>
+<main class="px-screen-edge py-section-gap max-w-3xl mx-auto space-y-section-gap">
+<!-- Profile Header -->
+<section class="flex flex-col items-center bg-surface p-card-padding rounded-xl border border-border shadow-sm">
+<div class="relative mb-4">
+<img alt="Alex Rivera Profile" class="w-24 h-24 rounded-full object-cover border-4 border-surface" data-alt="A close-up portrait of a professional pest control technician wearing a clean, modern uniform. The lighting is bright and even, highlighting a friendly, trustworthy expression. The background is slightly blurred to keep the focus on the technician, conveying a sense of reliability and expertise suitable for a service industry app avatar." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDsmGNZKP-PTJ6hPpAGQOviAFOfO09e3Yt0ecrgXG4DmswddUGtTFLtRGvnBDYuz0AJLAwwTKfaNCb88SWpgX6uu2iPDDXDGRHhxYUdSI-9VTHwIpbKIrV8Uo9mz8XO5IHRadsfOK2DPBlmp2P9_Gc-Ur1sbjwWjAMJ7um_iciS_f33jDT-khOJ9pUh2U17Jp88H-JAZsWIGWaubWHLMbu1VnbIevJe-h2beAOvUIoFrQyqvg-EzOC--ham02R8bEuGElza5BLkrr3B"/>
+<div class="absolute bottom-0 right-0 bg-success-bg p-1 rounded-full border-2 border-surface">
+<span class="material-symbols-outlined text-success-text text-[16px] filled">verified</span>
+</div>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-text-primary mb-1">Alex Rivera</h1>
+<p class="font-body-lg text-body-lg text-text-secondary mb-3">+1 (555) 123-4567</p>
+<span class="bg-primary-container text-on-primary-container font-label-lg text-label-lg px-3 py-1 rounded-full inline-block">Senior Technician</span>
+</section>
+<!-- Stats Grid -->
+<section class="grid grid-cols-2 gap-element-gap">
+<div class="bg-surface p-card-padding rounded-xl border border-border shadow-sm flex flex-col items-center text-center">
+<span class="material-symbols-outlined text-primary mb-2 text-3xl">work</span>
+<span class="font-headline-lg text-headline-lg text-text-primary">124</span>
+<span class="font-label-lg text-label-lg text-text-secondary uppercase tracking-wider mt-1">Total Jobs</span>
+</div>
+<div class="bg-surface p-card-padding rounded-xl border border-border shadow-sm flex flex-col items-center text-center">
+<span class="material-symbols-outlined text-success-text mb-2 text-3xl">task_alt</span>
+<span class="font-headline-lg text-headline-lg text-text-primary">118</span>
+<span class="font-label-lg text-label-lg text-text-secondary uppercase tracking-wider mt-1">Completed</span>
+</div>
+<div class="bg-surface p-card-padding rounded-xl border border-border shadow-sm flex flex-col items-center text-center">
+<span class="material-symbols-outlined text-warning mb-2 text-3xl filled">star</span>
+<span class="font-headline-lg text-headline-lg text-text-primary">4.8</span>
+<span class="font-label-lg text-label-lg text-text-secondary uppercase tracking-wider mt-1">Avg Rating</span>
+</div>
+<div class="bg-surface p-card-padding rounded-xl border border-border shadow-sm flex flex-col items-center text-center">
+<span class="material-symbols-outlined text-info-blue mb-2 text-3xl">call</span>
+<span class="font-headline-lg text-headline-lg text-text-primary">12</span>
+<span class="font-label-lg text-label-lg text-text-secondary uppercase tracking-wider mt-1">Service Calls</span>
+</div>
+</section>
+<!-- Menu List -->
+<section class="bg-surface rounded-xl border border-border shadow-sm overflow-hidden">
+<a class="flex items-center justify-between p-card-padding hover:bg-surface-container-low transition-colors border-b border-border active:bg-surface-variant min-h-touch-target-min" href="#">
+<div class="flex items-center gap-element-gap">
+<span class="material-symbols-outlined text-on-surface-variant">person</span>
+<span class="font-body-lg text-body-lg text-text-primary">Edit Profile</span>
+</div>
+<span class="material-symbols-outlined text-text-secondary">chevron_right</span>
+</a>
+<a class="flex items-center justify-between p-card-padding hover:bg-surface-container-low transition-colors border-b border-border active:bg-surface-variant min-h-touch-target-min" href="#">
+<div class="flex items-center gap-element-gap">
+<span class="material-symbols-outlined text-on-surface-variant">account_balance</span>
+<span class="font-body-lg text-body-lg text-text-primary">Bank Details</span>
+</div>
+<span class="material-symbols-outlined text-text-secondary">chevron_right</span>
+</a>
+<a class="flex items-center justify-between p-card-padding hover:bg-surface-container-low transition-colors border-b border-border active:bg-surface-variant min-h-touch-target-min" href="#">
+<div class="flex items-center gap-element-gap">
+<span class="material-symbols-outlined text-on-surface-variant">payments</span>
+<span class="font-body-lg text-body-lg text-text-primary">Earnings History</span>
+</div>
+<span class="material-symbols-outlined text-text-secondary">chevron_right</span>
+</a>
+<a class="flex items-center justify-between p-card-padding hover:bg-surface-container-low transition-colors border-b border-border active:bg-surface-variant min-h-touch-target-min" href="#">
+<div class="flex items-center gap-element-gap">
+<span class="material-symbols-outlined text-on-surface-variant">help</span>
+<span class="font-body-lg text-body-lg text-text-primary">Help &amp; Support</span>
+</div>
+<span class="material-symbols-outlined text-text-secondary">chevron_right</span>
+</a>
+<a class="flex items-center justify-between p-card-padding hover:bg-error-container transition-colors active:bg-error-container/80 min-h-touch-target-min" href="#">
+<div class="flex items-center gap-element-gap">
+<span class="material-symbols-outlined text-danger">logout</span>
+<span class="font-body-lg text-body-lg text-danger font-semibold">Logout</span>
+</div>
+</a>
+</section>
+</main>
+<!-- BottomNavBar -->
+<nav class="md:hidden bg-surface dark:bg-inverse-surface fixed bottom-0 w-full z-50 shadow-sm border-t border-border dark:border-outline-variant fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-4 pt-2 bg-surface dark:bg-inverse-surface font-label-sm text-label-sm text-primary dark:text-primary-fixed">
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 rounded-xl min-w-[64px]" href="#">
+<span class="material-symbols-outlined mb-1">calendar_today</span>
+<span class="font-label-sm text-label-sm">Bookings</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 rounded-xl min-w-[64px]" href="#">
+<span class="material-symbols-outlined mb-1">assignment_turned_in</span>
+<span class="font-label-sm text-label-sm">Accepted</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant dark:text-outline-variant px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 rounded-xl min-w-[64px]" href="#">
+<span class="material-symbols-outlined mb-1">verified</span>
+<span class="font-label-sm text-label-sm">Completed</span>
+</a>
+<a class="flex flex-col items-center justify-center bg-primary-container dark:bg-primary text-on-primary-container dark:text-on-primary rounded-xl px-4 py-1 hover:bg-surface-container-high transition-colors scale-90 active:duration-150 min-w-[64px]" href="#">
+<span class="material-symbols-outlined mb-1 filled">person</span>
+<span class="font-label-sm text-label-sm">Profile</span>
+</a>
+</nav>
+</body></html>

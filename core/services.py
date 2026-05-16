@@ -1021,6 +1021,8 @@ class DashboardService:
         try:
             from django.utils import timezone
             from django.db.models import Count, Q
+            from datetime import timedelta
+            
             today = timezone.now().date()
             
             # Prepare filters
@@ -1109,7 +1111,7 @@ class DashboardService:
                 ]
             )
             
-            yesterday = today - timezone.timedelta(days=1)
+            yesterday = today - timedelta(days=1)
             month_start = today.replace(day=1)
             
             # Helper to aggregate revenue safely from CharField 'price'
@@ -1169,9 +1171,7 @@ class DashboardService:
                 'property_type_stats': property_type_stats,
             }
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error retrieving dashboard statistics: {str(e)}")
+            logger.error(f"Error retrieving dashboard statistics: {str(e)}", exc_info=True)
             raise
 
     @staticmethod

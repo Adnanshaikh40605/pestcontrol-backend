@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-primary": "#ffffff",
+                    "primary-fixed-dim": "#72dd81",
+                    "primary": "#006b28",
+                    "success-text": "#16A34A",
+                    "tertiary": "#a23353",
+                    "surface-tint": "#006e2a",
+                    "on-tertiary-fixed": "#3f0017",
+                    "error": "#ba1a1a",
+                    "tag-orange": "#EA580C",
+                    "text-secondary": "#6B7280",
+                    "on-primary-fixed": "#002107",
+                    "on-tertiary-container": "#fffbff",
+                    "on-primary-container": "#f7fff2",
+                    "surface-container-lowest": "#ffffff",
+                    "on-secondary": "#ffffff",
+                    "secondary-container": "#316bf3",
+                    "primary-fixed": "#8efa9a",
+                    "surface-bright": "#f5fbf0",
+                    "surface-dim": "#d6dcd1",
+                    "surface-container": "#eaf0e5",
+                    "on-surface-variant": "#3f4a3e",
+                    "warning": "#F59E0B",
+                    "inverse-surface": "#2c322b",
+                    "on-error": "#ffffff",
+                    "tag-purple": "#7C3AED",
+                    "background": "#F7FAF8",
+                    "surface": "#FFFFFF",
+                    "on-primary-fixed-variant": "#00531d",
+                    "on-error-container": "#93000a",
+                    "error-container": "#ffdad6",
+                    "danger": "#EF4444",
+                    "surface-container-low": "#eff6eb",
+                    "outline-variant": "#becaba",
+                    "on-secondary-fixed-variant": "#003ea8",
+                    "info-blue": "#2563EB",
+                    "outline": "#6e7a6c",
+                    "text-primary": "#111827",
+                    "on-tertiary-fixed-variant": "#861c3e",
+                    "border": "#E4E7EC",
+                    "tertiary-fixed-dim": "#ffb1c0",
+                    "tertiary-fixed": "#ffd9df",
+                    "surface-container-highest": "#dee4da",
+                    "on-secondary-container": "#fefcff",
+                    "on-secondary-fixed": "#00174b",
+                    "primary-container": "#0c8737",
+                    "on-surface": "#171d17",
+                    "secondary-fixed-dim": "#b4c5ff",
+                    "secondary": "#0051d5",
+                    "surface-variant": "#dee4da",
+                    "inverse-on-surface": "#edf3e8",
+                    "success-bg": "#E8F5EC",
+                    "on-tertiary": "#ffffff",
+                    "secondary-fixed": "#dbe1ff",
+                    "on-background": "#171d17",
+                    "tertiary-container": "#c24b6b",
+                    "surface-container-high": "#e4eadf",
+                    "inverse-primary": "#72dd81"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "element-gap": "12px",
+                    "screen-edge": "20px",
+                    "touch-target-min": "48px",
+                    "section-gap": "20px",
+                    "card-padding": "16px"
+            },
+            "fontFamily": {
+                    "body-md": ["Inter"],
+                    "headline-lg": ["Manrope"],
+                    "label-lg": ["Inter"],
+                    "headline-md": ["Manrope"],
+                    "headline-sm": ["Manrope"],
+                    "body-lg": ["Inter"],
+                    "label-sm": ["Inter"]
+            },
+            "fontSize": {
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "headline-lg": ["24px", {"lineHeight": "32px", "fontWeight": "800"}],
+                    "label-lg": ["13px", {"lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "600"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "700"}],
+                    "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "500"}],
+                    "label-sm": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #F7FAF8;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface font-body-md antialiased">
+<!-- Top App Bar -->
+<header class="bg-surface dark:bg-surface-dim text-primary dark:text-primary-fixed font-headline-md text-headline-md docked full-width top-0 sticky z-50 border-b border-border dark:border-outline-variant flex justify-between items-center px-screen-edge py-3 w-full">
+<div class="flex items-center gap-3">
+<button class="hover:bg-surface-container-low transition-colors p-2 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined">arrow_back</span>
+</button>
+<h1 class="text-headline-sm font-headline-sm text-primary dark:text-primary-fixed">Refer Client</h1>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary dark:text-primary-fixed">notifications</span>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-outline-variant">
+<img alt="Technician Profile Picture" data-alt="A professional high-resolution headshot of a friendly pest control technician wearing a neat green polo shirt. The lighting is bright and natural, suggesting an outdoor or well-lit office environment. The style is modern and corporate with a clean, approachable aesthetic that fits the premium field service app branding." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAziuY5R2X8_fOI-NDjIMcs_AtC_DLKaiY72cPWkXGih9FTvzV2Xw-GpdE0Be4ov5zFYqYtL6lydqawcIWhfUiG9dyRnKCxgZHXhwfsQDiyiHHQ2y_oRbZChmJBSKKp1ZP69ERTEkzg_PY1WbE7piMS6kQsjtWxFR6FK6BFccGPxSYtpzC_5r1-Z4EsO2B46XigCQ2vzROQv-BXJsk-sRPiBmsDV5_49Pdz9vcifRP5hdqOBfHMBAfVkbDfUrzGJWGfZugzIx2t1rLY"/>
+</div>
+</div>
+</header>
+<main class="max-w-md mx-auto px-screen-edge py-section-gap pb-32">
+<!-- Hero Illustration / Visual Context -->
+<div class="mb-section-gap bg-surface border border-border rounded-xl overflow-hidden p-6 shadow-sm flex flex-col items-center text-center">
+<div class="w-20 h-20 bg-primary-container rounded-full flex items-center justify-center mb-4 text-on-primary-container">
+<span class="material-symbols-outlined !text-4xl" style="font-variation-settings: 'FILL' 1;">handshake</span>
+</div>
+<h2 class="font-headline-md text-headline-md text-on-surface mb-2">Spread the Word</h2>
+<p class="font-body-md text-body-md text-on-surface-variant">Refer a new client and help us grow. Every referral earns you professional loyalty points.</p>
+</div>
+<!-- Referral Form -->
+<section class="space-y-element-gap">
+<div class="flex flex-col gap-1.5">
+<label class="font-label-lg text-label-lg text-on-surface" for="client_name">Client Name</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline">person</span>
+<input class="w-full pl-12 pr-4 py-4 bg-surface border border-border rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent outline-none font-body-lg text-body-lg text-on-surface transition-all" id="client_name" placeholder="Enter full name" type="text"/>
+</div>
+</div>
+<div class="flex flex-col gap-1.5">
+<label class="font-label-lg text-label-lg text-on-surface" for="mobile_number">Mobile Number</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline">phone_iphone</span>
+<input class="w-full pl-12 pr-4 py-4 bg-surface border border-border rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent outline-none font-body-lg text-body-lg text-on-surface transition-all" id="mobile_number" placeholder="+1 (555) 000-0000" type="tel"/>
+</div>
+</div>
+<div class="flex flex-col gap-1.5">
+<label class="font-label-lg text-label-lg text-on-surface" for="notes">Notes (Optional)</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-4 top-4 text-outline">description</span>
+<textarea class="w-full pl-12 pr-4 py-4 bg-surface border border-border rounded-xl focus:ring-2 focus:ring-primary focus:border-transparent outline-none font-body-lg text-body-lg text-on-surface transition-all resize-none" id="notes" placeholder="Mention pest type, urgent requirements or best time to contact..." rows="4"></textarea>
+</div>
+</div>
+</section>
+<!-- Informational Card (Bento Style) -->
+<div class="mt-section-gap grid grid-cols-2 gap-4">
+<div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant">
+<span class="material-symbols-outlined text-primary mb-2">verified</span>
+<p class="font-label-sm text-label-sm text-on-surface-variant block uppercase tracking-wider">Verification</p>
+<p class="font-body-md text-body-md text-on-surface font-semibold">Immediate Lead Validation</p>
+</div>
+<div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant">
+<span class="material-symbols-outlined text-tag-orange mb-2">stars</span>
+<p class="font-label-sm text-label-sm text-on-surface-variant block uppercase tracking-wider">Rewards</p>
+<p class="font-body-md text-body-md text-on-surface font-semibold">50 Loyalty Points</p>
+</div>
+</div>
+</main>
+<!-- Sticky Bottom CTA -->
+<div class="fixed bottom-0 left-0 w-full p-screen-edge bg-surface/80 backdrop-blur-md border-t border-border z-40">
+<div class="max-w-md mx-auto">
+<button class="w-full h-[52px] bg-primary text-on-primary font-headline-sm text-headline-sm rounded-xl shadow-lg hover:bg-on-primary-fixed-variant transition-all active:scale-95 flex items-center justify-center gap-2">
+                Submit Referral
+                <span class="material-symbols-outlined">send</span>
+</button>
+</div>
+</div>
+</body></html>
