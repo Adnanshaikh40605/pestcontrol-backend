@@ -68,8 +68,8 @@ class Category(BaseModel):
 
 
 class Tag(BaseModel):
-    name = models.CharField(max_length=100, unique=True, db_index=True)
-    slug = models.SlugField(max_length=120, unique=True, db_index=True, blank=True)
+    name = models.CharField(max_length=500, unique=True, db_index=True)
+    slug = models.SlugField(max_length=520, unique=True, db_index=True, blank=True)
 
     class Meta:
         ordering = ["name"]
@@ -103,6 +103,16 @@ class SchemaType(models.TextChoices):
     NEWS_ARTICLE = "NewsArticle", "News Article"
     FAQ_PAGE = "FAQPage", "FAQ Page"
     HOW_TO = "HowTo", "How To"
+    SERVICE = "Service", "Service"
+    LOCAL_BUSINESS = "LocalBusiness", "Local Business"
+    ORGANIZATION = "Organization", "Organization"
+    WEB_PAGE = "WebPage", "Web Page"
+    BREADCRUMB_LIST = "BreadcrumbList", "Breadcrumb List"
+    REVIEW = "Review", "Review"
+    PRODUCT = "Product", "Product"
+    QA_PAGE = "QAPage", "QA Page"
+    VIDEO_OBJECT = "VideoObject", "Video Object"
+    IMAGE_OBJECT = "ImageObject", "Image Object"
 
 
 class Blog(BaseModel):
@@ -195,6 +205,11 @@ class Blog(BaseModel):
         self.reading_time = self._calculate_reading_time()
         if self.status == BlogStatus.PUBLISHED and not self.publish_date:
             self.publish_date = timezone.now()
+        
+        # Auto-populate canonical URL if empty
+        if not self.canonical_url and self.slug:
+            self.canonical_url = f"https://www.pestcontrol99.com/blog/{self.slug}/"
+            
         super().save(*args, **kwargs)
 
     def _generate_unique_slug(self):

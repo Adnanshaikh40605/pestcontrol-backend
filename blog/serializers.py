@@ -109,7 +109,7 @@ class BlogAdminSerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
         ]
         read_only_fields = [
-            "id", "slug", "reading_time", "views_count",
+            "id", "reading_time", "views_count",
             "image_thumbnail", "image_medium",
             "author", "author_name", "category_detail", "tags_detail",
             "created_at", "updated_at",
