@@ -463,15 +463,21 @@ class StaffSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source='first_name')
     mobile = serializers.CharField(source='username')
     role = serializers.ChoiceField(
-        choices=['Super Admin', 'Admin', 'Staff', 'Blog User'],
+        choices=['Super Admin', 'Admin', 'Staff', 'Technician', 'Blog User'],
         write_only=True,
         required=False,
     )
     role_display = serializers.SerializerMethodField(read_only=True)
+    partner_app_ready = serializers.SerializerMethodField(read_only=True)
+    partner_id = serializers.SerializerMethodField(read_only=True)
+    technician_id = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'name', 'mobile', 'role', 'role_display', 'password', 'is_active', 'date_joined']
+        fields = [
+            'id', 'name', 'mobile', 'role', 'role_display', 'password', 'is_active', 'date_joined',
+            'partner_app_ready', 'partner_id', 'technician_id',
+        ]
         extra_kwargs = {
             'password': {'write_only': True, 'required': False},
             'date_joined': {'read_only': True}
@@ -481,16 +487,43 @@ class StaffSerializer(serializers.ModelSerializer):
         from core.roles import role_display
         return role_display(obj)
 
+    def get_partner_app_ready(self, obj):
+        from core.staff_partner_sync import partner_link_status
+        return partner_link_status(obj)['partner_app_ready']
+
+    def get_partner_id(self, obj):
+        from core.staff_partner_sync import partner_link_status
+        return partner_link_status(obj)['partner_id']
+
+    def get_technician_id(self, obj):
+        from core.staff_partner_sync import partner_link_status
+        return partner_link_status(obj)['technician_id']
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data['role'] = self.get_role_display(instance)
         return data
 
     def validate_mobile(self, value):
+        from core.staff_partner_sync import normalize_mobile
+
+        value = normalize_mobile(value)
         user_id = self.instance.id if self.instance else None
         if User.objects.filter(username=value).exclude(id=user_id).exists():
             raise serializers.ValidationError("A staff member with this mobile number already exists.")
         return value
+
+    def validate(self, attrs):
+        role = attrs.get('role')
+        if role is None and self.instance:
+            from core.roles import role_display
+            role = role_display(self.instance)
+        password = attrs.get('password')
+        if role == 'Technician' and not self.instance and not password:
+            raise serializers.ValidationError(
+                {'password': 'Password is required for Technician (Partner app login).'}
+            )
+        return attrs
 
     def _apply_role(self, user, role_label: str):
         from core.models import UserProfile, CRMRole
@@ -508,24 +541,41 @@ class StaffSerializer(serializers.ModelSerializer):
         profile.save(update_fields=['role', 'updated_at'])
 
     def create(self, validated_data):
+        from core.staff_partner_sync import normalize_mobile, sync_technician_partner_account
+
         password = validated_data.pop('password', None)
         role_label = validated_data.pop('role', 'Staff')
+        if 'username' in validated_data:
+            validated_data['username'] = normalize_mobile(validated_data['username'])
         user = super().create(validated_data)
         self._apply_role(user, role_label)
         if password:
             user.set_password(password)
             user.save()
+        sync_technician_partner_account(user, role_label, password)
         return user
 
     def update(self, instance, validated_data):
+        from core.staff_partner_sync import normalize_mobile, sync_technician_partner_account
+
+        old_mobile = instance.username
         password = validated_data.pop('password', None)
         role_label = validated_data.pop('role', None)
+        if 'username' in validated_data:
+            validated_data['username'] = normalize_mobile(validated_data['username'])
         user = super().update(instance, validated_data)
         if role_label is not None:
             self._apply_role(user, role_label)
         if password:
             user.set_password(password)
             user.save()
+        effective_role = role_label or self.get_role_display(user)
+        sync_technician_partner_account(
+            user,
+            effective_role,
+            password,
+            old_mobile=old_mobile,
+        )
         return user
 
 

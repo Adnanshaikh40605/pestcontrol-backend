@@ -3618,7 +3618,18 @@ class StaffViewSet(viewsets.ModelViewSet):
         
         user.set_password(new_password)
         user.save()
-        
+
+        from core.roles import get_user_role, ROLE_TECHNICIAN
+        from core.staff_partner_sync import normalize_mobile
+        from partner.models import Partner
+
+        if get_user_role(user) == ROLE_TECHNICIAN:
+            mobile = normalize_mobile(user.username)
+            partner = Partner.objects.filter(mobile=mobile).first()
+            if partner:
+                partner.set_password(new_password)
+                partner.save(update_fields=['password', 'updated_at'])
+
         log_activity(request.user, f"Reset password for staff: {user.first_name}")
         return response.Response({'status': 'Password reset successfully'})
 

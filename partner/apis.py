@@ -140,7 +140,9 @@ class LoginAPIView(APIView):
         if not serializer.is_valid():
             return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        mobile = serializer.validated_data['mobile']
+        from core.staff_partner_sync import normalize_mobile
+
+        mobile = normalize_mobile(serializer.validated_data['mobile'])
         password = serializer.validated_data['password']
 
         try:

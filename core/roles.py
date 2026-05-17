@@ -7,15 +7,22 @@ User = get_user_model()
 ROLE_SUPER_ADMIN = 'super_admin'
 ROLE_ADMIN = 'admin'
 ROLE_STAFF = 'staff'
+ROLE_TECHNICIAN = 'technician'
 ROLE_BLOG_USER = 'blog_user'
 
-CRM_OPERATIONAL_ROLES = frozenset({ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_STAFF})
+CRM_OPERATIONAL_ROLES = frozenset({
+    ROLE_SUPER_ADMIN,
+    ROLE_ADMIN,
+    ROLE_STAFF,
+    ROLE_TECHNICIAN,
+})
 BLOG_CMS_ROLES = frozenset({ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_STAFF, ROLE_BLOG_USER})
 
 ROLE_DISPLAY = {
     ROLE_SUPER_ADMIN: 'Super Admin',
     ROLE_ADMIN: 'Admin',
     ROLE_STAFF: 'Staff',
+    ROLE_TECHNICIAN: 'Technician',
     ROLE_BLOG_USER: 'Blog User',
 }
 

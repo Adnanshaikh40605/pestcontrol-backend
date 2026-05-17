@@ -1492,6 +1492,7 @@ class CRMRole(models.TextChoices):
     SUPER_ADMIN = 'super_admin', 'Super Admin'
     ADMIN = 'admin', 'Admin'
     STAFF = 'staff', 'Staff'
+    TECHNICIAN = 'technician', 'Technician'
     BLOG_USER = 'blog_user', 'Blog User'
 
 
