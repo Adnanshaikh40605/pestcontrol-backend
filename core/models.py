@@ -826,6 +826,19 @@ class JobCard(BaseModel):
         verbose_name="Assigned Partner",
         help_text="Partner App technician assigned to this booking"
     )
+    sent_to_app_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Sent To Partner App At",
+        help_text="When CRM dispatched this booking to the partner mobile app",
+    )
+    job_start_selfie = models.ImageField(
+        upload_to='job_selfies/%Y/%m/',
+        null=True,
+        blank=True,
+        verbose_name="Job Start Selfie",
+        help_text="Selfie captured by technician when starting service",
+    )
     accepted_at = models.DateTimeField(null=True, blank=True, verbose_name="Accepted At")
     started_at = models.DateTimeField(null=True, blank=True, verbose_name="Started At")
     completed_at = models.DateTimeField(null=True, blank=True, verbose_name="Completed At")

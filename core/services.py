@@ -345,6 +345,30 @@ class InquiryService:
 
 class JobCardService:
     """Service class for JobCard-related business logic."""
+
+    @staticmethod
+    def _normalize_fk_ids(jobcard_data: Dict[str, Any]) -> None:
+        """API/CRM sends FK primary keys as ints; JobCard() expects *_id or model instances."""
+        fk_fields = (
+            'master_country',
+            'master_state',
+            'master_city',
+            'master_location',
+            'technician',
+            'partner',
+            'complaint_parent_booking',
+            'parent_job',
+        )
+        for field in fk_fields:
+            if field not in jobcard_data:
+                continue
+            val = jobcard_data[field]
+            if val is None or val == '':
+                jobcard_data[field] = None
+                continue
+            if isinstance(val, int):
+                jobcard_data[f'{field}_id'] = val
+                del jobcard_data[field]
     
     @staticmethod
     @transaction.atomic
@@ -495,6 +519,7 @@ class JobCardService:
             # id should never be set during creation to prevent accidental updates
             jobcard_data = {k: v for k, v in data.items() if k not in ['client_data', 'id']}
             jobcard_data['client'] = client
+            JobCardService._normalize_fk_ids(jobcard_data)
             
             # Use Pending as default status if not provided or empty
             if not jobcard_data.get('status'):

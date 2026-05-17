@@ -66,14 +66,31 @@ class TechnicianSerializer(serializers.ModelSerializer):
     active_jobs = serializers.IntegerField(read_only=True)
     active_job_details = serializers.SerializerMethodField()
     phone = serializers.CharField(source='mobile', read_only=True)
+    has_partner_app = serializers.SerializerMethodField()
+    partner_id = serializers.SerializerMethodField()
+    partner_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Technician
         fields = [
-            'id', 'name', 'mobile', 'phone', 'age', 'alternative_mobile', 
-            'is_active', 'service_area', 'city', 'last_active', 'active_jobs', 'active_job_details', 'created_at', 'updated_at'
+            'id', 'name', 'mobile', 'phone', 'age', 'alternative_mobile',
+            'is_active', 'service_area', 'city', 'last_active', 'active_jobs', 'active_job_details',
+            'has_partner_app', 'partner_id', 'partner_name',
+            'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def get_has_partner_app(self, obj):
+        partner = getattr(obj, 'partner_account', None)
+        return bool(partner and partner.is_active)
+
+    def get_partner_id(self, obj):
+        partner = getattr(obj, 'partner_account', None)
+        return partner.id if partner and partner.is_active else None
+
+    def get_partner_name(self, obj):
+        partner = getattr(obj, 'partner_account', None)
+        return partner.full_name if partner and partner.is_active else None
 
     def get_active_job_details(self, obj):
         # Return a list of basic info for current active jobs using values for efficiency
@@ -111,6 +128,29 @@ class InquirySerializer(serializers.ModelSerializer):
         return None
 
 
+class PartnerJobSelfieSerializer(serializers.ModelSerializer):
+    """CRM list of technician job-start selfies."""
+    client_name = serializers.CharField(source='client.full_name', read_only=True)
+    partner_name = serializers.CharField(source='partner.full_name', read_only=True)
+    technician_name = serializers.CharField(source='technician.name', read_only=True)
+    selfie_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = JobCard
+        fields = [
+            'id', 'code', 'client_name', 'partner_name', 'technician_name',
+            'started_at', 'schedule_datetime', 'selfie_url', 'status', 'partner_status',
+        ]
+
+    def get_selfie_url(self, obj):
+        if not obj.job_start_selfie:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.job_start_selfie.url)
+        return obj.job_start_selfie.url
+
+
 class JobCardSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source='client.full_name', read_only=True)
     client_mobile = serializers.CharField(source='client.mobile', read_only=True)
@@ -142,8 +182,21 @@ class JobCardSerializer(serializers.ModelSerializer):
 
     def get_booking_priority(self, obj):
         return getattr(obj, 'booking_priority', 0)
-    
+
+    def get_job_start_selfie_url(self, obj):
+        if obj.job_start_selfie:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.job_start_selfie.url)
+            return obj.job_start_selfie.url
+        return None
+
+    def get_sent_to_app(self, obj):
+        return bool(obj.sent_to_app_at and obj.partner_id)
+
     partner_name = serializers.CharField(source='partner.full_name', read_only=True)
+    job_start_selfie_url = serializers.SerializerMethodField()
+    sent_to_app = serializers.SerializerMethodField()
 
     class Meta:
         model = JobCard
@@ -154,7 +207,8 @@ class JobCardSerializer(serializers.ModelSerializer):
             'master_country', 'master_country_name', 'master_state', 'master_state_name', 'master_city', 'master_city_name', 'master_location', 'master_location_name', 'full_address',
             'price', 'price_display', 'client_address',
             'payment_status', 'payment_mode', 'assigned_to', 'technician', 'technician_name', 'technician_mobile', 
-            'partner', 'partner_name', 'partner_status',
+            'partner', 'partner_name', 'partner_status', 'sent_to_app_at', 'sent_to_app',
+            'job_start_selfie', 'job_start_selfie_url',
             'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
             'extra_notes', 'cancellation_reason', 'removal_remarks', 
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',

@@ -32,6 +32,12 @@ from .serializers import (
 )
 from .permissions import IsPartner, IsPartnerAdmin
 from .utils import generate_partner_tokens
+from .services import (
+    PartnerBookingError,
+    partner_accept_booking,
+    partner_start_service,
+    partner_complete_booking,
+)
 from core.models import JobCard
 from core.services import JobCardService
 
@@ -230,7 +236,7 @@ class AvailableBookingsAPIView(APIView):
             partner_status=JobCard.PartnerStatus.PENDING,
         ).select_related('client', 'master_city', 'master_location').order_by('schedule_datetime')
 
-        serializer = PartnerBookingListSerializer(jobs, many=True)
+        serializer = PartnerBookingListSerializer(jobs, many=True, context={'request': request})
         return Response({"count": jobs.count(), "results": serializer.data})
 
 
@@ -259,7 +265,7 @@ class AcceptedBookingsAPIView(APIView):
             ],
         ).select_related('client', 'master_city', 'master_location').order_by('schedule_datetime')
 
-        serializer = PartnerBookingListSerializer(jobs, many=True)
+        serializer = PartnerBookingListSerializer(jobs, many=True, context={'request': request})
         return Response({"count": jobs.count(), "results": serializer.data})
 
 
@@ -282,7 +288,7 @@ class CompletedBookingsAPIView(APIView):
             partner_status=JobCard.PartnerStatus.COMPLETED,
         ).select_related('client', 'master_city', 'master_location').order_by('-completed_at')
 
-        serializer = PartnerBookingListSerializer(jobs, many=True)
+        serializer = PartnerBookingListSerializer(jobs, many=True, context={'request': request})
         return Response({"count": jobs.count(), "results": serializer.data})
 
 
@@ -307,7 +313,7 @@ class BookingDetailAPIView(APIView):
         except JobCard.DoesNotExist:
             return Response({"error": "Booking not found or not assigned to you."}, status=404)
 
-        serializer = PartnerBookingDetailSerializer(job)
+        serializer = PartnerBookingDetailSerializer(job, context={'request': request})
         return Response(serializer.data)
 
 
@@ -359,23 +365,18 @@ class AcceptBookingAPIView(APIView):
         partner = request.partner
         try:
             job = JobCard.objects.get(id=id, partner=partner)
+            job = partner_accept_booking(job, partner)
         except JobCard.DoesNotExist:
             return Response({"error": "Booking not found or not assigned to you."}, status=404)
-
-        if job.partner_status != JobCard.PartnerStatus.PENDING:
-            return Response(
-                {"error": f"Cannot accept a booking with status '{job.partner_status}'."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        job.partner_status = JobCard.PartnerStatus.ACCEPTED
-        job.is_accepted = True
-        job.accepted_at = timezone.now()
-        job.status = JobCard.JobStatus.ON_PROCESS
-        job.save(update_fields=['partner_status', 'is_accepted', 'accepted_at', 'status'])
+        except PartnerBookingError as exc:
+            return Response({"error": exc.message, "code": exc.code}, status=status.HTTP_400_BAD_REQUEST)
 
         logger.info(f"Partner {partner.full_name} accepted booking #{job.id}")
-        return Response({"message": "Booking accepted! Move to Accepted tab."})
+        return Response({
+            "message": "Booking accepted! Check the Accepted tab.",
+            "status": job.status,
+            "partner_status": job.partner_status,
+        })
 
 
 class RejectBookingAPIView(APIView):
@@ -412,11 +413,19 @@ class RejectBookingAPIView(APIView):
 
         reason = request.data.get('reason', '')
         job.partner_status = JobCard.PartnerStatus.REJECTED
-        job.partner = None  # Unassign from partner
+        job.partner = None
+        job.sent_to_app_at = None
+        job.technician = None
+        job.assigned_to = ''
         job.sync_booking_category()
         job.status = job.status_after_technician_removal()
         job.removal_remarks = f"Rejected by partner {partner.full_name}: {reason}"
-        job.save(update_fields=['partner_status', 'partner', 'status', 'removal_remarks', 'booking_category'])
+        job.save(
+            update_fields=[
+                'partner_status', 'partner', 'sent_to_app_at', 'technician',
+                'assigned_to', 'status', 'removal_remarks', 'booking_category',
+            ]
+        )
 
         logger.info(f"Partner {partner.full_name} rejected booking #{job.id}. Reason: {reason}")
         return Response({"message": "Booking rejected. Admin will reassign it."})
@@ -425,36 +434,45 @@ class RejectBookingAPIView(APIView):
 class StartServiceAPIView(APIView):
     """
     POST /api/partner/bookings/{id}/start/
-    Mark service as started.
+    Mark service as started (multipart: selfie image required).
     """
     permission_classes = [IsPartner]
 
     @extend_schema(
         tags=["Bookings"],
-        summary="Start service",
-        description="Mark the service as started. Sets partner_status to 'in_service' and records start time.",
-        request=None,
+        summary="Start service with selfie",
+        description=(
+            "Upload a selfie image (field name `selfie`) to start the job. "
+            "Sets partner_status to 'in_service' and records start time."
+        ),
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'selfie': {'type': 'string', 'format': 'binary'},
+                },
+                'required': ['selfie'],
+            }
+        },
         responses={200: {"type": "object", "properties": {"message": {"type": "string"}}}},
     )
     def post(self, request, id):
         partner = request.partner
+        selfie = request.FILES.get('selfie')
         try:
             job = JobCard.objects.get(id=id, partner=partner)
+            job = partner_start_service(job, partner, selfie)
         except JobCard.DoesNotExist:
             return Response({"error": "Booking not found or not assigned to you."}, status=404)
-
-        if job.partner_status != JobCard.PartnerStatus.ACCEPTED:
-            return Response(
-                {"error": f"Can only start an accepted booking. Current status: '{job.partner_status}'."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        job.partner_status = JobCard.PartnerStatus.IN_SERVICE
-        job.started_at = timezone.now()
-        job.save(update_fields=['partner_status', 'started_at'])
+        except PartnerBookingError as exc:
+            return Response({"error": exc.message, "code": exc.code}, status=status.HTTP_400_BAD_REQUEST)
 
         logger.info(f"Partner {partner.full_name} started service for booking #{job.id}")
-        return Response({"message": "Service started! Click 'End Service' when done."})
+        return Response({
+            "message": "Service started! Use End Service when finished.",
+            "partner_status": job.partner_status,
+            "started_at": job.started_at,
+        })
 
 
 class CompleteBookingAPIView(APIView):
@@ -489,37 +507,19 @@ class CompleteBookingAPIView(APIView):
     )
     def post(self, request, id):
         partner = request.partner
-        try:
-            job = JobCard.objects.get(id=id, partner=partner)
-        except JobCard.DoesNotExist:
-            return Response({"error": "Booking not found or not assigned to you."}, status=404)
-
-        if job.partner_status not in [
-            JobCard.PartnerStatus.ACCEPTED,
-            JobCard.PartnerStatus.IN_SERVICE,
-        ]:
-            return Response(
-                {"error": f"Cannot complete a booking with status '{job.partner_status}'."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         serializer = PartnerCompleteBookingSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
         payment_mode = serializer.validated_data['payment_mode']
+        try:
+            job = JobCard.objects.get(id=id, partner=partner)
+            job = partner_complete_booking(job, partner, payment_mode)
+        except JobCard.DoesNotExist:
+            return Response({"error": "Booking not found or not assigned to you."}, status=404)
+        except PartnerBookingError as exc:
+            return Response({"error": exc.message, "code": exc.code}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Update job
-        job.partner_status = JobCard.PartnerStatus.COMPLETED
-        job.status = JobCard.JobStatus.DONE
-        job.payment_mode = payment_mode
-        job.payment_status = JobCard.PaymentStatus.PAID
-        job.completed_at = timezone.now()
-        if not job.started_at:
-            job.started_at = job.completed_at  # fallback if start was skipped
-        job.save()
-
-        # Trigger AMC follow-up / service automation
         next_service_date = None
         try:
             result = JobCardService.handle_job_completion(job)
@@ -533,7 +533,11 @@ class CompleteBookingAPIView(APIView):
         )
 
         return Response({
-            "message": f"Service completed! Payment via {payment_mode}. Great work! 🎉",
+            "message": f"Service completed! Payment recorded as {payment_mode}.",
+            "status": job.status,
+            "partner_status": job.partner_status,
+            "payment_mode": job.payment_mode,
+            "payment_status": job.payment_status,
             "next_service_date": next_service_date,
         })
 

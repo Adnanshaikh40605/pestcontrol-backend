@@ -69,16 +69,17 @@ class PartnerFCMSerializer(serializers.Serializer):
 class PartnerBookingListSerializer(serializers.ModelSerializer):
     """Compact booking serializer for list views (Available / Accepted)."""
     client_name = serializers.CharField(source='client.full_name', read_only=True)
-    client_mobile = serializers.CharField(source='client.mobile', read_only=True)
+    client_mobile = serializers.SerializerMethodField()
     location_display = serializers.SerializerMethodField()
     priority_label = serializers.CharField(source='priority', read_only=True)
     booking_tag = serializers.SerializerMethodField()
+    can_view_client_phone = serializers.SerializerMethodField()
 
     class Meta:
         model = JobCard
         fields = [
             'id', 'code', 'service_type', 'service_category', 'booking_type',
-            'client_name', 'client_mobile',
+            'client_name', 'client_mobile', 'can_view_client_phone',
             'client_address', 'location_display',
             'schedule_datetime', 'time_slot',
             'priority', 'priority_label', 'booking_tag',
@@ -87,6 +88,21 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
             'property_type', 'bhk_size',
             'price', 'payment_status',
         ]
+
+    def _phone_visible(self, obj):
+        return obj.partner_status in (
+            JobCard.PartnerStatus.ACCEPTED,
+            JobCard.PartnerStatus.IN_SERVICE,
+            JobCard.PartnerStatus.COMPLETED,
+        )
+
+    def get_can_view_client_phone(self, obj):
+        return self._phone_visible(obj)
+
+    def get_client_mobile(self, obj):
+        if not self._phone_visible(obj):
+            return None
+        return obj.client.mobile if obj.client else None
 
     def get_location_display(self, obj):
         """Returns a user-friendly location string."""
@@ -113,19 +129,23 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
 class PartnerBookingDetailSerializer(serializers.ModelSerializer):
     """Detailed booking serializer for the detail screen."""
     client_name = serializers.CharField(source='client.full_name', read_only=True)
-    client_mobile = serializers.CharField(source='client.mobile', read_only=True)
+    client_mobile = serializers.SerializerMethodField()
     client_notes = serializers.CharField(source='client.notes', read_only=True, allow_null=True)
     location_display = serializers.SerializerMethodField()
     booking_tag = serializers.SerializerMethodField()
     price_display = serializers.SerializerMethodField()
     city_name = serializers.SerializerMethodField()
+    can_view_client_phone = serializers.SerializerMethodField()
+    job_start_selfie_url = serializers.SerializerMethodField()
+    can_start_job = serializers.SerializerMethodField()
+    can_complete_job = serializers.SerializerMethodField()
 
     class Meta:
         model = JobCard
         fields = [
             'id', 'code',
             # Customer
-            'client_name', 'client_mobile', 'client_address', 'client_notes',
+            'client_name', 'client_mobile', 'can_view_client_phone', 'client_address', 'client_notes',
             'location_display', 'city_name',
             # Property
             'property_type', 'bhk_size', 'commercial_type',
@@ -139,10 +159,41 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
             # Status
             'status', 'partner_status', 'priority',
             # Timestamps
-            'accepted_at', 'started_at', 'completed_at',
+            'accepted_at', 'started_at', 'completed_at', 'sent_to_app_at',
+            'job_start_selfie_url',
+            'can_start_job', 'can_complete_job',
             # Notes
             'notes', 'extra_notes',
         ]
+
+    def _phone_visible(self, obj):
+        return obj.partner_status in (
+            JobCard.PartnerStatus.ACCEPTED,
+            JobCard.PartnerStatus.IN_SERVICE,
+            JobCard.PartnerStatus.COMPLETED,
+        )
+
+    def get_can_view_client_phone(self, obj):
+        return self._phone_visible(obj)
+
+    def get_client_mobile(self, obj):
+        if not self._phone_visible(obj):
+            return None
+        return obj.client.mobile if obj.client else None
+
+    def get_job_start_selfie_url(self, obj):
+        if not obj.job_start_selfie:
+            return None
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(obj.job_start_selfie.url)
+        return obj.job_start_selfie.url
+
+    def get_can_start_job(self, obj):
+        return obj.partner_status == JobCard.PartnerStatus.ACCEPTED
+
+    def get_can_complete_job(self, obj):
+        return obj.partner_status == JobCard.PartnerStatus.IN_SERVICE
 
     def get_location_display(self, obj):
         parts = []

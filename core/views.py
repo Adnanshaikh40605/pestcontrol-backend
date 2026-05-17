@@ -1745,7 +1745,7 @@ class JobCardViewSet(BaseModelViewSet):
 
     @action(detail=True, methods=['post'])
     def assign(self, request, pk=None):
-        """Quickly assign a technician and update status to On Process."""
+        """Assign technician in CRM only (On Process) — does not use partner app flow."""
         try:
             instance = self.get_object()
             technician_id = request.data.get('technician_id')
@@ -1765,11 +1765,10 @@ class JobCardViewSet(BaseModelViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
-            # Atomic update
             instance.technician = technician
             instance.assigned_to = technician.name
             instance.status = JobCard.JobStatus.ON_PROCESS
-            instance.removal_remarks = ''  # Clear removal remarks when re-assigned
+            instance.removal_remarks = ''
             instance.save()
             
             serializer = self.get_serializer(instance)
@@ -1781,6 +1780,71 @@ class JobCardViewSet(BaseModelViewSet):
                 {'error': 'Failed to assign technician', 'details': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(detail=True, methods=['post'], url_path='send-to-app')
+    def send_to_app(self, request, pk=None):
+        """Send a Pending booking to the partner mobile app for technician acceptance."""
+        from partner.services import PartnerBookingError, send_booking_to_partner_app
+
+        instance = self.get_object()
+        technician_id = request.data.get('technician_id')
+        if not technician_id:
+            return response.Response(
+                {'success': False, 'message': 'technician_id is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            job = send_booking_to_partner_app(
+                instance,
+                int(technician_id),
+                sent_by_user=request.user,
+            )
+        except PartnerBookingError as exc:
+            return response.Response(
+                {'success': False, 'message': exc.message, 'code': exc.code},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except (TypeError, ValueError):
+            return response.Response(
+                {'success': False, 'message': 'Invalid technician_id'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        log_activity(
+            request.user,
+            'Sent booking to Partner App',
+            details=f'Job #{job.id} → {job.partner.full_name if job.partner else "partner"}',
+            booking_id=job.code,
+        )
+        serializer = self.get_serializer(job)
+        return response.Response({
+            'success': True,
+            'message': 'Booking sent to partner app. Waiting for technician to accept.',
+            'job': serializer.data,
+        })
+
+    @action(detail=False, methods=['get'], url_path='partner-selfies')
+    def partner_selfies(self, request):
+        """CRM: list job-start selfies uploaded by technicians via the partner app."""
+        from .serializers import PartnerJobSelfieSerializer
+
+        qs = JobCard.objects.filter(
+            job_start_selfie__isnull=False,
+        ).select_related('client', 'partner', 'technician').order_by('-started_at', '-id')
+
+        booking_id = request.query_params.get('booking_id')
+        if booking_id:
+            qs = qs.filter(id=booking_id)
+
+        page = self.paginate_queryset(qs)
+        serializer = PartnerJobSelfieSerializer(
+            page if page is not None else qs,
+            many=True,
+            context={'request': request},
+        )
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return response.Response({'count': qs.count(), 'results': serializer.data})
     
     def create(self, request, *args, **kwargs):
         """
