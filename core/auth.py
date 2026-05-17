@@ -1,10 +1,13 @@
 import logging
+from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth import authenticate
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema, OpenApiExample
+
+from core.roles import get_user_role, role_display, is_blog_user
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +30,9 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['is_superuser'] = user.is_superuser
         token['first_name'] = user.first_name
         token['last_name'] = user.last_name
+        role = get_user_role(user)
+        if role:
+            token['role'] = role
         return token
 
     def validate(self, attrs):
@@ -53,6 +59,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         
         # Add additional user information to response
+        role = get_user_role(self.user) or ''
         data.update({
             'user_id': self.user.id,
             'username': self.user.username,
@@ -61,9 +68,23 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'is_superuser': self.user.is_superuser,
             'first_name': self.user.first_name,
             'last_name': self.user.last_name,
+            'role': role,
+            'role_display': role_display(self.user),
         })
-        
-        logger.info(f"Successful login for user: {username}")
+
+        if is_blog_user(self.user):
+            try:
+                from blog.audit import log_blog_audit
+                log_blog_audit(
+                    self.user,
+                    'login',
+                    details=f'Blog CMS login: {username}',
+                    request=self.context.get('request'),
+                )
+            except Exception as exc:
+                logger.warning('Blog audit login log failed: %s', exc)
+
+        logger.info(f"Successful login for user: {username} role={role}")
         return data
 
 
@@ -147,6 +168,7 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     """Enhanced JWT token view with throttling."""
     serializer_class = CustomTokenObtainPairSerializer
     throttle_classes = [LoginRateThrottle]
+    permission_classes = [AllowAny]
     
     def post(self, request, *args, **kwargs):
         """Override post to add additional logging."""

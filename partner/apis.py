@@ -413,9 +413,10 @@ class RejectBookingAPIView(APIView):
         reason = request.data.get('reason', '')
         job.partner_status = JobCard.PartnerStatus.REJECTED
         job.partner = None  # Unassign from partner
-        job.status = JobCard.JobStatus.PENDING  # Back to pending for CRM reassignment
+        job.sync_booking_category()
+        job.status = job.status_after_technician_removal()
         job.removal_remarks = f"Rejected by partner {partner.full_name}: {reason}"
-        job.save(update_fields=['partner_status', 'partner', 'status', 'removal_remarks'])
+        job.save(update_fields=['partner_status', 'partner', 'status', 'removal_remarks', 'booking_category'])
 
         logger.info(f"Partner {partner.full_name} rejected booking #{job.id}. Reason: {reason}")
         return Response({"message": "Booking rejected. Admin will reassign it."})

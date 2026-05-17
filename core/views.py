@@ -29,6 +29,7 @@ from django.contrib.auth.models import User
 from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField
 from django.db.models.functions import Cast, Coalesce
 from .services import ClientService, InquiryService, JobCardService, RenewalService, DashboardService, TechnicianService, CRMInquiryService
+from .permissions import IsSuperAdmin, IsCRMOperationalUser
 
 from django.db.models import Case, When, Value, IntegerField
 import pytz
@@ -87,7 +88,7 @@ class LargePagination(PageNumberPagination):
 
 class BaseModelViewSet(viewsets.ModelViewSet):
     """Base viewset with common functionality."""
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     throttle_classes = [UserRateThrottle, AnonRateThrottle]
     ordering_fields = ['created_at', 'updated_at']
@@ -114,14 +115,14 @@ class BaseModelViewSet(viewsets.ModelViewSet):
 class CountryViewSet(BaseModelViewSet):
     queryset = Country.objects.all()
     serializer_class = CountrySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
     pagination_class = LargePagination
     search_fields = ['name']
     filterset_fields = ['is_active']
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
-            return [permissions.IsAuthenticated()]
+            return [IsCRMOperationalUser()]
         return [permissions.IsAdminUser()]
 
     @decorators.action(detail=False, methods=['post'], url_path='bulk-create')
@@ -148,14 +149,14 @@ class CountryViewSet(BaseModelViewSet):
 class StateViewSet(BaseModelViewSet):
     queryset = State.objects.all()
     serializer_class = StateSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
     pagination_class = LargePagination
     search_fields = ['name']
     filterset_fields = ['country', 'is_active']
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
-            return [permissions.IsAuthenticated()]
+            return [IsCRMOperationalUser()]
         return [permissions.IsAdminUser()]
 
     @decorators.action(detail=False, methods=['post'], url_path='bulk-create')
@@ -182,14 +183,14 @@ class StateViewSet(BaseModelViewSet):
 class CityViewSet(BaseModelViewSet):
     queryset = City.objects.all()
     serializer_class = CitySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
     pagination_class = LargePagination
     search_fields = ['name']
     filterset_fields = ['state', 'is_active']
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
-            return [permissions.IsAuthenticated()]
+            return [IsCRMOperationalUser()]
         return [permissions.IsAdminUser()]
 
     @decorators.action(detail=False, methods=['post'], url_path='bulk-create')
@@ -217,7 +218,7 @@ class CityViewSet(BaseModelViewSet):
 class LocationViewSet(BaseModelViewSet):
     queryset = Location.objects.all()
     serializer_class = LocationSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
     pagination_class = LargePagination
     search_fields = ['name', 'city__name', 'city__state__name']
     filterset_fields = ['city', 'is_active']
@@ -259,7 +260,7 @@ class LocationViewSet(BaseModelViewSet):
 
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
-            return [permissions.IsAuthenticated()]
+            return [IsCRMOperationalUser()]
         return [permissions.IsAdminUser()]
 
     @decorators.action(detail=False, methods=['post'], url_path='bulk-create')
@@ -413,7 +414,11 @@ class TechnicianViewSet(BaseModelViewSet):
         queryset = Technician.objects.annotate(
             assigned_count=Count('jobcards', filter=job_filter, distinct=True),
             completed_count=Count('jobcards', filter=job_filter & Q(jobcards__status='Done'), distinct=True),
-            pending_count=Count('jobcards', filter=job_filter & Q(jobcards__status='Pending'), distinct=True),
+            pending_count=Count(
+                'jobcards',
+                filter=job_filter & Q(jobcards__status='Pending'),
+                distinct=True,
+            ),
             on_process_count=Count('jobcards', filter=job_filter & Q(jobcards__status='On Process'), distinct=True),
             service_calls_count=Count('jobcards', filter=job_filter & Q(jobcards__booking_type__in=[JobCard.BookingType.AMC_FOLLOWUP, JobCard.BookingType.SERVICE_CALL]), distinct=True),
             
@@ -1645,12 +1650,10 @@ class JobCardViewSet(BaseModelViewSet):
         booking_type = self.request.query_params.get('booking_type', '').lower()
         logger.info(f"JobCard list requested with booking_type: {booking_type}")
         
-        # Apply strict status filters based on booking_type
+        # Apply strict status + category filters based on booking_type (tab)
         if booking_type == 'pending':
-            qs = qs.filter(
-                status=JobCard.JobStatus.PENDING, 
-                booking_type__in=[JobCard.BookingType.NEW_BOOKING, JobCard.BookingType.AMC_MAIN]
-            )
+            # All operational Pending jobs (includes service visits moved from Upcoming)
+            qs = qs.filter(status=JobCard.JobStatus.PENDING)
         elif booking_type == 'on_process':
             qs = qs.filter(status=JobCard.JobStatus.ON_PROCESS)
         elif booking_type == 'done':
@@ -1660,61 +1663,67 @@ class JobCardViewSet(BaseModelViewSet):
             tomorrow = today + timezone.timedelta(days=1)
             qs = qs.filter(renewals__status='Due', renewals__due_date__in=[today, tomorrow]).distinct()
         elif booking_type == 'upcoming_services':
-            tz = pytz.timezone('Asia/Kolkata')
-            today = timezone.now().astimezone(tz).date()
-            seven_days_later = today + timezone.timedelta(days=7)
-            
             qs = qs.filter(
-                booking_type__in=[JobCard.BookingType.AMC_FOLLOWUP, JobCard.BookingType.SERVICE_CALL],
-                schedule_datetime__date__range=[today, seven_days_later]
-            ).exclude(status__in=[JobCard.JobStatus.DONE, JobCard.JobStatus.CANCELLED])
+                status=JobCard.JobStatus.UPCOMING,
+                booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES,
+            ).order_by('next_service_date', 'schedule_datetime')
         elif booking_type == 'cancelled':
             qs = qs.filter(status=JobCard.JobStatus.CANCELLED)
         elif booking_type == 'reminders':
             qs = qs.filter(reminder_date__isnull=False, is_reminder_done=False)
         elif booking_type == 'complaint_calls':
-            qs = qs.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL)
-        
-        # Default ordering handled in filter_queryset or Meta
-        return qs
+            qs = qs.filter(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
 
-        # 3. Handle Robust Search (Explicitly)
-        # Check for both 'q' and 'search' parameters for frontend compatibility
-        search_query = self.request.query_params.get('q', 
-                      self.request.query_params.get('search', '')).strip()
+        # Search (q / search params)
+        search_query = self.request.query_params.get(
+            'q', self.request.query_params.get('search', '')
+        ).strip()
         if search_query:
-            # Search by Code (e.g. 0030 matches JC-0030), Client Name, and Mobile
-            search_filter = Q(code__icontains=search_query) | \
-                           Q(client__full_name__icontains=search_query) | \
-                           Q(client__mobile__icontains=search_query)
-            
-            # Also allow searching by the numeric part only for Job Cards (JC-0001 -> 0001)
+            search_filter = (
+                Q(code__icontains=search_query)
+                | Q(client__full_name__icontains=search_query)
+                | Q(client__mobile__icontains=search_query)
+            )
             if search_query.isdigit():
                 search_filter |= Q(code__endswith=search_query)
-            
             qs = qs.filter(search_filter)
 
-        # 4. Handle Context-Aware Date Ranges
+        # Context-aware date ranges
         date_from = self.request.query_params.get('from')
         date_to = self.request.query_params.get('to')
-        
+
         if date_from or date_to:
             if booking_type == 'reminders':
-                if date_from: qs = qs.filter(reminder_date__gte=date_from)
-                if date_to: qs = qs.filter(reminder_date__lte=date_to)
+                if date_from:
+                    qs = qs.filter(reminder_date__gte=date_from)
+                if date_to:
+                    qs = qs.filter(reminder_date__lte=date_to)
             elif booking_type == 'upcoming_renewals':
-                if date_from: qs = qs.filter(renewals__due_date__gte=date_from)
-                if date_to: qs = qs.filter(renewals__due_date__lte=date_to)
+                if date_from:
+                    qs = qs.filter(renewals__due_date__gte=date_from)
+                if date_to:
+                    qs = qs.filter(renewals__due_date__lte=date_to)
+            elif booking_type == 'upcoming_services':
+                if date_from:
+                    qs = qs.filter(
+                        Q(next_service_date__gte=date_from)
+                        | Q(next_service_date__isnull=True, schedule_datetime__date__gte=date_from)
+                    )
+                if date_to:
+                    qs = qs.filter(
+                        Q(next_service_date__lte=date_to)
+                        | Q(next_service_date__isnull=True, schedule_datetime__date__lte=date_to)
+                    )
             else:
-                # Default for Pending, On Process, Done, Cancelled, Upcoming Services
-                if date_from: qs = qs.filter(schedule_datetime__date__gte=date_from)
-                if date_to: qs = qs.filter(schedule_datetime__date__lte=date_to)
+                if date_from:
+                    qs = qs.filter(schedule_datetime__date__gte=date_from)
+                if date_to:
+                    qs = qs.filter(schedule_datetime__date__lte=date_to)
         elif booking_type == 'reminders':
-            # Default for Reminders tab if no date filter: Today + Tomorrow only (staff focus)
             today = timezone.now().date()
             tomorrow = today + timezone.timedelta(days=1)
             qs = qs.filter(reminder_date__in=[today, tomorrow])
-            
+
         final_qs = qs.distinct()
         logger.info(f"JobCard list returning {final_qs.count()} records for booking_type: {booking_type}")
         return final_qs
@@ -2317,7 +2326,7 @@ class DashboardViewSet(viewsets.GenericViewSet):
     Provides endpoints for:
     - Get comprehensive dashboard statistics
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
     throttle_classes = [UserRateThrottle, AnonRateThrottle]
     
     @decorators.action(detail=False, methods=['get'], url_path='statistics')
@@ -3039,7 +3048,7 @@ class GlobalSearchView(views.APIView):
     """
     Search globally across Clients, JobCards, and CRM Inquiries.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
     
     @extend_schema(
         summary="Global search across CRM",
@@ -3127,7 +3136,7 @@ class CustomerHistoryView(views.APIView):
     """
     Get complete history for a specific customer.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
 
     @extend_schema(
         summary="Get customer history",
@@ -3224,9 +3233,9 @@ class CustomerHistoryView(views.APIView):
 
         # 6. Upcoming Services
         upcoming = jobcards.filter(
-            status__in=[JobCard.JobStatus.PENDING, JobCard.JobStatus.ON_PROCESS],
-            schedule_datetime__gte=timezone.now()
-        )
+            status=JobCard.JobStatus.UPCOMING,
+            booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES,
+        ).order_by('next_service_date', 'schedule_datetime')
 
         return response.Response({
             'client': ClientSerializer(client).data,
@@ -3252,7 +3261,7 @@ class ComplaintViewSet(viewsets.ModelViewSet):
     """
     queryset = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL)
     serializer_class = JobCardSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['complaint_status', 'priority', 'technician']
     search_fields = ['client__full_name', 'client__mobile', 'code', 'complaint_note']
@@ -3314,7 +3323,7 @@ class ComplaintAnalyticsView(views.APIView):
     """
     Get analytics for complaints.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
 
     @extend_schema(
         summary="Get complaint analytics",
@@ -3348,7 +3357,7 @@ class ReminderViewSet(viewsets.ModelViewSet):
     """
     queryset = Reminder.objects.all()
     serializer_class = ReminderSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'inquiry_type']
     search_fields = ['customer_name', 'mobile_number', 'note']
@@ -3467,13 +3476,17 @@ class QuotationViewSet(BaseModelViewSet):
                         client_address=quotation.address,
                         city=quotation.city,
                         state=quotation.state,
-                        status=JobCard.JobStatus.PENDING,
+                        status=JobCard.JobStatus.UPCOMING,
+                        booking_type=JobCard.BookingType.AMC_FOLLOWUP,
+                        booking_category=JobCard.BookingCategory.AMC_FOLLOWUP,
                         created_by=request.user,
                         is_followup_visit=True,
                         included_in_amc=True,
+                        is_service_call=True,
                         parent_job=main_job,
                         service_cycle=i,
-                        max_cycle=quotation.visit_count
+                        max_cycle=quotation.visit_count,
+                        creation_source=JobCard.CreationSource.API,
                     )
 
             # 4. Update Quotation Status
@@ -3516,21 +3529,19 @@ def log_activity(user, action, booking_id=None, details=None):
         print(f"Error logging activity: {e}")
 
 
-class IsSuperAdmin(permissions.BasePermission):
-    """
-    Allows access only to superusers.
-    """
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.is_superuser)
-
-
 class StaffViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing Staff users.
     """
-    queryset = User.objects.filter(is_staff=True).order_by('-date_joined')
+    queryset = (
+        User.objects.filter(
+            Q(is_staff=True) | Q(crm_profile__role='blog_user')
+        )
+        .distinct()
+        .order_by('-date_joined')
+    )
     serializer_class = StaffSerializer
-    permission_classes = [permissions.IsAuthenticated, IsSuperAdmin]
+    permission_classes = [IsSuperAdmin]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     search_fields = ['first_name', 'username']
 
@@ -3554,7 +3565,7 @@ class ActivityLogViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = ActivityLog.objects.all().order_by('-created_at')
     serializer_class = ActivityLogSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsCRMOperationalUser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['user', 'action']
     search_fields = ['action', 'booking_id', 'details', 'user__first_name']

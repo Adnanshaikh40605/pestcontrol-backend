@@ -17,10 +17,29 @@ MAX_UPLOAD_SIZE_MB = 10
 MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 
+ALLOWED_IMAGE_CONTENT_TYPES = frozenset({
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'image/bmp',
+    'image/tiff',
+    'image/x-icon',
+})
+
+
 def validate_image_size(image_file):
-    """Raise ValueError if image exceeds 10 MB."""
+    """Raise ValueError if image exceeds 10 MB or has disallowed content type."""
     if image_file.size > MAX_UPLOAD_SIZE_BYTES:
         raise ValueError(f"Image must be under {MAX_UPLOAD_SIZE_MB} MB. Got {image_file.size / 1024 / 1024:.1f} MB.")
+
+    content_type = getattr(image_file, 'content_type', '') or ''
+    if content_type and content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
+        raise ValueError(f'Invalid file type: {content_type}. Only images are allowed.')
+
+    name = getattr(image_file, 'name', '') or ''
+    if name and not name.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.ico')):
+        raise ValueError('Invalid file extension. Only image files are allowed.')
 
 
 def _open_image_safe(image_file):

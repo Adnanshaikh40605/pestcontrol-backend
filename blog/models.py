@@ -237,3 +237,44 @@ class Blog(BaseModel):
         if not self.target_keywords:
             return []
         return [kw.strip() for kw in self.target_keywords.split(",") if kw.strip()]
+
+
+class BlogAuditLog(BaseModel):
+    """Audit trail for blog CMS actions (content writers, publishes, uploads)."""
+
+    class Action(models.TextChoices):
+        LOGIN = 'login', 'Login'
+        CREATED = 'blog_created', 'Blog Created'
+        EDITED = 'blog_edited', 'Blog Edited'
+        PUBLISHED = 'blog_published', 'Blog Published'
+        UNPUBLISHED = 'blog_unpublished', 'Blog Unpublished'
+        DELETED = 'blog_deleted', 'Blog Deleted'
+        IMAGE_UPLOADED = 'image_uploaded', 'Image Uploaded'
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='blog_audit_logs',
+    )
+    action = models.CharField(max_length=32, choices=Action.choices, db_index=True)
+    blog = models.ForeignKey(
+        Blog,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs',
+    )
+    details = models.TextField(blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Blog Audit Log'
+        verbose_name_plural = 'Blog Audit Logs'
+
+    def __str__(self):
+        who = self.user.username if self.user else 'unknown'
+        return f'{who} — {self.action} — {self.created_at}'

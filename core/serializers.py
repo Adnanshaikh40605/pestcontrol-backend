@@ -161,6 +161,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'is_complaint_call', 'complaint_parent_booking', 'complaint_status', 'complaint_type', 'priority', 'complaint_note',
             'is_accepted', 'is_service_call', 'accepted_at', 'started_at', 'completed_at',
             'is_amc_main_booking', 'is_followup_visit', 'included_in_amc',
+            'booking_type', 'booking_category',
             'booking_priority',
             'created_by', 'created_by_name', 'on_process_by', 'on_process_by_name', 'done_by', 'done_by_name',
             'created_at', 'updated_at'
@@ -407,7 +408,11 @@ class ReminderSerializer(serializers.ModelSerializer):
 class StaffSerializer(serializers.ModelSerializer):
     name = serializers.CharField(source='first_name')
     mobile = serializers.CharField(source='username')
-    role = serializers.ChoiceField(choices=['Super Admin', 'Staff'], write_only=True, required=False)
+    role = serializers.ChoiceField(
+        choices=['Super Admin', 'Admin', 'Staff', 'Blog User'],
+        write_only=True,
+        required=False,
+    )
     role_display = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
@@ -419,9 +424,13 @@ class StaffSerializer(serializers.ModelSerializer):
         }
 
     def get_role_display(self, obj):
-        if obj.is_superuser:
-            return 'Super Admin'
-        return 'Staff'
+        from core.roles import role_display
+        return role_display(obj)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['role'] = self.get_role_display(instance)
+        return data
 
     def validate_mobile(self, value):
         user_id = self.instance.id if self.instance else None
@@ -429,12 +438,26 @@ class StaffSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("A staff member with this mobile number already exists.")
         return value
 
+    def _apply_role(self, user, role_label: str):
+        from core.models import UserProfile, CRMRole
+        from core.roles import DISPLAY_TO_ROLE
+
+        crm_role = DISPLAY_TO_ROLE.get(role_label, CRMRole.STAFF)
+        is_blog = crm_role == CRMRole.BLOG_USER
+
+        user.is_superuser = role_label == 'Super Admin'
+        user.is_staff = not is_blog
+        user.save(update_fields=['is_staff', 'is_superuser'])
+
+        profile, _ = UserProfile.objects.get_or_create(user=user)
+        profile.role = crm_role
+        profile.save(update_fields=['role', 'updated_at'])
+
     def create(self, validated_data):
         password = validated_data.pop('password', None)
-        role = validated_data.pop('role', 'Staff')
-        validated_data['is_staff'] = True
-        validated_data['is_superuser'] = (role == 'Super Admin')
+        role_label = validated_data.pop('role', 'Staff')
         user = super().create(validated_data)
+        self._apply_role(user, role_label)
         if password:
             user.set_password(password)
             user.save()
@@ -442,11 +465,10 @@ class StaffSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         password = validated_data.pop('password', None)
-        role = validated_data.pop('role', None)
-        if role is not None:
-            instance.is_superuser = (role == 'Super Admin')
-            instance.save()
+        role_label = validated_data.pop('role', None)
         user = super().update(instance, validated_data)
+        if role_label is not None:
+            self._apply_role(user, role_label)
         if password:
             user.set_password(password)
             user.save()

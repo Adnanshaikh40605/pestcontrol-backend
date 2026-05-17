@@ -436,10 +436,27 @@ class Inquiry(BaseModel):
 
 class JobCard(BaseModel):
     class JobStatus(models.TextChoices):
+        UPCOMING = 'Upcoming', 'Upcoming'
         PENDING = 'Pending', 'Pending'
         ON_PROCESS = 'On Process', 'On Process'
         DONE = 'Done', 'Done'
         CANCELLED = 'Cancelled', 'Cancelled'
+
+    class BookingCategory(models.TextChoices):
+        NORMAL_BOOKING = 'normal_booking', 'Normal Booking'
+        SERVICE_CALL = 'service_call', 'Service Call'
+        COMPLAINT_CALL = 'complaint_call', 'Complaint Call'
+        AMC_FOLLOWUP = 'amc_followup', 'AMC Follow-up'
+
+    # Tab / workflow helpers (keep in sync with views filtering)
+    OPERATIONAL_PENDING_CATEGORIES = (
+        BookingCategory.NORMAL_BOOKING,
+        BookingCategory.COMPLAINT_CALL,
+    )
+    UPCOMING_SERVICE_CATEGORIES = (
+        BookingCategory.SERVICE_CALL,
+        BookingCategory.AMC_FOLLOWUP,
+    )
 
     class PaymentStatus(models.TextChoices):
         UNPAID = 'Unpaid', 'Unpaid'
@@ -518,6 +535,14 @@ class JobCard(BaseModel):
         db_index=True,
         verbose_name="Booking Type",
         help_text="Categorizes the type of booking for revenue and UI display"
+    )
+    booking_category = models.CharField(
+        max_length=30,
+        choices=BookingCategory.choices,
+        default=BookingCategory.NORMAL_BOOKING,
+        db_index=True,
+        verbose_name="Booking Category",
+        help_text="Operational category: drives Pending vs Upcoming Services tabs",
     )
     code = models.CharField(
         max_length=20, 
@@ -899,6 +924,43 @@ class JobCard(BaseModel):
     def __str__(self) -> str:
         return self.code or str(self.pk)
 
+    def sync_booking_type(self) -> None:
+        """Keep booking_type aligned with flags (legacy field used in reports/revenue)."""
+        if self.is_complaint_call:
+            self.booking_type = self.BookingType.COMPLAINT_CALL
+        elif self.is_followup_visit or self.included_in_amc:
+            self.booking_type = self.BookingType.AMC_FOLLOWUP
+        elif self.is_service_call or self.service_cycle > 1:
+            self.booking_type = self.BookingType.SERVICE_CALL
+        elif self.is_amc_main_booking or (
+            self.service_category == self.ServiceCategory.AMC and self.service_cycle == 1
+        ):
+            self.booking_type = self.BookingType.AMC_MAIN
+
+    def sync_booking_category(self) -> None:
+        """Derive booking_category from flags / booking_type (status is separate)."""
+        if self.is_complaint_call or self.booking_type == self.BookingType.COMPLAINT_CALL:
+            self.booking_category = self.BookingCategory.COMPLAINT_CALL
+        elif (
+            self.booking_type == self.BookingType.AMC_FOLLOWUP
+            or (self.is_followup_visit and self.included_in_amc)
+        ):
+            self.booking_category = self.BookingCategory.AMC_FOLLOWUP
+        elif (
+            self.is_service_call
+            or self.booking_type == self.BookingType.SERVICE_CALL
+            or self.service_cycle > 1
+        ):
+            self.booking_category = self.BookingCategory.SERVICE_CALL
+        else:
+            self.booking_category = self.BookingCategory.NORMAL_BOOKING
+
+    def status_after_technician_removal(self) -> str:
+        """Return CRM status when a partner/technician is removed from a job."""
+        if self.booking_category in self.UPCOMING_SERVICE_CATEGORIES:
+            return self.JobStatus.UPCOMING
+        return self.JobStatus.PENDING
+
     def clean(self):
         """Custom validation for the model with comprehensive business rules."""
         super().clean()
@@ -954,18 +1016,16 @@ class JobCard(BaseModel):
         if self.service_cycle > 1:
             self.is_service_call = True
             
-        # Ensure booking_type is set (fallback for direct object creation)
+        self.sync_booking_type()
         if not self.booking_type:
-            if self.is_complaint_call:
-                self.booking_type = self.BookingType.COMPLAINT_CALL
-            elif self.is_followup_visit or self.included_in_amc:
-                self.booking_type = self.BookingType.AMC_FOLLOWUP
-            elif self.is_service_call:
-                self.booking_type = self.BookingType.SERVICE_CALL
-            elif self.service_category == self.ServiceCategory.AMC and self.service_cycle == 1:
-                self.booking_type = self.BookingType.AMC_MAIN
-            else:
-                self.booking_type = self.BookingType.NEW_BOOKING
+            self.booking_type = self.BookingType.NEW_BOOKING
+
+        self.sync_booking_category()
+
+        # Scheduled AMC / service visits default to Upcoming (not operational Pending)
+        if creating and self.booking_category in self.UPCOMING_SERVICE_CATEGORIES:
+            if self.status == self.JobStatus.PENDING:
+                self.status = self.JobStatus.UPCOMING
                 
         super().save(*args, **kwargs)
 
@@ -1413,3 +1473,32 @@ class QuotationHistory(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.action} on {self.quotation.quotation_no}"
+
+
+class CRMRole(models.TextChoices):
+    SUPER_ADMIN = 'super_admin', 'Super Admin'
+    ADMIN = 'admin', 'Admin'
+    STAFF = 'staff', 'Staff'
+    BLOG_USER = 'blog_user', 'Blog User'
+
+
+class UserProfile(BaseModel):
+    """Extended CRM role — separate from Django is_staff for blog-only users."""
+    user = models.OneToOneField(
+        'auth.User',
+        on_delete=models.CASCADE,
+        related_name='crm_profile',
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=CRMRole.choices,
+        default=CRMRole.STAFF,
+        db_index=True,
+    )
+
+    class Meta:
+        verbose_name = 'User Profile'
+        verbose_name_plural = 'User Profiles'
+
+    def __str__(self) -> str:
+        return f"{self.user.username} ({self.get_role_display()})"

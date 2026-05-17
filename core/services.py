@@ -559,6 +559,8 @@ class JobCardService:
                 jobcard.booking_type = JobCard.BookingType.AMC_MAIN
             elif jobcard.is_complaint_call:
                 jobcard.booking_type = JobCard.BookingType.COMPLAINT_CALL
+            elif jobcard.is_followup_visit or jobcard.included_in_amc:
+                jobcard.booking_type = JobCard.BookingType.AMC_FOLLOWUP
             elif jobcard.is_service_call:
                 jobcard.booking_type = JobCard.BookingType.SERVICE_CALL
             else:
@@ -685,7 +687,7 @@ class JobCardService:
                     'client_address': jobcard.client_address,
                     'state': jobcard.state,
                     'city': jobcard.city,
-                    'status': JobCard.JobStatus.PENDING,
+                    'status': JobCard.JobStatus.UPCOMING,
                     'payment_status': JobCard.PaymentStatus.PAID,  # Mark as paid since it's included in AMC
                     'is_service_call': True,
                     'is_followup_visit': True,
@@ -1073,9 +1075,17 @@ class DashboardService:
                 'society': JobCard.objects.filter(jobcard_filters).exclude(commercial_type=JobCard.CommercialType.HOME).count(),
             }
             
-            # Status Breakdown
+            # Status Breakdown (Pending = operational queue only, not scheduled service visits)
             status_stats = {
-                'pending': JobCard.objects.filter(jobcard_filters, status=JobCard.JobStatus.PENDING).count(),
+                'pending': JobCard.objects.filter(
+                    jobcard_filters,
+                    status=JobCard.JobStatus.PENDING,
+                ).count(),
+                'upcoming': JobCard.objects.filter(
+                    jobcard_filters,
+                    status=JobCard.JobStatus.UPCOMING,
+                    booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES,
+                ).count(),
                 'on_process': JobCard.objects.filter(jobcard_filters, status=JobCard.JobStatus.ON_PROCESS).count(),
                 'done': JobCard.objects.filter(jobcard_filters, status=JobCard.JobStatus.DONE).count(),
                 # Today's Jobs (always relative to today unless explicitly filtering for a range that excludes it)
@@ -1184,7 +1194,10 @@ class DashboardService:
             
             return {
                 "website_leads_unread": Inquiry.objects.filter(is_read=False).count(),
-                "complaint_calls": JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL, status='Pending').count(),
+                "complaint_calls": JobCard.objects.filter(
+                    booking_category=JobCard.BookingCategory.COMPLAINT_CALL,
+                    status=JobCard.JobStatus.PENDING,
+                ).count(),
                 "reminders": Reminder.objects.filter(status='pending').count(),
                 "feedbacks": Feedback.objects.filter(is_read=False).count(),
                 "pending_quotations": Quotation.objects.filter(status='Sent').count()

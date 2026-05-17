@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.utils import timezone
-from .models import Blog, Category, Tag, BlogStatus
+from .models import Blog, Category, Tag, BlogStatus, BlogAuditLog
 
 
 @admin.register(Category)
@@ -116,3 +116,11 @@ class BlogAdmin(admin.ModelAdmin):
         count = queryset.update(status=BlogStatus.DRAFT)
         self.message_user(request, f"{count} blog(s) moved to draft.")
     unpublish_blogs.short_description = "Move selected blogs to Draft"
+
+
+@admin.register(BlogAuditLog)
+class BlogAuditLogAdmin(admin.ModelAdmin):
+    list_display = ['action', 'user', 'blog', 'ip_address', 'created_at']
+    list_filter = ['action', 'created_at']
+    search_fields = ['details', 'user__username']
+    readonly_fields = ['created_at', 'updated_at']

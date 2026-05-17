@@ -10,7 +10,9 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import AllowAny
+from .permissions import IsBlogCMSUser, BlogUserNoDelete
+from .audit import log_blog_audit
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
@@ -69,7 +71,7 @@ class ViewTrackThrottle(AnonRateThrottle):
 
 class BlogDashboardView(APIView):
     """GET /api/blogs/dashboard-stats/"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser]
 
     def get(self, request):
         cache_key = "blog_dashboard_stats"
@@ -99,7 +101,7 @@ class BlogDashboardView(APIView):
 
 class BlogListAdminView(APIView):
     """GET /api/blogs/ — CRM admin blog list with search/filter/pagination"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser]
 
     def get(self, request):
         qs = (
@@ -150,7 +152,7 @@ class BlogListAdminView(APIView):
 
 class BlogCreateView(APIView):
     """POST /api/blogs/create/"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def post(self, request):
@@ -159,6 +161,13 @@ class BlogCreateView(APIView):
             blog = serializer.save(author=request.user)
             cache.delete("blog_dashboard_stats")
             _invalidate_public_cache()
+            log_blog_audit(
+                request.user,
+                'blog_created',
+                blog=blog,
+                details=f'Created: {blog.title}',
+                request=request,
+            )
             return Response(
                 BlogAdminSerializer(blog, context={"request": request}).data,
                 status=status.HTTP_201_CREATED,
@@ -168,7 +177,7 @@ class BlogCreateView(APIView):
 
 class BlogDetailAdminView(APIView):
     """GET/PUT/PATCH /api/blogs/{id}/"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def _get_blog(self, pk):
@@ -188,6 +197,13 @@ class BlogDetailAdminView(APIView):
             blog = serializer.save()
             cache.delete("blog_dashboard_stats")
             _invalidate_public_cache(blog.slug)
+            log_blog_audit(
+                request.user,
+                'blog_edited',
+                blog=blog,
+                details=f'Updated: {blog.title}',
+                request=request,
+            )
             return Response(BlogAdminSerializer(blog, context={"request": request}).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -198,13 +214,20 @@ class BlogDetailAdminView(APIView):
             blog = serializer.save()
             cache.delete("blog_dashboard_stats")
             _invalidate_public_cache(blog.slug)
+            log_blog_audit(
+                request.user,
+                'blog_edited',
+                blog=blog,
+                details=f'Patched: {blog.title}',
+                request=request,
+            )
             return Response(BlogAdminSerializer(blog, context={"request": request}).data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class BlogDeleteView(APIView):
     """DELETE /api/blogs/{id}/delete/"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser, BlogUserNoDelete]
 
     def delete(self, request, pk):
         try:
@@ -212,15 +235,17 @@ class BlogDeleteView(APIView):
         except Blog.DoesNotExist:
             raise NotFound(detail="Blog not found.")
         slug = blog.slug
+        title = blog.title
         blog.delete()
         cache.delete("blog_dashboard_stats")
         _invalidate_public_cache(slug)
+        log_blog_audit(request.user, 'blog_deleted', details=f'Deleted: {title}', request=request)
         return Response({"message": "Blog deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
 
 
 class BlogPublishToggleView(APIView):
     """PATCH /api/blogs/{id}/toggle-publish/"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser]
 
     def patch(self, request, pk):
         try:
@@ -238,12 +263,20 @@ class BlogPublishToggleView(APIView):
         blog.save(update_fields=["status", "publish_date"])
         cache.delete("blog_dashboard_stats")
         _invalidate_public_cache(blog.slug)
+        action = 'blog_published' if blog.status == BlogStatus.PUBLISHED else 'blog_unpublished'
+        log_blog_audit(
+            request.user,
+            action,
+            blog=blog,
+            details=f'{blog.title} → {blog.status}',
+            request=request,
+        )
         return Response({"status": blog.status, "publish_date": blog.publish_date})
 
 
 class ImageUploadView(APIView):
     """POST /api/blogs/upload-image/ — Upload a standalone image for the rich editor."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
@@ -274,6 +307,12 @@ class ImageUploadView(APIView):
 
             url = build_public_media_url(request, url)
 
+            log_blog_audit(
+                request.user,
+                'image_uploaded',
+                details=f'Uploaded {filename}',
+                request=request,
+            )
             return Response({
                 "url": url,
                 "path": saved_path,
@@ -571,7 +610,7 @@ Sitemap: {base_url}/sitemap.xml
 
 class CategoryAdminView(APIView):
     """GET /api/blogs/categories/ — list, POST — create"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser]
 
     def get(self, request):
         categories = Category.objects.all().order_by("name")
@@ -588,7 +627,7 @@ class CategoryAdminView(APIView):
 
 class CategoryAdminDetailView(APIView):
     """GET/PUT/DELETE /api/blogs/categories/{pk}/"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser]
 
     def _get(self, pk):
         try:
@@ -616,7 +655,7 @@ class CategoryAdminDetailView(APIView):
 
 class TagAdminView(APIView):
     """GET /api/blogs/tags/ — list, POST — create"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser]
 
     def get(self, request):
         tags = Tag.objects.all().order_by("name")
@@ -633,7 +672,7 @@ class TagAdminView(APIView):
 
 class TagAdminDetailView(APIView):
     """GET/PUT/DELETE /api/blogs/tags/{pk}/"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsBlogCMSUser]
 
     def _get(self, pk):
         try:
