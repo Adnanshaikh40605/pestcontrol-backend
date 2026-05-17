@@ -169,7 +169,8 @@ if USE_AWS:
     AWS_S3_SIGNATURE_VERSION = 's3v4'
     AWS_S3_FILE_OVERWRITE = False
     AWS_QUERYSTRING_AUTH = False
-    AWS_DEFAULT_ACL = None
+    # Blog images must be readable in CRM/website <img> tags
+    AWS_DEFAULT_ACL = config('AWS_DEFAULT_ACL', default='public-read')
     AWS_S3_OBJECT_PARAMETERS = {
         'CacheControl': 'max-age=31536000, public',
     }
@@ -206,6 +207,8 @@ else:
 
 # Public website base URL (used for sitemap generation)
 SITE_BASE_URL = config('SITE_BASE_URL', default='https://www.pestcontrol99.com')
+# Public API origin for media URLs returned to CRM (no /api suffix)
+PUBLIC_API_BASE_URL = config('PUBLIC_API_BASE_URL', default='https://api.vacationbna.site')
 
 # Blog CMS settings
 BLOG_IMAGE_MAX_SIZE_MB = 10

@@ -270,6 +270,10 @@ class ImageUploadView(APIView):
             if not url.startswith(("http://", "https://")):
                 url = request.build_absolute_uri(url)
 
+            from .media_urls import build_public_media_url
+
+            url = build_public_media_url(request, url)
+
             return Response({
                 "url": url,
                 "path": saved_path,
