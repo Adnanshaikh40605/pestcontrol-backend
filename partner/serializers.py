@@ -103,6 +103,8 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
     priority_label = serializers.CharField(source='priority', read_only=True)
     booking_tag = serializers.SerializerMethodField()
     can_view_client_phone = serializers.SerializerMethodField()
+    can_start_job = serializers.SerializerMethodField()
+    can_complete_job = serializers.SerializerMethodField()
 
     class Meta:
         model = JobCard
@@ -113,9 +115,11 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
             'schedule_datetime', 'time_slot',
             'priority', 'priority_label', 'booking_tag',
             'status', 'partner_status',
+            'can_start_job', 'can_complete_job',
             'is_complaint_call', 'complaint_type',
             'property_type', 'bhk_size',
-            'price', 'payment_status',
+            'price', 'payment_status', 'payment_mode',
+            'completed_at',
         ]
 
     def _phone_visible(self, obj):
@@ -127,6 +131,12 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
 
     def get_can_view_client_phone(self, obj):
         return self._phone_visible(obj)
+
+    def get_can_start_job(self, obj):
+        return obj.partner_status == JobCard.PartnerStatus.ACCEPTED
+
+    def get_can_complete_job(self, obj):
+        return obj.partner_status == JobCard.PartnerStatus.IN_SERVICE
 
     def get_client_mobile(self, obj):
         if not self._phone_visible(obj):
@@ -260,10 +270,18 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
 
 class PartnerCompleteBookingSerializer(serializers.Serializer):
     """Serializer for completing a booking (End Service)."""
-    payment_mode = serializers.ChoiceField(
-        choices=['Cash', 'Online'],
-        help_text="Payment mode selected by the customer at the time of service"
+    payment_mode = serializers.CharField(
+        help_text="Payment mode selected by the customer at the time of service (Cash or Online)"
     )
+
+    def validate_payment_mode(self, value):
+        raw = (value or '').strip()
+        lowered = raw.lower()
+        if lowered == 'cash':
+            return JobCard.PaymentMode.CASH
+        if lowered == 'online':
+            return JobCard.PaymentMode.ONLINE
+        raise serializers.ValidationError('Payment mode must be Cash or Online.')
 
 
 class PartnerEarningSerializer(serializers.ModelSerializer):

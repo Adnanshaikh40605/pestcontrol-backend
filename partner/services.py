@@ -146,6 +146,10 @@ def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
 def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCard:
     if job.partner_id != partner.id:
         raise PartnerBookingError('Booking not assigned to you.', code='forbidden')
+    if job.partner_status == JobCard.PartnerStatus.IN_SERVICE:
+        raise PartnerBookingError('Job already started.', code='already_started')
+    if job.partner_status == JobCard.PartnerStatus.COMPLETED:
+        raise PartnerBookingError('Job already completed.', code='already_completed')
     if job.partner_status != JobCard.PartnerStatus.ACCEPTED:
         raise PartnerBookingError(
             f"Can only start an accepted booking (current: '{job.partner_status}').",
@@ -165,20 +169,41 @@ def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCar
 def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) -> JobCard:
     if job.partner_id != partner.id:
         raise PartnerBookingError('Booking not assigned to you.', code='forbidden')
+    if job.partner_status == JobCard.PartnerStatus.COMPLETED:
+        raise PartnerBookingError('Job already completed.', code='already_completed')
+    if job.partner_status == JobCard.PartnerStatus.ACCEPTED:
+        raise PartnerBookingError(
+            'Start the job with a selfie before ending service.',
+            code='not_started',
+        )
     if job.partner_status != JobCard.PartnerStatus.IN_SERVICE:
         raise PartnerBookingError(
             'Start the job with a selfie before ending service.',
             code='invalid_state',
         )
-    if payment_mode not in ('Cash', 'Online'):
+    normalized = (payment_mode or '').strip()
+    if normalized.lower() == 'cash':
+        normalized = JobCard.PaymentMode.CASH
+    elif normalized.lower() == 'online':
+        normalized = JobCard.PaymentMode.ONLINE
+    else:
         raise PartnerBookingError('Payment mode must be Cash or Online.', code='invalid_payment')
 
     job.partner_status = JobCard.PartnerStatus.COMPLETED
     job.status = JobCard.JobStatus.DONE
-    job.payment_mode = payment_mode
+    job.payment_mode = normalized
     job.payment_status = JobCard.PaymentStatus.PAID
     job.completed_at = timezone.now()
     if not job.started_at:
         job.started_at = job.completed_at
-    job.save()
+    job.save(
+        update_fields=[
+            'partner_status',
+            'status',
+            'payment_mode',
+            'payment_status',
+            'completed_at',
+            'started_at',
+        ]
+    )
     return job
