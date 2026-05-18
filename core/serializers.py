@@ -299,6 +299,13 @@ class JobCardSerializer(serializers.ModelSerializer):
             else:
                 raise serializers.ValidationError({'reference': 'Reference is required for all bookings.'})
 
+        if is_create:
+            master_location = data.get('master_location')
+            if not master_location:
+                raise serializers.ValidationError({
+                    'master_location': 'Service location is required for all bookings.',
+                })
+
         # Business rule: Cancellation reason validation
         status = data.get('status')
         # If updating, check the current status if not provided in data
