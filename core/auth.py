@@ -89,6 +89,24 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
 
 
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    """Reject refresh for disabled/deleted CRM users."""
+
+    def validate(self, attrs):
+        refresh = self.token_class(attrs['refresh'])
+        user_id = refresh.payload.get('user_id')
+        if user_id:
+            user = get_user_model().objects.filter(pk=user_id).first()
+            if user is None or not user.is_active:
+                raise serializers.ValidationError('User account is disabled.')
+        return super().validate(attrs)
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    serializer_class = CustomTokenRefreshSerializer
+    permission_classes = [AllowAny]
+
+
 @extend_schema(
     summary="Obtain JWT access and refresh tokens",
     description="Authenticate user credentials and obtain JWT access and refresh tokens. The response includes additional user information for client-side use. Rate limited to 5 attempts per minute.",
@@ -165,24 +183,6 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     },
     tags=['Authentication']
 )
-class CustomTokenRefreshSerializer(TokenRefreshSerializer):
-    """Reject refresh for disabled/deleted CRM users."""
-
-    def validate(self, attrs):
-        refresh = self.token_class(attrs['refresh'])
-        user_id = refresh.payload.get('user_id')
-        if user_id:
-            user = get_user_model().objects.filter(pk=user_id).first()
-            if user is None or not user.is_active:
-                raise serializers.ValidationError('User account is disabled.')
-        return super().validate(attrs)
-
-
-class CustomTokenRefreshView(TokenRefreshView):
-    serializer_class = CustomTokenRefreshSerializer
-    permission_classes = [AllowAny]
-
-
 class CustomTokenObtainPairView(TokenObtainPairView):
     """Enhanced JWT token view with throttling."""
     serializer_class = CustomTokenObtainPairSerializer
