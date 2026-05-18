@@ -55,6 +55,12 @@ class Partner(models.Model):
     )
 
     is_active = models.BooleanField(default=True, verbose_name="Is Active")
+    is_app_approved = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="Partner App Approved",
+        help_text="CRM admin must approve before technician can use the mobile app",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -67,6 +67,7 @@ class TechnicianSerializer(serializers.ModelSerializer):
     active_job_details = serializers.SerializerMethodField()
     phone = serializers.CharField(source='mobile', read_only=True)
     has_partner_app = serializers.SerializerMethodField()
+    partner_app_approved = serializers.SerializerMethodField()
     partner_id = serializers.SerializerMethodField()
     partner_name = serializers.SerializerMethodField()
 
@@ -75,7 +76,7 @@ class TechnicianSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'mobile', 'phone', 'age', 'alternative_mobile',
             'is_active', 'service_area', 'city', 'last_active', 'active_jobs', 'active_job_details',
-            'has_partner_app', 'partner_id', 'partner_name',
+            'has_partner_app', 'partner_app_approved', 'partner_id', 'partner_name',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -83,6 +84,10 @@ class TechnicianSerializer(serializers.ModelSerializer):
     def get_has_partner_app(self, obj):
         partner = getattr(obj, 'partner_account', None)
         return bool(partner and partner.is_active)
+
+    def get_partner_app_approved(self, obj):
+        partner = getattr(obj, 'partner_account', None)
+        return bool(partner and partner.is_active and partner.is_app_approved)
 
     def get_partner_id(self, obj):
         partner = getattr(obj, 'partner_account', None)

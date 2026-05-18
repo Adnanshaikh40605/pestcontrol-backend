@@ -230,6 +230,7 @@ REST_FRAMEWORK = {
         'rest_framework.filters.SearchFilter',
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'partner.authentication.PartnerJWTAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],

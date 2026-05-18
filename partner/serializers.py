@@ -10,7 +10,7 @@ class PartnerSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'full_name', 'mobile', 'role', 'profile_image',
             'bank_name', 'account_number', 'ifsc_code', 'account_holder_name',
-            'is_active', 'created_at'
+            'is_active', 'is_app_approved', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
 
@@ -26,15 +26,31 @@ class PartnerRegisterSerializer(serializers.Serializer):
     )
 
     def validate_mobile(self, value):
+        from core.staff_partner_sync import normalize_mobile
+
+        value = normalize_mobile(value)
         if Partner.objects.filter(mobile=value).exists():
             raise serializers.ValidationError("A partner with this mobile number already exists.")
         return value
 
     def create(self, validated_data):
+        from core.models import Technician
+        from core.staff_partner_sync import normalize_mobile
+
+        mobile = normalize_mobile(validated_data['mobile'])
+        name = validated_data['full_name'].strip()
+
+        tech, _ = Technician.objects.update_or_create(
+            mobile=mobile,
+            defaults={'name': name, 'is_active': True},
+        )
+
         partner = Partner(
-            full_name=validated_data['full_name'],
-            mobile=validated_data['mobile'],
+            full_name=name,
+            mobile=mobile,
             role=validated_data.get('role', 'technician'),
+            is_app_approved=False,
+            core_technician=tech,
         )
         partner.set_password(validated_data['password'])
         partner.save()

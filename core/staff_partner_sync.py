@@ -47,6 +47,7 @@ def partner_link_status(user) -> dict:
         tech
         and partner
         and partner.is_active
+        and partner.is_app_approved
         and partner.core_technician_id == tech.id
         and _partner_has_usable_password(partner)
     )
@@ -103,6 +104,7 @@ def sync_technician_partner_account(
 
     partner.core_technician = tech
     partner.is_active = user.is_active
+    partner.is_app_approved = True
 
     if password:
         partner.set_password(password)

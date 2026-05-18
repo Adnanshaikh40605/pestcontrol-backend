@@ -25,4 +25,5 @@ urlpatterns = [
     path('profile/', apis.ProfileAPIView.as_view(), name='profile'),
     path('earnings/', apis.EarningsHistoryAPIView.as_view(), name='earnings'),
     path('ratings/', apis.RatingsAPIView.as_view(), name='ratings'),
+    path('refer-client/', apis.ReferClientAPIView.as_view(), name='refer-client'),
 ]

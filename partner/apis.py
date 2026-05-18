@@ -30,10 +30,11 @@ from .serializers import (
     PartnerEarningSerializer,
     PartnerProfileStatsSerializer,
 )
-from .permissions import IsPartner, IsPartnerAdmin
+from .permissions import IsPartner, IsPartnerAdmin, IsPartnerAuthenticated
 from .utils import generate_partner_tokens
 from .services import (
     PartnerBookingError,
+    broadcast_pending_filter,
     partner_accept_booking,
     partner_start_service,
     partner_complete_booking,
@@ -172,6 +173,7 @@ class LoginAPIView(APIView):
             {
                 **tokens,
                 "partner": PartnerSerializer(partner).data,
+                "is_app_approved": partner.is_app_approved,
             },
             status=status.HTTP_200_OK,
         )
@@ -234,8 +236,8 @@ class AvailableBookingsAPIView(APIView):
     def get(self, request):
         partner = request.partner
         jobs = JobCard.objects.filter(
-            partner=partner,
-            partner_status=JobCard.PartnerStatus.PENDING,
+            broadcast_pending_filter()
+            | Q(partner=partner, partner_status=JobCard.PartnerStatus.PENDING)
         ).select_related('client', 'master_city', 'master_location').order_by('schedule_datetime')
 
         serializer = PartnerBookingListSerializer(jobs, many=True, context={'request': request})
@@ -333,7 +335,9 @@ class BookingCountsAPIView(APIView):
     )
     def get(self, request):
         partner = request.partner
-        available = JobCard.objects.filter(partner=partner, partner_status='pending').count()
+        pool = JobCard.objects.filter(broadcast_pending_filter()).count()
+        mine = JobCard.objects.filter(partner=partner, partner_status='pending').count()
+        available = pool + mine
         accepted = JobCard.objects.filter(
             partner=partner, partner_status__in=['accepted', 'in_service']
         ).count()
@@ -366,10 +370,10 @@ class AcceptBookingAPIView(APIView):
     def post(self, request, id):
         partner = request.partner
         try:
-            job = JobCard.objects.get(id=id, partner=partner)
+            job = JobCard.objects.get(id=id)
             job = partner_accept_booking(job, partner)
         except JobCard.DoesNotExist:
-            return Response({"error": "Booking not found or not assigned to you."}, status=404)
+            return Response({"error": "Booking not found."}, status=404)
         except PartnerBookingError as exc:
             return Response({"error": exc.message, "code": exc.code}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -403,9 +407,15 @@ class RejectBookingAPIView(APIView):
     def post(self, request, id):
         partner = request.partner
         try:
-            job = JobCard.objects.get(id=id, partner=partner)
+            job = JobCard.objects.get(
+                Q(id=id)
+                & (
+                    Q(partner=partner)
+                    | Q(partner__isnull=True, sent_to_app_at__isnull=False)
+                )
+            )
         except JobCard.DoesNotExist:
-            return Response({"error": "Booking not found or not assigned to you."}, status=404)
+            return Response({"error": "Booking not found."}, status=404)
 
         if job.partner_status != JobCard.PartnerStatus.PENDING:
             return Response(
@@ -553,7 +563,7 @@ class ProfileAPIView(APIView):
     GET  /api/partner/profile/       → My profile + stats
     PUT  /api/partner/profile/       → Update profile
     """
-    permission_classes = [IsPartner]
+    permission_classes = [IsPartnerAuthenticated]
 
     @extend_schema(
         tags=["Profile"],
@@ -589,13 +599,16 @@ class ProfileAPIView(APIView):
         total_earnings_result = PartnerEarning.objects.filter(partner=partner).aggregate(Sum('amount'))
         total_earnings = total_earnings_result['amount__sum'] or 0
 
+        pool_available = JobCard.objects.filter(broadcast_pending_filter()).count()
+
         return Response({
             "partner": PartnerSerializer(partner).data,
+            "is_app_approved": partner.is_app_approved,
             "stats": {
                 "total_jobs": total_jobs,
                 "completed_jobs": completed_jobs,
                 "accepted_jobs": accepted_jobs,
-                "available_jobs": available_jobs,
+                "available_jobs": available_jobs + (pool_available if partner.is_app_approved else 0),
                 "service_calls": service_calls,
                 "avg_rating": avg_rating,
                 "total_earnings": str(total_earnings),
@@ -679,3 +692,47 @@ class RatingsAPIView(APIView):
             "total_ratings": ratings.count(),
             "results": data,
         })
+
+
+class ReferClientAPIView(APIView):
+    """
+    POST /api/partner/refer-client/
+    Submit a client referral from the partner app (creates CRM inquiry).
+    """
+    permission_classes = [IsPartner]
+
+    def post(self, request):
+        from core.models import Inquiry
+        from core.staff_partner_sync import normalize_mobile
+
+        partner = request.partner
+        client_name = (request.data.get('client_name') or '').strip()
+        mobile = normalize_mobile(request.data.get('mobile') or '')
+        area = (request.data.get('area') or request.data.get('location') or '').strip()
+
+        if not client_name or len(mobile) != 10:
+            return Response(
+                {'error': 'Valid client name and 10-digit mobile are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        inquiry = Inquiry.objects.create(
+            name=client_name,
+            mobile=mobile,
+            message=(
+                f'Partner referral from {partner.full_name} ({partner.mobile}). '
+                f'Area: {area or "Not specified"}'
+            ),
+            service_interest='Partner Referral',
+            city=area[:100] if area else 'Partner Referral',
+            status=Inquiry.InquiryStatus.NEW,
+        )
+
+        logger.info('Partner %s referred client %s (%s)', partner.mobile, client_name, mobile)
+        return Response(
+            {
+                'message': 'Referral submitted. Our team will contact the client soon.',
+                'inquiry_id': inquiry.id,
+            },
+            status=status.HTTP_201_CREATED,
+        )

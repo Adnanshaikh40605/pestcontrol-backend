@@ -393,6 +393,45 @@ class TechnicianViewSet(BaseModelViewSet):
         serializer = self.get_serializer(active_techs, many=True)
         return response.Response(serializer.data)
 
+    @action(detail=True, methods=['post'], url_path='approve-partner-app')
+    def approve_partner_app(self, request, pk=None):
+        """CRM: allow technician to use the partner mobile app after self-registration."""
+        technician = self.get_object()
+        partner = getattr(technician, 'partner_account', None)
+        if not partner:
+            return response.Response(
+                {'success': False, 'message': 'No partner app account linked to this technician.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        partner.is_app_approved = True
+        partner.is_active = True
+        partner.core_technician = technician
+        partner.save(update_fields=['is_app_approved', 'is_active', 'core_technician', 'updated_at'])
+        serializer = self.get_serializer(technician)
+        return response.Response({
+            'success': True,
+            'message': f'Partner app approved for {technician.name}.',
+            'technician': serializer.data,
+        })
+
+    @action(detail=True, methods=['post'], url_path='revoke-partner-app')
+    def revoke_partner_app(self, request, pk=None):
+        technician = self.get_object()
+        partner = getattr(technician, 'partner_account', None)
+        if not partner:
+            return response.Response(
+                {'success': False, 'message': 'No partner app account linked.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        partner.is_app_approved = False
+        partner.save(update_fields=['is_app_approved', 'updated_at'])
+        serializer = self.get_serializer(technician)
+        return response.Response({
+            'success': True,
+            'message': 'Partner app access revoked.',
+            'technician': serializer.data,
+        })
+
     @action(detail=False, methods=['get'])
     def performance(self, request):
         """Get performance metrics for all technicians with filtering."""
@@ -1788,15 +1827,10 @@ class JobCardViewSet(BaseModelViewSet):
 
         instance = self.get_object()
         technician_id = request.data.get('technician_id')
-        if not technician_id:
-            return response.Response(
-                {'success': False, 'message': 'technician_id is required'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         try:
             job = send_booking_to_partner_app(
                 instance,
-                int(technician_id),
+                int(technician_id) if technician_id else None,
                 sent_by_user=request.user,
             )
         except PartnerBookingError as exc:
