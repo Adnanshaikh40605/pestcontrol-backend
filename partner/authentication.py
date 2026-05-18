@@ -31,6 +31,8 @@ class PartnerJWTAuthentication(BaseAuthentication):
             partner = get_partner_from_token(token)
         except Exception as exc:
             raise AuthenticationFailed('Invalid or expired partner session. Please log in again.') from exc
+        except ValueError as exc:
+            raise AuthenticationFailed(str(exc)) from exc
 
         request.partner = partner
         return (AnonymousUser(), partner)

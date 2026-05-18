@@ -7,6 +7,7 @@ urlpatterns = [
     # ──────────────── AUTH ─────────────────
     path('register/', apis.RegisterAPIView.as_view(), name='register'),
     path('login/', apis.LoginAPIView.as_view(), name='login'),
+    path('token/refresh/', apis.RefreshTokenAPIView.as_view(), name='token-refresh'),
     path('fcm-token/', apis.UpdateFCMTokenAPIView.as_view(), name='fcm-token'),
 
     # ──────────────── BOOKINGS ─────────────

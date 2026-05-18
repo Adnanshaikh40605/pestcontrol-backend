@@ -142,3 +142,18 @@ class PartnerRating(models.Model):
 
     def __str__(self):
         return f"{self.partner.full_name} - {self.rating}★ for Job #{self.job_id}"
+
+
+class PartnerRevokedJti(models.Model):
+    """Blacklisted refresh-token JTIs after rotation or logout."""
+
+    jti = models.CharField(max_length=64, unique=True, db_index=True)
+    revoked_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        verbose_name = 'Partner Revoked Token JTI'
+        verbose_name_plural = 'Partner Revoked Token JTIs'
+
+    def __str__(self):
+        return self.jti

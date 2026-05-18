@@ -4,11 +4,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.http import HttpResponse, JsonResponse
 from rest_framework.permissions import AllowAny
-from rest_framework_simplejwt.views import (
-    TokenRefreshView,
-    TokenVerifyView,
-)
-from core.auth import CustomTokenObtainPairView
+from rest_framework_simplejwt.views import TokenVerifyView
+from core.auth import CustomTokenObtainPairView, CustomTokenRefreshView
 from .api_views import api_docs_view, reference_statistics_view
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -35,7 +32,7 @@ urlpatterns = [
     
     # Authentication endpoints (CRM Staff)
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(permission_classes=[AllowAny]), name='token_refresh'),
+    path('api/token/refresh/', CustomTokenRefreshView.as_view(), name='token_refresh'),
     path('api/token/verify/', TokenVerifyView.as_view(permission_classes=[AllowAny]), name='token_verify'),
     
     # ── CRM Swagger Docs (Admin APIs) ──

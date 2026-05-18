@@ -1,7 +1,8 @@
 import logging
 from rest_framework.permissions import AllowAny
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from django.contrib.auth import get_user_model
 from rest_framework.throttling import AnonRateThrottle
 from django.contrib.auth import authenticate
 from rest_framework import serializers
@@ -164,6 +165,24 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     },
     tags=['Authentication']
 )
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    """Reject refresh for disabled/deleted CRM users."""
+
+    def validate(self, attrs):
+        refresh = self.token_class(attrs['refresh'])
+        user_id = refresh.payload.get('user_id')
+        if user_id:
+            user = get_user_model().objects.filter(pk=user_id).first()
+            if user is None or not user.is_active:
+                raise serializers.ValidationError('User account is disabled.')
+        return super().validate(attrs)
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    serializer_class = CustomTokenRefreshSerializer
+    permission_classes = [AllowAny]
+
+
 class CustomTokenObtainPairView(TokenObtainPairView):
     """Enhanced JWT token view with throttling."""
     serializer_class = CustomTokenObtainPairSerializer

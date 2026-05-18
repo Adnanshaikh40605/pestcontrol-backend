@@ -14,6 +14,14 @@ class PartnerSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_at']
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        image = data.get('profile_image')
+        if request and image and not str(image).startswith('http'):
+            data['profile_image'] = request.build_absolute_uri(image)
+        return data
+
 
 class PartnerRegisterSerializer(serializers.Serializer):
     """Serializer for partner registration."""
@@ -61,6 +69,11 @@ class PartnerLoginSerializer(serializers.Serializer):
     """Serializer for partner login."""
     mobile = serializers.CharField()
     password = serializers.CharField(write_only=True)
+
+
+class PartnerRefreshSerializer(serializers.Serializer):
+    """Serializer for partner token refresh."""
+    refresh = serializers.CharField()
 
 
 class PartnerUpdateSerializer(serializers.ModelSerializer):

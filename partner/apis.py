@@ -22,6 +22,7 @@ from .serializers import (
     PartnerSerializer,
     PartnerRegisterSerializer,
     PartnerLoginSerializer,
+    PartnerRefreshSerializer,
     PartnerUpdateSerializer,
     PartnerFCMSerializer,
     PartnerBookingListSerializer,
@@ -31,7 +32,7 @@ from .serializers import (
     PartnerProfileStatsSerializer,
 )
 from .permissions import IsPartner, IsPartnerAdmin, IsPartnerAuthenticated
-from .utils import generate_partner_tokens
+from .utils import PartnerTokenError, generate_partner_tokens, refresh_partner_tokens
 from .services import (
     PartnerBookingError,
     broadcast_pending_filter,
@@ -177,6 +178,45 @@ class LoginAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+class RefreshTokenAPIView(APIView):
+    """
+    POST /api/partner/token/refresh/
+    Rotate partner refresh token and return new access + refresh pair.
+    """
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        tags=["Authentication"],
+        summary="Refresh partner JWT tokens",
+        description=(
+            "Exchange a valid refresh token for a new access + refresh pair. "
+            "Old refresh token is revoked (rotation). "
+            "Fails if partner is deactivated or refresh is expired (>60 days)."
+        ),
+        request=PartnerRefreshSerializer,
+        responses={
+            200: {
+                "type": "object",
+                "properties": {
+                    "access": {"type": "string"},
+                    "refresh": {"type": "string"},
+                },
+            }
+        },
+    )
+    def post(self, request):
+        serializer = PartnerRefreshSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            tokens = refresh_partner_tokens(serializer.validated_data['refresh'])
+        except PartnerTokenError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
+
+        return Response(tokens, status=status.HTTP_200_OK)
 
 
 class UpdateFCMTokenAPIView(APIView):
@@ -601,8 +641,9 @@ class ProfileAPIView(APIView):
 
         pool_available = JobCard.objects.filter(broadcast_pending_filter()).count()
 
+        ctx = {"request": request}
         return Response({
-            "partner": PartnerSerializer(partner).data,
+            "partner": PartnerSerializer(partner, context=ctx).data,
             "is_app_approved": partner.is_app_approved,
             "stats": {
                 "total_jobs": total_jobs,
@@ -628,9 +669,10 @@ class ProfileAPIView(APIView):
             return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer.save()
+        ctx = {"request": request}
         return Response({
             "message": "Profile updated successfully.",
-            "partner": PartnerSerializer(request.partner).data,
+            "partner": PartnerSerializer(request.partner, context=ctx).data,
         })
 
 

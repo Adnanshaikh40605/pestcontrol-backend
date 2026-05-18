@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'django_filters',
     'corsheaders',
     'drf_spectacular',  # OpenAPI 3.0 documentation
@@ -255,10 +256,14 @@ REST_FRAMEWORK = {
 }
 
 
-# Simple JWT settings
+# Simple JWT settings (CRM / staff users)
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=config('JWT_ACCESS_TOKEN_LIFETIME', default=60, cast=int)),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=config('JWT_REFRESH_TOKEN_LIFETIME', default=7, cast=int)),
+    'ACCESS_TOKEN_LIFETIME': timedelta(
+        hours=config('JWT_ACCESS_TOKEN_LIFETIME_HOURS', default=12, cast=int)
+    ),
+    'REFRESH_TOKEN_LIFETIME': timedelta(
+        days=config('JWT_REFRESH_TOKEN_LIFETIME_DAYS', default=60, cast=int)
+    ),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
