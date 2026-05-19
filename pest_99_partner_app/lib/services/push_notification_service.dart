@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/constants/notification_channels.dart';
 import '../debug/debug_log_store.dart';
 import '../firebase_messaging_background.dart';
 import '../firebase_options.dart';
@@ -17,10 +18,6 @@ typedef BookingNavigationCallback = void Function(int bookingId);
 class PushNotificationService {
   PushNotificationService._();
   static final PushNotificationService instance = PushNotificationService._();
-
-  static const _bookingChannelId = 'pest99_bookings';
-  static const _bookingChannelName = 'Booking alerts';
-  static const _loginChannelId = 'pest99_system';
 
   final FlutterLocalNotificationsPlugin _local = FlutterLocalNotificationsPlugin();
   NotificationApiService? _api;
@@ -56,17 +53,28 @@ class PushNotificationService {
         _local.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(
       const AndroidNotificationChannel(
-        _bookingChannelId,
-        _bookingChannelName,
-        description: 'New bookings and job updates',
+        kNewBookingChannelId,
+        kNewBookingChannelName,
+        description: 'New bookings from CRM — custom alert sound',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+        sound: kNewBookingNotificationSound,
+      ),
+    );
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        kBookingUpdatesChannelId,
+        kBookingUpdatesChannelName,
+        description: 'Assigned, cancelled, and other booking updates',
         importance: Importance.high,
         playSound: true,
       ),
     );
     await androidPlugin?.createNotificationChannel(
       const AndroidNotificationChannel(
-        _loginChannelId,
-        'System',
+        kSystemChannelId,
+        kSystemChannelName,
         description: 'Login and account messages',
         importance: Importance.defaultImportance,
       ),
@@ -162,9 +170,11 @@ class PushNotificationService {
   Future<void> showLoginSuccessNotification() async {
     await _showLocal(
       id: 9001,
-      channelId: _loginChannelId,
+      channelId: kSystemChannelId,
+      channelName: kSystemChannelName,
       title: 'Login Successful',
       body: 'Welcome to Pest 99 Partner',
+      useNewBookingSound: false,
     );
   }
 
@@ -182,17 +192,21 @@ class PushNotificationService {
 
   void _onForegroundMessage(RemoteMessage message) {
     _log('FCM foreground: ${message.data}');
-    final title = message.notification?.title ?? message.data['title']?.toString() ?? 'Pest 99 Partner';
-    final body = message.notification?.body ?? message.data['body']?.toString() ?? '';
-    final bookingId = int.tryParse(message.data['booking_id']?.toString() ?? '');
+    final data = message.data;
+    final title = message.notification?.title ?? data['title']?.toString() ?? 'Pest 99 Partner';
+    final body = message.notification?.body ?? data['body']?.toString() ?? '';
+    final bookingId = int.tryParse(data['booking_id']?.toString() ?? '');
     final notifId = bookingId ?? message.hashCode;
+    final newBooking = isNewBookingPush(data);
 
     _showLocal(
       id: notifId,
-      channelId: _bookingChannelId,
+      channelId: newBooking ? kNewBookingChannelId : kBookingUpdatesChannelId,
+      channelName: newBooking ? kNewBookingChannelName : kBookingUpdatesChannelName,
       title: title,
       body: body,
-      payload: jsonEncode(message.data),
+      payload: jsonEncode(data),
+      useNewBookingSound: newBooking,
     );
     _bumpUnread();
   }
@@ -232,18 +246,35 @@ class PushNotificationService {
   Future<void> _showLocal({
     required int id,
     required String channelId,
+    required String channelName,
     required String title,
     required String body,
     String? payload,
+    required bool useNewBookingSound,
   }) async {
+    final isSystem = channelId == kSystemChannelId;
     final details = AndroidNotificationDetails(
       channelId,
-      channelId == _loginChannelId ? 'System' : _bookingChannelName,
-      channelDescription: channelId == _loginChannelId ? 'System messages' : 'Booking alerts',
-      importance: channelId == _loginChannelId ? Importance.defaultImportance : Importance.high,
-      priority: channelId == _loginChannelId ? Priority.defaultPriority : Priority.high,
+      channelName,
+      channelDescription: isSystem
+          ? 'System messages'
+          : useNewBookingSound
+              ? 'New bookings — custom alert'
+              : 'Booking updates',
+      importance: isSystem
+          ? Importance.defaultImportance
+          : useNewBookingSound
+              ? Importance.max
+              : Importance.high,
+      priority: isSystem
+          ? Priority.defaultPriority
+          : useNewBookingSound
+              ? Priority.max
+              : Priority.high,
       icon: '@mipmap/ic_launcher',
-      tag: channelId == _bookingChannelId ? 'booking_$id' : 'login',
+      playSound: true,
+      sound: useNewBookingSound ? kNewBookingNotificationSound : null,
+      tag: channelId == kSystemChannelId ? 'login' : 'booking_$id',
     );
     await _local.show(
       id,

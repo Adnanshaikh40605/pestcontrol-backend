@@ -118,6 +118,8 @@ def send_push_to_tokens(
     body: str,
     data: dict[str, Any] | None = None,
     collapse_key: str | None = None,
+    channel_id: str = 'pest99_bookings',
+    sound: str | None = None,
 ) -> dict[str, int]:
     """Send FCM. Uses notification+data for killed/background; data includes booking_id for taps."""
     tokens = list(dict.fromkeys(t.strip() for t in tokens if t and t.strip()))
@@ -137,8 +139,8 @@ def send_push_to_tokens(
     payload_data.setdefault('click_action', 'FLUTTER_NOTIFICATION_CLICK')
 
     android_notification = messaging.AndroidNotification(
-        channel_id='pest99_bookings',
-        sound='default',
+        channel_id=channel_id,
+        sound=sound or 'default',
         priority=messaging.AndroidNotificationPriority.HIGH,
         tag=collapse_key or payload_data.get('booking_id'),
     )

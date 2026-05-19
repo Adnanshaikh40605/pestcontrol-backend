@@ -178,6 +178,8 @@ def notify_partners_new_booking(job: JobCard, technician_id: int | None = None) 
         body=body,
         data=data,
         collapse_key=collapse_key,
+        channel_id='pest99_new_booking',
+        sound='uber_driver_sound',
     )
     result['skipped'] = False
     result['fcm_configured'] = is_fcm_configured()
