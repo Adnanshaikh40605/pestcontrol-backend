@@ -305,20 +305,32 @@ class PushHealthAPIView(APIView):
     permission_classes = [IsPartnerAuthenticated]
 
     def get(self, request):
-        from partner.notification_service import active_tokens_for_partners
+        from partner.notification_service import (
+            active_tokens_for_partners,
+            approved_partner_ids,
+        )
         from partner.push_service import is_fcm_configured
 
         partner = request.partner
         my_tokens = list(
             partner.device_tokens.filter(is_active=True).values_list('fcm_token', flat=True)
         )
+        in_push_pool = partner.is_active and partner.is_app_approved
         return Response({
             'fcm_configured': is_fcm_configured(),
             'partner_id': partner.id,
             'is_app_approved': partner.is_app_approved,
+            'is_active': partner.is_active,
+            'included_in_broadcast_push': in_push_pool,
             'device_tokens_count': len(my_tokens),
             'has_legacy_fcm_token': bool(partner.fcm_token),
             'pool_active_tokens': len(active_tokens_for_partners()),
+            'approved_partner_count': len(approved_partner_ids()),
+            'push_hint': (
+                None
+                if in_push_pool
+                else 'Your account is not approved for broadcast push. Contact admin to enable is_app_approved.'
+            ),
         })
 
 

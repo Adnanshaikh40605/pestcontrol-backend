@@ -57,12 +57,18 @@ def register_device_token(partner: Partner, fcm_token: str, device_type: str = '
 
     Partner.objects.filter(pk=partner.pk).update(fcm_token=fcm_token)
 
-    if partner.fcm_token and partner.fcm_token != fcm_token:
-        old = partner.fcm_token.strip()
-        if old:
-            PartnerDeviceToken.objects.filter(fcm_token=old, partner=partner).update(is_active=False)
+    # One active token per partner — deactivate older devices after reinstall/login.
+    PartnerDeviceToken.objects.filter(partner=partner, is_active=True).exclude(
+        fcm_token=fcm_token
+    ).update(is_active=False)
 
-    logger.info('FCM token registered partner=%s device=%s', partner.id, device_type)
+    logger.info(
+        'FCM token registered partner=%s (%s) approved=%s device=%s',
+        partner.id,
+        partner.mobile,
+        partner.is_app_approved,
+        device_type,
+    )
     return existing
 
 
@@ -94,15 +100,66 @@ def _partner_ids_for_technician(technician_id: int | None) -> list[int] | None:
     return [partner.id]
 
 
-def active_tokens_for_partners(partner_ids: list[int] | None = None) -> list[str]:
-    qs = PartnerDeviceToken.objects.filter(is_active=True).select_related('partner')
-    if partner_ids is not None:
-        if not partner_ids:
+def approved_partner_ids(technician_id: int | None = None) -> list[int]:
+    """Partner PKs that receive pool broadcast / in-app new-booking alerts."""
+    qs = Partner.objects.filter(is_active=True, is_app_approved=True)
+    target = _partner_ids_for_technician(technician_id)
+    if target is not None:
+        if not target:
             return []
-        qs = qs.filter(partner_id__in=partner_ids)
-    else:
-        qs = qs.filter(partner__is_active=True, partner__is_app_approved=True)
-    return list(dict.fromkeys(qs.values_list('fcm_token', flat=True)))
+        qs = qs.filter(pk__in=target)
+    return list(qs.values_list('pk', flat=True))
+
+
+def partners_with_tokens_outside_push_pool() -> list[dict[str, Any]]:
+    """Active tokens whose partner is not approved — common cause of push_success=0."""
+    out: list[dict[str, Any]] = []
+    for dt in PartnerDeviceToken.objects.filter(is_active=True).select_related('partner'):
+        p = dt.partner
+        if p.is_active and p.is_app_approved:
+            continue
+        out.append(
+            {
+                'partner_id': p.id,
+                'mobile': p.mobile,
+                'full_name': p.full_name,
+                'is_active': p.is_active,
+                'is_app_approved': p.is_app_approved,
+            }
+        )
+    return out
+
+
+def active_tokens_for_partners(partner_ids: list[int] | None = None) -> list[str]:
+    """
+    FCM tokens for the given partner PKs.
+    None = all approved active partners (same pool as send-to-app broadcast).
+    """
+    if partner_ids is None:
+        partner_ids = approved_partner_ids(None)
+    if not partner_ids:
+        return []
+
+    tokens: list[str] = []
+    seen: set[str] = set()
+
+    for raw in PartnerDeviceToken.objects.filter(
+        is_active=True,
+        partner_id__in=partner_ids,
+    ).values_list('fcm_token', flat=True):
+        t = (raw or '').strip()
+        if t and t not in seen:
+            seen.add(t)
+            tokens.append(t)
+
+    # Legacy fallback: Partner.fcm_token if device row missing.
+    for raw in Partner.objects.filter(pk__in=partner_ids).values_list('fcm_token', flat=True):
+        t = (raw or '').strip()
+        if t and t not in seen:
+            seen.add(t)
+            tokens.append(t)
+
+    return tokens
 
 
 def create_partner_notification(
@@ -167,10 +224,8 @@ def notify_partners_new_booking(
     }
     collapse_key = f'booking_{job.id}'
 
-    target_partner_ids = _partner_ids_for_technician(technician_id)
-    partners_qs = Partner.objects.filter(is_active=True, is_app_approved=True)
-    if target_partner_ids is not None:
-        partners_qs = partners_qs.filter(pk__in=target_partner_ids)
+    partner_ids_for_push = approved_partner_ids(technician_id)
+    partners_qs = Partner.objects.filter(pk__in=partner_ids_for_push)
 
     for partner in partners_qs:
         create_partner_notification(
@@ -182,8 +237,22 @@ def notify_partners_new_booking(
             data=data,
         )
 
-    tokens = active_tokens_for_partners(target_partner_ids)
-    if not tokens:
+    tokens = active_tokens_for_partners(partner_ids_for_push)
+    excluded = partners_with_tokens_outside_push_pool()
+    logger.info(
+        'FCM job #%s: approved_partners=%s active_tokens=%s excluded_token_holders=%s',
+        job.id,
+        len(partner_ids_for_push),
+        len(tokens),
+        len(excluded),
+    )
+    if not tokens and excluded:
+        logger.warning(
+            'Job #%s: %s partner(s) have FCM tokens but are NOT approved — enable is_app_approved in Admin',
+            job.id,
+            len(excluded),
+        )
+    elif not tokens:
         logger.warning('No active FCM tokens for job #%s — partners must log in on the app', job.id)
 
     # notification + data: Android shows tray when app is background/killed.
@@ -200,6 +269,13 @@ def notify_partners_new_booking(
     result['skipped'] = False
     result['fcm_configured'] = is_fcm_configured()
     result['tokens_targeted'] = len(tokens)
+    result['approved_partner_count'] = len(partner_ids_for_push)
+    if not tokens and excluded:
+        result['push_hint'] = (
+            'FCM tokens exist on server but the partner account is not approved (is_app_approved=False). '
+            'Approve the partner in Django Admin or CRM Technicians, then send again.'
+        )
+        result['unapproved_token_holders'] = excluded[:5]
 
     log_crm_partner_event(
         job,
@@ -209,7 +285,8 @@ def notify_partners_new_booking(
             'fcm_success': result.get('success', 0),
             'fcm_failure': result.get('failure', 0),
             'technician_id': technician_id,
-            'target_partners': target_partner_ids,
+            'approved_partner_ids': partner_ids_for_push,
+            'tokens_targeted': len(tokens),
         },
     )
     return result

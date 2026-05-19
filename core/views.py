@@ -1887,11 +1887,20 @@ class JobCardViewSet(BaseModelViewSet):
                 f"({fcm_status.get('reason', 'missing credentials')})"
             )
         tokens_targeted = int(push_result.get('tokens_targeted', 0))
-        if fcm_configured and tokens_targeted == 0 and not push_result.get('skipped'):
-            message += (
-                ' Warning: No FCM device tokens on the server — open the Pest 99 Partner app, '
-                'allow notifications, then log out and log in again (approved partner account).'
-            )
+        approved_count = int(push_result.get('approved_partner_count', 0))
+        push_hint = push_result.get('push_hint')
+        if push_hint:
+            message += f' Warning: {push_hint}'
+        elif fcm_configured and tokens_targeted == 0 and not push_result.get('skipped'):
+            if approved_count == 0:
+                message += (
+                    ' Warning: No approved partner accounts for the app — approve technicians in CRM.'
+                )
+            else:
+                message += (
+                    ' Warning: No FCM device tokens for approved partners — open Pest 99 Partner app, '
+                    'allow notifications, log out and log in again.'
+                )
         elif push_success == 0 and tokens_targeted > 0 and not push_result.get('skipped'):
             message += (
                 ' Warning: Push was sent to device(s) but none succeeded — ask technicians to log in again.'
@@ -1905,6 +1914,9 @@ class JobCardViewSet(BaseModelViewSet):
             'push_success': push_success,
             'push_failure': int(push_result.get('failure', 0)),
             'push_tokens_targeted': tokens_targeted,
+            'approved_partner_count': approved_count,
+            'push_hint': push_hint,
+            'unapproved_token_holders': push_result.get('unapproved_token_holders'),
             'job': serializer.data,
         })
 
