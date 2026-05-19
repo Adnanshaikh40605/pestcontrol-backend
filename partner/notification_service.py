@@ -199,6 +199,7 @@ def notify_partners_new_booking(
     )
     result['skipped'] = False
     result['fcm_configured'] = is_fcm_configured()
+    result['tokens_targeted'] = len(tokens)
 
     log_crm_partner_event(
         job,

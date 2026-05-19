@@ -136,19 +136,49 @@ class PushNotificationService {
       rethrow;
     }
 
-    if (!_tokenRefreshListenerAttached) {
-      _tokenRefreshListenerAttached = true;
-      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-        _cachedToken = newToken;
-        _log('FCM token refreshed by Firebase');
-        try {
-          await api.saveFcmToken(newToken);
-          _log('Refreshed token synced');
-        } catch (e) {
-          _log('Refreshed token sync failed: $e');
-        }
-      });
+    _attachTokenRefreshListener(api);
+  }
+
+  /// Call after login / app resume — retries until token is saved on the server.
+  Future<bool> ensureTokenSyncedWithBackend({int maxAttempts = 4}) async {
+    final api = _api;
+    if (api == null) return false;
+
+    await requestPermission();
+
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      final token = await getToken();
+      if (token == null || token.isEmpty) {
+        _log('FCM ensure: no token yet (attempt $attempt/$maxAttempts)');
+        await Future<void>.delayed(Duration(seconds: attempt));
+        continue;
+      }
+      try {
+        await api.saveFcmToken(token);
+        _log('FCM ensure: token saved (attempt $attempt)');
+        _attachTokenRefreshListener(api);
+        return true;
+      } catch (e) {
+        _log('FCM ensure failed attempt $attempt: $e');
+        await Future<void>.delayed(Duration(seconds: attempt));
+      }
     }
+    return false;
+  }
+
+  void _attachTokenRefreshListener(NotificationApiService api) {
+    if (_tokenRefreshListenerAttached) return;
+    _tokenRefreshListenerAttached = true;
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+      _cachedToken = newToken;
+      _log('FCM token refreshed by Firebase');
+      try {
+        await api.saveFcmToken(newToken);
+        _log('Refreshed token synced');
+      } catch (e) {
+        _log('Refreshed token sync failed: $e');
+      }
+    });
   }
 
   Future<void> showLoginSuccessNotification() async {

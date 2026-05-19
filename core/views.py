@@ -1886,10 +1886,15 @@ class JobCardViewSet(BaseModelViewSet):
                 'technicians must open the app to see the booking. '
                 f"({fcm_status.get('reason', 'missing credentials')})"
             )
-        elif push_success == 0 and not push_result.get('skipped'):
+        tokens_targeted = int(push_result.get('tokens_targeted', 0))
+        if fcm_configured and tokens_targeted == 0 and not push_result.get('skipped'):
             message += (
-                ' Warning: No partner devices received a push (no FCM tokens registered). '
-                'Ask technicians to log in to the partner app again.'
+                ' Warning: No FCM device tokens on the server — open the Pest 99 Partner app, '
+                'allow notifications, then log out and log in again (approved partner account).'
+            )
+        elif push_success == 0 and tokens_targeted > 0 and not push_result.get('skipped'):
+            message += (
+                ' Warning: Push was sent to device(s) but none succeeded — ask technicians to log in again.'
             )
 
         return response.Response({
@@ -1899,6 +1904,7 @@ class JobCardViewSet(BaseModelViewSet):
             'fcm_configured': fcm_configured,
             'push_success': push_success,
             'push_failure': int(push_result.get('failure', 0)),
+            'push_tokens_targeted': tokens_targeted,
             'job': serializer.data,
         })
 

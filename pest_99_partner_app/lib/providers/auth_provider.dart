@@ -51,9 +51,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _setupPushAfterAuth() async {
-    await PushNotificationService.instance.requestPermission();
-    await PushNotificationService.instance.getToken();
-    await PushNotificationService.instance.syncTokenWithBackend();
+    await PushNotificationService.instance.ensureTokenSyncedWithBackend();
   }
 
   void clearSessionMessage() {
@@ -75,12 +73,9 @@ class AuthProvider extends ChangeNotifier {
       if (partner is Map) {
         _partnerName = partner['full_name'] as String?;
       }
-      await PushNotificationService.instance.requestPermission();
-      await PushNotificationService.instance.getToken();
-      try {
-        await PushNotificationService.instance.syncTokenWithBackend();
-      } catch (e) {
-        debugPrint('FCM token sync after login failed: $e');
+      final fcmOk = await PushNotificationService.instance.ensureTokenSyncedWithBackend();
+      if (!fcmOk) {
+        debugPrint('FCM token was not saved — check notification permission and try log in again');
       }
       await PushNotificationService.instance.showLoginSuccessNotification();
       return true;
@@ -127,7 +122,7 @@ class AuthProvider extends ChangeNotifier {
       _partnerName = partner['full_name'] as String?;
     }
     if (_loggedIn) {
-      await PushNotificationService.instance.syncTokenWithBackend();
+      await PushNotificationService.instance.ensureTokenSyncedWithBackend();
     }
     notifyListeners();
   }
