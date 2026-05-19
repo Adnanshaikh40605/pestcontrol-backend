@@ -1873,11 +1873,13 @@ class JobCardViewSet(BaseModelViewSet):
                 'All approved and verified technicians can accept it.'
             )
 
-        push_success = int(push_result.get('success', 0))
-        fcm_configured = bool(push_result.get('fcm_configured', False))
-        if not fcm_configured:
-            from partner.push_service import get_fcm_config_status
+        from partner.push_service import get_fcm_config_status, is_fcm_configured
 
+        push_success = int(push_result.get('success', 0))
+        fcm_configured = bool(
+            push_result.get('fcm_configured', is_fcm_configured())
+        )
+        if not fcm_configured:
             fcm_status = get_fcm_config_status()
             message += (
                 ' Warning: Firebase push is not configured on the server — '
