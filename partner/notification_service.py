@@ -133,19 +133,30 @@ def log_crm_partner_event(job: JobCard, event_type: str, message: str, extra: di
     )
 
 
-def notify_partners_new_booking(job: JobCard, technician_id: int | None = None) -> dict[str, int]:
+def notify_partners_new_booking(
+    job: JobCard,
+    technician_id: int | None = None,
+    *,
+    force: bool = False,
+) -> dict[str, int]:
     """
     Push new booking to partner app.
     - technician_id set → only that technician's partner (CRM "send to specific technician")
     - technician_id omitted → all approved active partners (pool broadcast)
+    - force=True → CRM refloat; always send FCM again (skip 90s dedupe)
     """
-    if should_skip_duplicate_push(
+    if not force and should_skip_duplicate_push(
         job.id,
         PartnerNotification.NotificationType.NEW_BOOKING,
         technician_id,
     ):
         logger.info('Skipping duplicate push for job #%s', job.id)
-        return {'success': 0, 'failure': 0, 'skipped': True}
+        return {
+            'success': 0,
+            'failure': 0,
+            'skipped': True,
+            'fcm_configured': is_fcm_configured(),
+        }
 
     title = 'New Booking Available'
     body = _booking_subtitle(job)
