@@ -7,7 +7,8 @@ const AndroidNotificationSound kNewBookingNotificationSound =
     RawResourceAndroidNotificationSound(kNewBookingSoundResource);
 
 /// New incoming booking — custom Uber-style alert sound.
-const String kNewBookingChannelId = 'pest99_new_booking';
+/// v2: fresh channel so devices with an old silent channel get loud + custom sound.
+const String kNewBookingChannelId = 'pest99_new_booking_v2';
 const String kNewBookingChannelName = 'New booking alerts';
 
 /// Other booking updates (assigned, cancelled) — default system sound.

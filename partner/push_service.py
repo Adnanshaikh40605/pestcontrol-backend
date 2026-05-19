@@ -120,8 +120,12 @@ def send_push_to_tokens(
     collapse_key: str | None = None,
     channel_id: str = 'pest99_bookings',
     sound: str | None = None,
+    data_only: bool = False,
 ) -> dict[str, int]:
-    """Send FCM. Uses notification+data for killed/background; data includes booking_id for taps."""
+    """
+    Send FCM. For new bookings use data_only=True so the app shows a high-priority local
+    notification with the correct channel + custom sound (avoids silent system tray).
+    """
     tokens = list(dict.fromkeys(t.strip() for t in tokens if t and t.strip()))
     if not tokens:
         return {'success': 0, 'failure': 0}
@@ -138,17 +142,23 @@ def send_push_to_tokens(
     payload_data['body'] = body
     payload_data.setdefault('click_action', 'FLUTTER_NOTIFICATION_CLICK')
 
-    android_notification = messaging.AndroidNotification(
-        channel_id=channel_id,
-        sound=sound or 'default',
-        priority=messaging.AndroidNotificationPriority.HIGH,
-        tag=collapse_key or payload_data.get('booking_id'),
-    )
     android_config = messaging.AndroidConfig(
         priority='high',
         collapse_key=collapse_key,
-        notification=android_notification,
     )
+    if not data_only:
+        android_notification = messaging.AndroidNotification(
+            channel_id=channel_id,
+            sound=sound or 'default',
+            priority=messaging.AndroidNotificationPriority.HIGH,
+            tag=collapse_key or payload_data.get('booking_id'),
+            visibility='public',
+        )
+        android_config = messaging.AndroidConfig(
+            priority='high',
+            collapse_key=collapse_key,
+            notification=android_notification,
+        )
 
     success = 0
     failure = 0
@@ -157,12 +167,19 @@ def send_push_to_tokens(
     for i in range(0, len(tokens), batch_size):
         batch = tokens[i : i + batch_size]
         try:
-            message = messaging.MulticastMessage(
-                notification=messaging.Notification(title=title, body=body),
-                data=payload_data,
-                tokens=batch,
-                android=android_config,
-            )
+            if data_only:
+                message = messaging.MulticastMessage(
+                    data=payload_data,
+                    tokens=batch,
+                    android=android_config,
+                )
+            else:
+                message = messaging.MulticastMessage(
+                    notification=messaging.Notification(title=title, body=body),
+                    data=payload_data,
+                    tokens=batch,
+                    android=android_config,
+                )
             response = messaging.send_each_for_multicast(message, app=app)
             success += response.success_count
             failure += response.failure_count

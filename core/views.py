@@ -1833,7 +1833,7 @@ class JobCardViewSet(BaseModelViewSet):
             and instance.partner_id is None
         )
         try:
-            job, was_refloat = send_booking_to_partner_app(
+            job, was_refloat, push_result = send_booking_to_partner_app(
                 instance,
                 int(technician_id) if technician_id else None,
                 sent_by_user=request.user,
@@ -1868,10 +1868,27 @@ class JobCardViewSet(BaseModelViewSet):
                 'Booking sent to the partner app. '
                 'All approved and verified technicians can accept it.'
             )
+
+        push_success = int(push_result.get('success', 0))
+        fcm_configured = bool(push_result.get('fcm_configured', False))
+        if not fcm_configured:
+            message += (
+                ' Warning: Firebase push is not configured on the server — '
+                'technicians must open the app to see the booking.'
+            )
+        elif push_success == 0 and not push_result.get('skipped'):
+            message += (
+                ' Warning: No partner devices received a push (no FCM tokens registered). '
+                'Ask technicians to log in to the partner app again.'
+            )
+
         return response.Response({
             'success': True,
             'refloated': refloating,
             'message': message,
+            'fcm_configured': fcm_configured,
+            'push_success': push_success,
+            'push_failure': int(push_result.get('failure', 0)),
             'job': serializer.data,
         })
 

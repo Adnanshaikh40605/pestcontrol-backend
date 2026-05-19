@@ -11,6 +11,7 @@ import '../debug/debug_log_store.dart';
 import '../firebase_messaging_background.dart';
 import '../firebase_options.dart';
 import 'notification_api_service.dart';
+import 'partner_local_notifications.dart';
 
 typedef BookingNavigationCallback = void Function(int bookingId);
 
@@ -19,7 +20,6 @@ class PushNotificationService {
   PushNotificationService._();
   static final PushNotificationService instance = PushNotificationService._();
 
-  final FlutterLocalNotificationsPlugin _local = FlutterLocalNotificationsPlugin();
   NotificationApiService? _api;
   BookingNavigationCallback? _onOpenBooking;
 
@@ -43,34 +43,16 @@ class PushNotificationService {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    await _local.initialize(
-      const InitializationSettings(android: androidInit),
+    await ensurePartnerNotificationChannels();
+    await partnerLocalNotifications.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      ),
       onDidReceiveNotificationResponse: _onLocalNotificationTap,
     );
 
-    final androidPlugin =
-        _local.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-    await androidPlugin?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        kNewBookingChannelId,
-        kNewBookingChannelName,
-        description: 'New bookings from CRM — custom alert sound',
-        importance: Importance.max,
-        playSound: true,
-        enableVibration: true,
-        sound: kNewBookingNotificationSound,
-      ),
-    );
-    await androidPlugin?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        kBookingUpdatesChannelId,
-        kBookingUpdatesChannelName,
-        description: 'Assigned, cancelled, and other booking updates',
-        importance: Importance.high,
-        playSound: true,
-      ),
-    );
+    final androidPlugin = partnerLocalNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(
       const AndroidNotificationChannel(
         kSystemChannelId,
@@ -199,14 +181,12 @@ class PushNotificationService {
     final notifId = bookingId ?? message.hashCode;
     final newBooking = isNewBookingPush(data);
 
-    _showLocal(
+    showPartnerLocalNotification(
       id: notifId,
-      channelId: newBooking ? kNewBookingChannelId : kBookingUpdatesChannelId,
-      channelName: newBooking ? kNewBookingChannelName : kBookingUpdatesChannelName,
       title: title,
       body: body,
-      payload: jsonEncode(data),
-      useNewBookingSound: newBooking,
+      data: data,
+      isNewBooking: newBooking,
     );
     _bumpUnread();
   }
@@ -276,7 +256,7 @@ class PushNotificationService {
       sound: useNewBookingSound ? kNewBookingNotificationSound : null,
       tag: channelId == kSystemChannelId ? 'login' : 'booking_$id',
     );
-    await _local.show(
+    await partnerLocalNotifications.show(
       id,
       title,
       body,
