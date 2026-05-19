@@ -1,14 +1,5 @@
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-
-/// Android raw resource name (res/raw/uber_driver_sound.mp3) — no extension.
-const String kNewBookingSoundResource = 'uber_driver_sound';
-
-const AndroidNotificationSound kNewBookingNotificationSound =
-    RawResourceAndroidNotificationSound(kNewBookingSoundResource);
-
-/// New incoming booking — custom Uber-style alert sound.
-/// Bump version when channel was muted on device (Android locks channel settings).
-const String kNewBookingChannelId = 'pest99_new_booking_v3';
+/// New booking alerts — default system sound (channel id bumped after mute on device).
+const String kNewBookingChannelId = 'pest99_booking_alerts_v4';
 const String kNewBookingChannelName = 'New booking alerts';
 
 /// Other booking updates (assigned, cancelled) — default system sound.

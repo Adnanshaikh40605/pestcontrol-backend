@@ -255,7 +255,6 @@ class PushNotificationService {
               : Priority.high,
       icon: '@mipmap/ic_launcher',
       playSound: true,
-      sound: useNewBookingSound ? kNewBookingNotificationSound : null,
       tag: channelId == kSystemChannelId ? 'login' : 'booking_$id',
     );
     await partnerLocalNotifications.show(

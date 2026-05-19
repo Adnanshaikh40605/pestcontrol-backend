@@ -9,6 +9,11 @@ import 'services/partner_local_notifications.dart';
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
+  // Booking pushes include a notification payload — Android already shows the tray alert.
+  if (message.notification != null) {
+    return;
+  }
+
   final data = message.data;
   final isNewBooking = isNewBookingPush(data);
   final title =
