@@ -183,6 +183,8 @@ def notify_partners_new_booking(
         )
 
     tokens = active_tokens_for_partners(target_partner_ids)
+    # notification + data (not data-only): Android shows tray alert when app is
+    # background/killed. data-only often never wakes the Flutter background handler.
     result = send_push_to_tokens(
         tokens,
         title=title,
@@ -191,7 +193,7 @@ def notify_partners_new_booking(
         collapse_key=collapse_key,
         channel_id='pest99_new_booking_v3',
         sound='uber_driver_sound',
-        data_only=True,
+        data_only=False,
     )
     result['skipped'] = False
     result['fcm_configured'] = is_fcm_configured()
