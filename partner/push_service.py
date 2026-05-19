@@ -4,6 +4,7 @@ Firebase Cloud Messaging for Pest 99 Partner app.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -13,10 +14,67 @@ from django.core.cache import cache
 logger = logging.getLogger(__name__)
 
 _firebase_app = None
+_firebase_init_error: str | None = None
+
+
+def get_fcm_config_status() -> dict[str, Any]:
+    """
+    Diagnose partner FCM setup (no secrets). Used by health check and CRM warnings.
+    """
+    project_id = getattr(settings, 'PARTNER_FIREBASE_PROJECT_ID', 'pest-99-partner-app')
+    sa_json = (getattr(settings, 'FIREBASE_SERVICE_ACCOUNT_JSON', '') or '').strip()
+    private_key = (getattr(settings, 'FIREBASE_PRIVATE_KEY', '') or '').strip()
+    client_email = (getattr(settings, 'FIREBASE_CLIENT_EMAIL', '') or '').strip()
+    cred_path = (getattr(settings, 'GOOGLE_APPLICATION_CREDENTIALS', '') or '').strip()
+
+    has_json = bool(sa_json)
+    has_split = bool(private_key and client_email)
+    has_file = bool(cred_path)
+
+    if not has_json and not has_split and not has_file:
+        return {
+            'configured': False,
+            'project_id': project_id,
+            'reason': (
+                'Missing Firebase credentials on the server. On Railway set '
+                'FIREBASE_SERVICE_ACCOUNT_JSON (recommended) or FIREBASE_CLIENT_EMAIL + '
+                'FIREBASE_PRIVATE_KEY from Firebase project pest-99-partner-app.'
+            ),
+            'has_service_account_json': False,
+            'has_client_email': bool(client_email),
+            'has_private_key': bool(private_key),
+        }
+
+    if _firebase_init_error:
+        return {
+            'configured': False,
+            'project_id': project_id,
+            'reason': f'Firebase credentials present but invalid: {_firebase_init_error}',
+            'has_service_account_json': has_json,
+            'has_client_email': has_split,
+        }
+
+    app = _get_firebase_app()
+    if app is None:
+        return {
+            'configured': False,
+            'project_id': project_id,
+            'reason': _firebase_init_error or 'Firebase Admin failed to initialize',
+            'has_service_account_json': has_json,
+            'has_client_email': has_split,
+        }
+
+    return {
+        'configured': True,
+        'project_id': project_id,
+        'reason': 'ok',
+        'has_service_account_json': has_json,
+        'has_client_email': has_split,
+    }
 
 
 def _get_firebase_app():
-    global _firebase_app
+    global _firebase_app, _firebase_init_error
     if _firebase_app is not None:
         return _firebase_app
 
@@ -24,9 +82,35 @@ def _get_firebase_app():
     from firebase_admin import credentials
 
     project_id = getattr(settings, 'PARTNER_FIREBASE_PROJECT_ID', 'pest-99-partner-app')
-    private_key = getattr(settings, 'FIREBASE_PRIVATE_KEY', '') or ''
-    client_email = getattr(settings, 'FIREBASE_CLIENT_EMAIL', '') or ''
-    private_key_id = getattr(settings, 'FIREBASE_PRIVATE_KEY_ID', '') or ''
+    sa_json = (getattr(settings, 'FIREBASE_SERVICE_ACCOUNT_JSON', '') or '').strip()
+    private_key = (getattr(settings, 'FIREBASE_PRIVATE_KEY', '') or '').strip()
+    client_email = (getattr(settings, 'FIREBASE_CLIENT_EMAIL', '') or '').strip()
+    private_key_id = (getattr(settings, 'FIREBASE_PRIVATE_KEY_ID', '') or '').strip()
+
+    try:
+        if sa_json:
+            cred_dict = json.loads(sa_json)
+            if isinstance(cred_dict.get('private_key'), str) and '\\n' in cred_dict['private_key']:
+                cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
+            cred = credentials.Certificate(cred_dict)
+            project_id = cred_dict.get('project_id') or project_id
+            try:
+                _firebase_app = firebase_admin.get_app('partner-fcm')
+            except ValueError:
+                _firebase_app = firebase_admin.initialize_app(
+                    cred, {'projectId': project_id}, name='partner-fcm'
+                )
+            logger.info('Firebase Admin ready for partner FCM (JSON, project=%s)', project_id)
+            _firebase_init_error = None
+            return _firebase_app
+    except json.JSONDecodeError as exc:
+        _firebase_init_error = f'FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON: {exc}'
+        logger.error(_firebase_init_error)
+        return None
+    except Exception as exc:
+        _firebase_init_error = str(exc)
+        logger.exception('Firebase JSON credentials failed: %s', exc)
+        return None
 
     if private_key and client_email:
         if '\\n' in private_key:
@@ -46,17 +130,27 @@ def _get_firebase_app():
         except ValueError:
             _firebase_app = firebase_admin.initialize_app(cred, {'projectId': project_id}, name='partner-fcm')
         logger.info('Firebase Admin ready for partner FCM (project=%s)', project_id)
+        _firebase_init_error = None
         return _firebase_app
 
-    cred_path = getattr(settings, 'GOOGLE_APPLICATION_CREDENTIALS', None)
+    cred_path = (getattr(settings, 'GOOGLE_APPLICATION_CREDENTIALS', '') or '').strip()
     if cred_path:
-        cred = credentials.Certificate(cred_path)
         try:
-            _firebase_app = firebase_admin.get_app('partner-fcm')
-        except ValueError:
-            _firebase_app = firebase_admin.initialize_app(cred, {'projectId': project_id}, name='partner-fcm')
-        return _firebase_app
+            cred = credentials.Certificate(cred_path)
+            try:
+                _firebase_app = firebase_admin.get_app('partner-fcm')
+            except ValueError:
+                _firebase_app = firebase_admin.initialize_app(
+                    cred, {'projectId': project_id}, name='partner-fcm'
+                )
+            _firebase_init_error = None
+            return _firebase_app
+        except Exception as exc:
+            _firebase_init_error = str(exc)
+            logger.exception('Firebase file credentials failed: %s', exc)
+            return None
 
+    _firebase_init_error = 'No Firebase credentials configured'
     logger.warning('Firebase credentials not configured — partner push disabled')
     return None
 
@@ -196,4 +290,4 @@ def send_push_to_tokens(
 
 
 def is_fcm_configured() -> bool:
-    return _get_firebase_app() is not None
+    return get_fcm_config_status().get('configured') is True

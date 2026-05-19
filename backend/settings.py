@@ -578,8 +578,10 @@ SPECTACULAR_SETTINGS = {
     },
 }
 
-# Partner app FCM (Firebase Admin SDK)
+# Partner app FCM (Firebase Admin SDK) — project: pest-99-partner-app
+# Railway: set either FIREBASE_SERVICE_ACCOUNT_JSON (full JSON file) OR CLIENT_EMAIL + PRIVATE_KEY.
 PARTNER_FIREBASE_PROJECT_ID = config('PARTNER_FIREBASE_PROJECT_ID', default='pest-99-partner-app')
+FIREBASE_SERVICE_ACCOUNT_JSON = config('FIREBASE_SERVICE_ACCOUNT_JSON', default='')
 FIREBASE_PRIVATE_KEY = config('FIREBASE_PRIVATE_KEY', default='')
 FIREBASE_PRIVATE_KEY_ID = config('FIREBASE_PRIVATE_KEY_ID', default='')
 FIREBASE_CLIENT_EMAIL = config('FIREBASE_CLIENT_EMAIL', default='')

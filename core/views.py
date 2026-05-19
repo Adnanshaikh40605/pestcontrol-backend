@@ -61,12 +61,16 @@ logger = logging.getLogger(__name__)
 )
 def health_check(request):
     """Health check endpoint for monitoring."""
-    return JsonResponse({
+    from partner.push_service import get_fcm_config_status
+
+    payload = {
         'status': 'ok',
         'service': 'pestcontrol-backend',
         'version': '1.0.0',
-        'endpoint': 'core'
-    })
+        'endpoint': 'core',
+        'partner_fcm': get_fcm_config_status(),
+    }
+    return JsonResponse(payload)
 
 
 # CORS test endpoint removed for production security
@@ -1872,9 +1876,13 @@ class JobCardViewSet(BaseModelViewSet):
         push_success = int(push_result.get('success', 0))
         fcm_configured = bool(push_result.get('fcm_configured', False))
         if not fcm_configured:
+            from partner.push_service import get_fcm_config_status
+
+            fcm_status = get_fcm_config_status()
             message += (
                 ' Warning: Firebase push is not configured on the server — '
-                'technicians must open the app to see the booking.'
+                'technicians must open the app to see the booking. '
+                f"({fcm_status.get('reason', 'missing credentials')})"
             )
         elif push_success == 0 and not push_result.get('skipped'):
             message += (
