@@ -27,7 +27,9 @@ Future<void> ensurePartnerNotificationChannels() async {
       playSound: true,
       enableVibration: true,
       enableLights: true,
+      bypassDnd: true,
       sound: kNewBookingNotificationSound,
+      audioAttributesUsage: AudioAttributesUsage.alarm,
     ),
   );
   await androidPlugin?.createNotificationChannel(
@@ -61,12 +63,17 @@ Future<void> showPartnerLocalNotification({
     channelDescription: isNewBooking ? 'New booking alerts' : 'Booking updates',
     importance: isNewBooking ? Importance.max : Importance.high,
     priority: isNewBooking ? Priority.max : Priority.high,
+    category: isNewBooking ? AndroidNotificationCategory.call : null,
     icon: '@mipmap/ic_launcher',
     playSound: true,
     enableVibration: true,
     sound: isNewBooking ? kNewBookingNotificationSound : null,
+    audioAttributesUsage:
+        isNewBooking ? AudioAttributesUsage.alarm : AudioAttributesUsage.notification,
     visibility: NotificationVisibility.public,
+    fullScreenIntent: isNewBooking,
     tag: 'booking_$id',
+    ticker: title,
   );
 
   await partnerLocalNotifications.show(

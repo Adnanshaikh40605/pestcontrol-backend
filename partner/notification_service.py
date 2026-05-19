@@ -189,7 +189,7 @@ def notify_partners_new_booking(
         body=body,
         data=data,
         collapse_key=collapse_key,
-        channel_id='pest99_new_booking_v2',
+        channel_id='pest99_new_booking_v3',
         sound='uber_driver_sound',
         data_only=True,
     )
