@@ -65,10 +65,14 @@ def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=N
         JobCard.PartnerStatus.IN_SERVICE,
     ):
         if job.partner_id is None or job.partner_status == JobCard.PartnerStatus.PENDING:
-            raise PartnerBookingError(
-                'Booking is already in the partner app queue.',
-                code='already_sent',
-            )
+            # Already in queue — refresh push notification instead of failing (idempotent send).
+            try:
+                from partner.notification_service import notify_partners_new_booking
+
+                notify_partners_new_booking(job, technician_id=technician_id)
+            except Exception as exc:
+                logger.exception('FCM re-notify failed for booking #%s: %s', job.id, exc)
+            return job
 
     job.technician = None
     job.assigned_to = ''

@@ -197,7 +197,8 @@ class JobCardSerializer(serializers.ModelSerializer):
         return None
 
     def get_sent_to_app(self, obj):
-        return bool(obj.sent_to_app_at and obj.partner_id)
+        """True when CRM has dispatched this booking to the partner app queue."""
+        return bool(obj.sent_to_app_at)
 
     partner_name = serializers.CharField(source='partner.full_name', read_only=True)
     job_start_selfie_url = serializers.SerializerMethodField()
