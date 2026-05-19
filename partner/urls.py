@@ -8,7 +8,13 @@ urlpatterns = [
     path('register/', apis.RegisterAPIView.as_view(), name='register'),
     path('login/', apis.LoginAPIView.as_view(), name='login'),
     path('token/refresh/', apis.RefreshTokenAPIView.as_view(), name='token-refresh'),
-    path('fcm-token/', apis.UpdateFCMTokenAPIView.as_view(), name='fcm-token'),
+    path('fcm-token/', apis.SaveFCMTokenAPIView.as_view(), name='fcm-token'),
+    path('save-fcm-token/', apis.SaveFCMTokenAPIView.as_view(), name='save-fcm-token'),
+    path('remove-fcm-token/', apis.RemoveFCMTokenAPIView.as_view(), name='remove-fcm-token'),
+    path('push-health/', apis.PushHealthAPIView.as_view(), name='push-health'),
+    path('notifications/', apis.PartnerNotificationsAPIView.as_view(), name='notifications'),
+    path('notifications/mark-all-read/', apis.MarkAllNotificationsReadAPIView.as_view(), name='notifications-mark-all-read'),
+    path('notifications/<int:id>/read/', apis.MarkNotificationReadAPIView.as_view(), name='notification-read'),
 
     # ──────────────── BOOKINGS ─────────────
     path('bookings/counts/', apis.BookingCountsAPIView.as_view(), name='booking-counts'),

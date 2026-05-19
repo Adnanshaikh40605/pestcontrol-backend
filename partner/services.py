@@ -97,6 +97,12 @@ def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=N
         job.id,
         sent_by_user,
     )
+    try:
+        from partner.notification_service import notify_partners_new_booking
+
+        notify_partners_new_booking(job, technician_id=technician_id)
+    except Exception as exc:
+        logger.exception('FCM push failed for booking #%s: %s', job.id, exc)
     return job
 
 
@@ -139,6 +145,12 @@ def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
             'status',
         ]
     )
+    try:
+        from partner.notification_service import notify_crm_booking_accepted
+
+        notify_crm_booking_accepted(job, partner)
+    except Exception as exc:
+        logger.exception('CRM notify accept failed #%s: %s', job.id, exc)
     return job
 
 
@@ -162,6 +174,12 @@ def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCar
     job.partner_status = JobCard.PartnerStatus.IN_SERVICE
     job.started_at = timezone.now()
     job.save(update_fields=['job_start_selfie', 'partner_status', 'started_at'])
+    try:
+        from partner.notification_service import notify_crm_service_started
+
+        notify_crm_service_started(job, partner)
+    except Exception as exc:
+        logger.exception('CRM notify start failed #%s: %s', job.id, exc)
     return job
 
 
@@ -206,4 +224,10 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
             'started_at',
         ]
     )
+    try:
+        from partner.notification_service import notify_crm_service_completed
+
+        notify_crm_service_completed(job, partner)
+    except Exception as exc:
+        logger.exception('CRM notify complete failed #%s: %s', job.id, exc)
     return job

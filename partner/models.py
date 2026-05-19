@@ -157,3 +157,114 @@ class PartnerRevokedJti(models.Model):
 
     def __str__(self):
         return self.jti
+
+
+class PartnerDeviceToken(models.Model):
+    """FCM device token per partner (supports multiple devices; deduped by token)."""
+
+    class DeviceType(models.TextChoices):
+        ANDROID = 'android', 'Android'
+        IOS = 'ios', 'iOS'
+
+    partner = models.ForeignKey(
+        Partner,
+        on_delete=models.CASCADE,
+        related_name='device_tokens',
+    )
+    fcm_token = models.CharField(max_length=512, unique=True, db_index=True)
+    device_type = models.CharField(
+        max_length=20,
+        choices=DeviceType.choices,
+        default=DeviceType.ANDROID,
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    last_used_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Partner Device Token'
+        verbose_name_plural = 'Partner Device Tokens'
+        indexes = [
+            models.Index(fields=['partner', 'is_active']),
+        ]
+
+    def __str__(self):
+        return f'{self.partner_id} — {self.device_type}'
+
+
+class PartnerNotification(models.Model):
+    """In-app notification history for partner app."""
+
+    class NotificationType(models.TextChoices):
+        NEW_BOOKING = 'new_booking', 'New Booking'
+        BOOKING_ASSIGNED = 'booking_assigned', 'Booking Assigned'
+        BOOKING_ACCEPTED = 'booking_accepted', 'Booking Accepted'
+        BOOKING_CANCELLED = 'booking_cancelled', 'Booking Cancelled'
+        COMPLAINT_CALL = 'complaint_call', 'Complaint Call'
+        SERVICE_REMINDER = 'service_reminder', 'Service Reminder'
+        AMC_FOLLOWUP = 'amc_followup', 'AMC Follow-up'
+        PAYMENT_PENDING = 'payment_pending', 'Payment Pending'
+        JOB_COMPLETED = 'job_completed', 'Job Completed'
+        GENERAL = 'general', 'General'
+
+    partner = models.ForeignKey(
+        Partner,
+        on_delete=models.CASCADE,
+        related_name='notifications',
+    )
+    notification_type = models.CharField(
+        max_length=40,
+        choices=NotificationType.choices,
+        default=NotificationType.GENERAL,
+        db_index=True,
+    )
+    title = models.CharField(max_length=255)
+    body = models.TextField()
+    booking = models.ForeignKey(
+        'core.JobCard',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='partner_notifications',
+    )
+    data = models.JSONField(default=dict, blank=True)
+    is_read = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Partner Notification'
+        verbose_name_plural = 'Partner Notifications'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.partner_id}: {self.title}'
+
+
+class CrmPartnerEvent(models.Model):
+    """Events from partner app for CRM dashboard / future web push."""
+
+    class EventType(models.TextChoices):
+        BOOKING_SENT_TO_APP = 'booking_sent_to_app', 'Sent To App'
+        BOOKING_ACCEPTED = 'booking_accepted', 'Booking Accepted'
+        SERVICE_STARTED = 'service_started', 'Service Started'
+        JOB_COMPLETED = 'job_completed', 'Job Completed'
+        BOOKING_REJECTED = 'booking_rejected', 'Booking Rejected'
+
+    job = models.ForeignKey(
+        'core.JobCard',
+        on_delete=models.CASCADE,
+        related_name='crm_partner_events',
+    )
+    event_type = models.CharField(max_length=40, choices=EventType.choices, db_index=True)
+    message = models.TextField()
+    data = models.JSONField(default=dict, blank=True)
+    is_read = models.BooleanField(default=False, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'CRM Partner Event'
+        verbose_name_plural = 'CRM Partner Events'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Job #{self.job_id}: {self.event_type}'

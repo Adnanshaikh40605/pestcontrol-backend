@@ -256,14 +256,30 @@ REST_FRAMEWORK = {
 }
 
 
+def _jwt_access_lifetime_hours() -> int:
+    """Hours for CRM access token. Supports JWT_ACCESS_TOKEN_LIFETIME_HOURS or legacy JWT_ACCESS_TOKEN_LIFETIME."""
+    explicit = os.environ.get('JWT_ACCESS_TOKEN_LIFETIME_HOURS')
+    if explicit is not None and str(explicit).strip() != '':
+        return config('JWT_ACCESS_TOKEN_LIFETIME_HOURS', cast=int)
+    legacy = config('JWT_ACCESS_TOKEN_LIFETIME', default=24, cast=int)
+    # Legacy: 1–48 = hours; 49–2880 = minutes (e.g. 60 → 1h, 1440 → 24h)
+    if legacy > 48:
+        return max(1, legacy // 60)
+    return max(1, legacy)
+
+
+def _jwt_refresh_lifetime_days() -> int:
+    """Days for CRM refresh token. Supports JWT_REFRESH_TOKEN_LIFETIME_DAYS or legacy JWT_REFRESH_TOKEN_LIFETIME."""
+    explicit = os.environ.get('JWT_REFRESH_TOKEN_LIFETIME_DAYS')
+    if explicit is not None and str(explicit).strip() != '':
+        return config('JWT_REFRESH_TOKEN_LIFETIME_DAYS', cast=int)
+    return config('JWT_REFRESH_TOKEN_LIFETIME', default=60, cast=int)
+
+
 # Simple JWT settings (CRM / staff users)
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(
-        hours=config('JWT_ACCESS_TOKEN_LIFETIME_HOURS', default=12, cast=int)
-    ),
-    'REFRESH_TOKEN_LIFETIME': timedelta(
-        days=config('JWT_REFRESH_TOKEN_LIFETIME_DAYS', default=60, cast=int)
-    ),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=_jwt_access_lifetime_hours()),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=_jwt_refresh_lifetime_days()),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'UPDATE_LAST_LOGIN': True,
@@ -562,3 +578,9 @@ SPECTACULAR_SETTINGS = {
     },
 }
 
+# Partner app FCM (Firebase Admin SDK)
+PARTNER_FIREBASE_PROJECT_ID = config('PARTNER_FIREBASE_PROJECT_ID', default='pest-99-partner-app')
+FIREBASE_PRIVATE_KEY = config('FIREBASE_PRIVATE_KEY', default='')
+FIREBASE_PRIVATE_KEY_ID = config('FIREBASE_PRIVATE_KEY_ID', default='')
+FIREBASE_CLIENT_EMAIL = config('FIREBASE_CLIENT_EMAIL', default='')
+GOOGLE_APPLICATION_CREDENTIALS = config('GOOGLE_APPLICATION_CREDENTIALS', default='')

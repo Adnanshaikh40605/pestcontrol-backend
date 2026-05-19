@@ -219,29 +219,120 @@ class RefreshTokenAPIView(APIView):
         return Response(tokens, status=status.HTTP_200_OK)
 
 
-class UpdateFCMTokenAPIView(APIView):
+class SaveFCMTokenAPIView(APIView):
     """
-    POST /api/partner/fcm-token/
-    Update the device's Firebase Cloud Messaging token for push notifications.
+    POST /api/partner/save-fcm-token/
+    Register or update device FCM token (deduplicated).
     """
-    permission_classes = [IsPartner]
+    permission_classes = [IsPartnerAuthenticated]
 
     @extend_schema(
-        tags=["Authentication"],
-        summary="Update FCM push notification token",
-        description="Send the device FCM token after login to enable push notifications.",
+        tags=["Notifications"],
+        summary="Save FCM device token",
         request=PartnerFCMSerializer,
-        responses={200: {"type": "object", "properties": {"message": {"type": "string"}}}},
     )
     def post(self, request):
         serializer = PartnerFCMSerializer(data=request.data)
         if not serializer.is_valid():
             return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        request.partner.fcm_token = serializer.validated_data['fcm_token']
-        request.partner.save(update_fields=['fcm_token'])
+        from partner.notification_service import register_device_token
 
-        return Response({"message": "FCM token updated successfully."})
+        try:
+            register_device_token(
+                request.partner,
+                serializer.validated_data['fcm_token'],
+                serializer.validated_data.get('device_type', 'android'),
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"message": "FCM token saved successfully."})
+
+
+class RemoveFCMTokenAPIView(APIView):
+    """POST /api/partner/remove-fcm-token/ — on logout."""
+    permission_classes = [IsPartnerAuthenticated]
+
+    @extend_schema(tags=["Notifications"], summary="Remove FCM token on logout")
+    def post(self, request):
+        from partner.notification_service import deactivate_device_token
+
+        token = request.data.get('fcm_token')
+        count = deactivate_device_token(request.partner, token)
+        return Response({"message": "FCM token removed.", "deactivated": count})
+
+
+# Legacy alias
+UpdateFCMTokenAPIView = SaveFCMTokenAPIView
+
+
+class PartnerNotificationsAPIView(APIView):
+    """GET /api/partner/notifications/ — in-app notification history."""
+    permission_classes = [IsPartner]
+
+    @extend_schema(tags=["Notifications"], summary="List partner notifications")
+    def get(self, request):
+        from partner.models import PartnerNotification
+        from partner.serializers import PartnerNotificationSerializer
+
+        base_qs = PartnerNotification.objects.filter(partner=request.partner)
+        unread = base_qs.filter(is_read=False).count()
+        qs = base_qs.select_related('booking').order_by('-created_at')[:100]
+        return Response({
+            "unread_count": unread,
+            "results": PartnerNotificationSerializer(qs, many=True).data,
+        })
+
+
+class MarkNotificationReadAPIView(APIView):
+    """POST /api/partner/notifications/<id>/read/"""
+    permission_classes = [IsPartner]
+
+    def post(self, request, id):
+        from partner.models import PartnerNotification
+
+        updated = PartnerNotification.objects.filter(
+            partner=request.partner, pk=id, is_read=False
+        ).update(is_read=True)
+        if not updated:
+            return Response({"error": "Not found."}, status=404)
+        return Response({"message": "Marked as read."})
+
+
+class PushHealthAPIView(APIView):
+    """GET /api/partner/push-health/ — verify FCM config (authenticated partner)."""
+    permission_classes = [IsPartnerAuthenticated]
+
+    def get(self, request):
+        from partner.notification_service import active_tokens_for_partners
+        from partner.push_service import is_fcm_configured
+
+        partner = request.partner
+        my_tokens = list(
+            partner.device_tokens.filter(is_active=True).values_list('fcm_token', flat=True)
+        )
+        return Response({
+            'fcm_configured': is_fcm_configured(),
+            'partner_id': partner.id,
+            'is_app_approved': partner.is_app_approved,
+            'device_tokens_count': len(my_tokens),
+            'has_legacy_fcm_token': bool(partner.fcm_token),
+            'pool_active_tokens': len(active_tokens_for_partners()),
+        })
+
+
+class MarkAllNotificationsReadAPIView(APIView):
+    """POST /api/partner/notifications/mark-all-read/"""
+    permission_classes = [IsPartner]
+
+    def post(self, request):
+        from partner.models import PartnerNotification
+
+        count = PartnerNotification.objects.filter(
+            partner=request.partner, is_read=False
+        ).update(is_read=True)
+        return Response({"message": "All marked read.", "count": count})
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -88,7 +88,35 @@ class PartnerUpdateSerializer(serializers.ModelSerializer):
 
 class PartnerFCMSerializer(serializers.Serializer):
     """Serializer for updating FCM push token."""
-    fcm_token = serializers.CharField()
+    fcm_token = serializers.CharField(max_length=512)
+    device_type = serializers.ChoiceField(
+        choices=['android', 'ios'],
+        default='android',
+        required=False,
+    )
+
+
+class PartnerNotificationSerializer(serializers.ModelSerializer):
+    booking_id = serializers.SerializerMethodField()
+
+    class Meta:
+        from partner.models import PartnerNotification
+
+        model = PartnerNotification
+        fields = [
+            'id',
+            'notification_type',
+            'title',
+            'body',
+            'booking_id',
+            'data',
+            'is_read',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_booking_id(self, obj):
+        return obj.booking_id
 
 
 # ──────────────────────────────────────────────
