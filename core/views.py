@@ -1827,12 +1827,18 @@ class JobCardViewSet(BaseModelViewSet):
 
         instance = self.get_object()
         technician_id = request.data.get('technician_id')
+        refloating = bool(
+            instance.sent_to_app_at
+            and instance.partner_status == JobCard.PartnerStatus.PENDING
+            and instance.partner_id is None
+        )
         try:
-            job = send_booking_to_partner_app(
+            job, was_refloat = send_booking_to_partner_app(
                 instance,
                 int(technician_id) if technician_id else None,
                 sent_by_user=request.user,
             )
+            refloating = refloating or was_refloat
         except PartnerBookingError as exc:
             return response.Response(
                 {'success': False, 'message': exc.message, 'code': exc.code},
@@ -1844,16 +1850,28 @@ class JobCardViewSet(BaseModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        action_label = 'Refloated booking to Partner App' if refloating else 'Sent booking to Partner App'
         log_activity(
             request.user,
-            'Sent booking to Partner App',
-            details=f'Job #{job.id} → {job.partner.full_name if job.partner else "partner"}',
+            action_label,
+            details=f'Job #{job.id} → all approved partner apps',
             booking_id=job.code,
         )
         serializer = self.get_serializer(job)
+        if refloating:
+            message = (
+                'Booking refloated to the partner app. '
+                'All approved technicians were notified again.'
+            )
+        else:
+            message = (
+                'Booking sent to the partner app. '
+                'All approved and verified technicians can accept it.'
+            )
         return response.Response({
             'success': True,
-            'message': 'Booking sent to partner app. Waiting for technician to accept.',
+            'refloated': refloating,
+            'message': message,
             'job': serializer.data,
         })
 

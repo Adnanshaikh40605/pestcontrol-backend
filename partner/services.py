@@ -49,10 +49,13 @@ def broadcast_pending_filter():
 
 
 @transaction.atomic
-def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=None) -> JobCard:
+def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=None) -> tuple[JobCard, bool]:
     """
     CRM: broadcast booking to all approved partner apps (Pending until one accepts).
-  technician_id is optional legacy hint only.
+    technician_id is optional legacy hint only (FCM targeting); omit to notify all approved partners.
+
+    Returns (job, refloated) where refloated=True when the booking was already in the open pool
+    and push notifications were sent again.
     """
     if job.status != JobCard.JobStatus.PENDING:
         raise PartnerBookingError(
@@ -76,7 +79,7 @@ def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=N
                 notify_partners_new_booking(job, technician_id=technician_id)
             except Exception as exc:
                 logger.exception('FCM re-notify failed for booking #%s: %s', job.id, exc)
-            return job
+            return job, True
         raise PartnerBookingError(
             'Booking is already accepted or in progress in the partner app.',
             code='already_in_progress',
@@ -115,7 +118,7 @@ def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=N
         notify_partners_new_booking(job, technician_id=technician_id)
     except Exception as exc:
         logger.exception('FCM push failed for booking #%s: %s', job.id, exc)
-    return job
+    return job, False
 
 
 @transaction.atomic
