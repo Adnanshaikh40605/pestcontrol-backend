@@ -1,5 +1,11 @@
 from rest_framework import serializers
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder, Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm, QuotationHistory
+from .models import (
+    Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder,
+    Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm,
+    QuotationHistory,
+)
+from .service_rates import compute_service_rate_info
+from .remark_serializers import LatestRemarkSummarySerializer
 from django.contrib.auth.models import User
 
 
@@ -104,9 +110,35 @@ class TechnicianSerializer(serializers.ModelSerializer):
         ))
 
 
+def _resolve_latest_remark(obj, attr_name: str = '_latest_remarks'):
+    cached = getattr(obj, attr_name, None)
+    if cached:
+        return cached[0]
+    return obj.remarks.select_related('created_by').order_by('-created_at').first()
+
+
+def _serialize_latest_remark(entry) -> dict | None:
+    if not entry:
+        return None
+    return LatestRemarkSummarySerializer({
+        'id': entry.id,
+        'remark': entry.remark,
+        'remark_type': entry.remark_type,
+        'created_by_name': (
+            entry.created_by.get_full_name() or entry.created_by.username
+            if entry.created_by else 'System'
+        ),
+        'created_at': entry.created_at,
+    }).data
+
+
 class InquirySerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField()
     converted_by_name = serializers.SerializerMethodField()
+    remark = serializers.SerializerMethodField()
+    latest_remark = serializers.SerializerMethodField()
+    remark_count = serializers.IntegerField(read_only=True, required=False)
+    service_rate_info = serializers.SerializerMethodField()
 
     class Meta:
         model = Inquiry
@@ -115,12 +147,15 @@ class InquirySerializer(serializers.ModelSerializer):
             'service_interest', 'state', 'city', 'status', 'is_read', 
             'premise_type', 'premise_size', 'pest_problems', 
             'estimated_price', 'is_inspection_required', 'service_frequency',
-            'remark',
+            'remark', 'latest_remark', 'remark_count', 'service_rate_info',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_by', 'created_by_name', 'converted_by', 'converted_by_name',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_by', 'converted_by', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'created_by', 'converted_by', 'created_at', 'updated_at',
+            'remark', 'latest_remark', 'remark_count', 'service_rate_info',
+        ]
 
     def get_created_by_name(self, obj):
         if obj.created_by:
@@ -131,6 +166,28 @@ class InquirySerializer(serializers.ModelSerializer):
         if obj.converted_by:
             return obj.converted_by.get_full_name() or obj.converted_by.username
         return None
+
+    def get_remark(self, obj):
+        latest = _resolve_latest_remark(obj)
+        return latest.remark if latest else None
+
+    def get_latest_remark(self, obj):
+        return _serialize_latest_remark(_resolve_latest_remark(obj))
+
+    def get_service_rate_info(self, obj):
+        return compute_service_rate_info(
+            pest_type=obj.service_interest,
+            pest_problems=obj.pest_problems,
+            service_frequency=obj.service_frequency,
+            estimated_price=obj.estimated_price,
+        )
+
+    def validate(self, attrs):
+        if 'remark' in (self.initial_data or {}):
+            raise serializers.ValidationError({
+                'remark': 'Use POST /website-leads/{id}/remarks/ to add remarks. Overwriting is not allowed.',
+            })
+        return super().validate(attrs)
 
 
 class PartnerJobSelfieSerializer(serializers.ModelSerializer):
@@ -375,7 +432,11 @@ class RenewalSerializer(serializers.ModelSerializer):
 class CRMInquirySerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField()
     converted_by_name = serializers.SerializerMethodField()
-    
+    remark = serializers.SerializerMethodField()
+    latest_remark = serializers.SerializerMethodField()
+    remark_count = serializers.IntegerField(read_only=True, required=False)
+    service_rate_info = serializers.SerializerMethodField()
+
     # Master Location Display Names
     master_country_name = serializers.CharField(source='master_country.name', read_only=True)
     master_state_name = serializers.CharField(source='master_state.name', read_only=True)
@@ -387,13 +448,17 @@ class CRMInquirySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'mobile', 'location', 
             'master_country', 'master_country_name', 'master_state', 'master_state_name', 'master_city', 'master_city_name', 'master_location', 'master_location_name',
-            'pest_type', 'remark', 'service_frequency',
-            'inquiry_date', 'inquiry_time', 'status', 'created_by', 'created_by_name',
+            'pest_type', 'remark', 'latest_remark', 'remark_count', 'service_rate_info', 'service_frequency',
+            'inquiry_date', 'inquiry_time', 'status', 'is_read',
+            'created_by', 'created_by_name',
             'converted_by', 'converted_by_name',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'created_by', 'converted_by']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'created_by', 'converted_by',
+            'remark', 'latest_remark', 'remark_count', 'service_rate_info',
+        ]
 
     def get_created_by_name(self, obj):
         if obj.created_by:
@@ -404,6 +469,26 @@ class CRMInquirySerializer(serializers.ModelSerializer):
         if obj.converted_by:
             return obj.converted_by.get_full_name() or obj.converted_by.username
         return None
+
+    def get_remark(self, obj):
+        latest = _resolve_latest_remark(obj)
+        return latest.remark if latest else None
+
+    def get_latest_remark(self, obj):
+        return _serialize_latest_remark(_resolve_latest_remark(obj))
+
+    def get_service_rate_info(self, obj):
+        return compute_service_rate_info(
+            pest_type=obj.pest_type,
+            service_frequency=obj.service_frequency,
+        )
+
+    def validate(self, attrs):
+        if 'remark' in (self.initial_data or {}):
+            raise serializers.ValidationError({
+                'remark': 'Use POST /crm-inquiries/{id}/remarks/ to add remarks. Overwriting is not allowed.',
+            })
+        return super().validate(attrs)
 
 
 class FeedbackSerializer(serializers.ModelSerializer):

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Client, Inquiry, JobCard, Renewal, CRMInquiry
+from .models import Client, Inquiry, JobCard, Renewal, CRMInquiry, InquiryRemark, WebsiteLeadRemark
 
 
 @admin.register(CRMInquiry)
@@ -24,6 +24,22 @@ class CRMInquiryAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+
+@admin.register(InquiryRemark)
+class InquiryRemarkAdmin(admin.ModelAdmin):
+    list_display = ('id', 'inquiry', 'remark_type', 'created_by', 'created_at')
+    search_fields = ('remark', 'inquiry__name', 'inquiry__mobile')
+    list_filter = ('remark_type', 'created_at')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(WebsiteLeadRemark)
+class WebsiteLeadRemarkAdmin(admin.ModelAdmin):
+    list_display = ('id', 'lead', 'remark_type', 'created_by', 'created_at')
+    search_fields = ('remark', 'lead__name', 'lead__mobile')
+    list_filter = ('remark_type', 'created_at')
+    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(Client)

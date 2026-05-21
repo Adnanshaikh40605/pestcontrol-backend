@@ -16,7 +16,12 @@ from django.views.decorators.http import require_http_methods
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder, Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm, QuotationHistory
+from .models import (
+    Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder,
+    Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm,
+    QuotationHistory, InquiryRemark, WebsiteLeadRemark, RemarkType,
+)
+from django.db.models import Count, Prefetch
 from .serializers import (
     ClientSerializer, InquirySerializer, JobCardSerializer, 
     RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, 
@@ -586,6 +591,14 @@ class CRMInquiryViewSet(BaseModelViewSet):
     
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = qs.annotate(remark_count=Count('remarks', distinct=True))
+        qs = qs.prefetch_related(
+            Prefetch(
+                'remarks',
+                queryset=InquiryRemark.objects.select_related('created_by').order_by('-created_at')[:1],
+                to_attr='_latest_remarks',
+            )
+        )
         q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
         if q:
             qs = qs.filter(
@@ -662,6 +675,24 @@ class CRMInquiryViewSet(BaseModelViewSet):
             inquiry.save(update_fields=['is_reminder_done'])
             log_activity(request.user, "Marked Reminder Done", details=f"Inquiry: {inquiry.name}")
             return response.Response({'message': 'Reminder marked as done'})
+        except CRMInquiry.DoesNotExist:
+            return response.Response({'error': 'Inquiry not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=False, methods=['post'], url_path='mark-all-read')
+    def mark_all_read(self, request):
+        """Mark all CRM inquiries as read (clears sidebar badge after staff action)."""
+        updated = CRMInquiry.objects.filter(is_read=False).update(is_read=True)
+        log_activity(request.user, "Marked All CRM Inquiries Read", details=f"Count: {updated}")
+        return response.Response({'status': 'success', 'updated': updated})
+
+    @action(detail=True, methods=['post'], url_path='mark_as_read')
+    def mark_as_read(self, request, pk=None):
+        """Mark a single CRM inquiry as read."""
+        try:
+            inquiry = CRMInquiry.objects.get(id=pk)
+            inquiry.is_read = True
+            inquiry.save(update_fields=['is_read', 'updated_at'])
+            return response.Response({'status': 'marked as read'})
         except CRMInquiry.DoesNotExist:
             return response.Response({'error': 'Inquiry not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1074,6 +1105,14 @@ class InquiryViewSet(BaseModelViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        qs = qs.annotate(remark_count=Count('remarks', distinct=True))
+        qs = qs.prefetch_related(
+            Prefetch(
+                'remarks',
+                queryset=WebsiteLeadRemark.objects.select_related('created_by').order_by('-created_at')[:1],
+                to_attr='_latest_remarks',
+            )
+        )
         q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
         if q:
             qs = qs.filter(
@@ -1163,6 +1202,13 @@ class InquiryViewSet(BaseModelViewSet):
         """Mark all unread inquiries as read."""
         Inquiry.objects.filter(is_read=False).update(is_read=True)
         return response.Response({'status': 'success'})
+
+
+class WebsiteLeadViewSet(InquiryViewSet):
+    """
+    Website leads API alias — same data as inquiries with /website-leads/ routes.
+    """
+    pass
 
     @extend_schema(
         summary="Mark Inquiry as Read",
@@ -3255,26 +3301,42 @@ class GlobalSearchView(views.APIView):
                 'title': f"Booking #{jc.code}",
                 'subtitle': f"{jc.client.full_name} - {jc.service_type}",
                 'type': 'Booking',
-                'link': f'/jobcards/{jc.id}',
+                'link': f'/jobcards/edit/{jc.id}',
                 'client_id': jc.client_id
             })
             
         # 3. Search CRM Inquiries
-        inquiries = CRMInquiry.objects.filter(
+        crm_inquiries = CRMInquiry.objects.filter(
             Q(name__icontains=query) |
             Q(mobile__icontains=query)
         ).distinct()[:5]
         
-        for inc in inquiries:
+        for inc in crm_inquiries:
             results.append({
                 'id': inc.id,
-                'title': f"Inquiry: {inc.name}",
+                'title': f"CRM Inquiry: {inc.name}",
                 'subtitle': f"{inc.mobile} - {inc.pest_type}",
-                'type': 'Inquiry',
-                'link': f'/crm-inquiries/{inc.id}'
+                'type': 'CRM Inquiry',
+                'link': f'/crm-inquiries?focus={inc.id}'
             })
 
-        # 4. Search Reminders
+        # 4. Search Website Leads
+        website_leads = Inquiry.objects.filter(
+            Q(name__icontains=query) |
+            Q(mobile__icontains=query) |
+            Q(email__icontains=query)
+        ).distinct()[:5]
+
+        for lead in website_leads:
+            results.append({
+                'id': lead.id,
+                'title': f"Website Lead: {lead.name}",
+                'subtitle': f"{lead.mobile} - {lead.service_interest}",
+                'type': 'Website Lead',
+                'link': f'/inquiries?focus={lead.id}'
+            })
+
+        # 5. Search Reminders
         reminders = Reminder.objects.filter(
             Q(customer_name__icontains=query) |
             Q(mobile_number__icontains=query) |
@@ -3282,12 +3344,13 @@ class GlobalSearchView(views.APIView):
         ).distinct()[:5]
 
         for rem in reminders:
+            note_preview = (rem.note or '')[:40]
             results.append({
                 'id': rem.id,
                 'title': f"Reminder: {rem.customer_name}",
-                'subtitle': f"{rem.mobile_number} - {rem.note[:30]}...",
+                'subtitle': f"{rem.mobile_number} - {note_preview}",
                 'type': 'Reminder',
-                'link': f'/jobcards?tab=reminders'
+                'link': '/jobcards?tab=reminders'
             })
 
         return response.Response(results)

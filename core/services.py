@@ -11,7 +11,7 @@ from django.db.models import Sum, Count, Value, FloatField, Q
 from django.db.models.functions import Coalesce, Cast
 from django.utils import timezone
 
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry
+from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, InquiryRemark, RemarkType
 from .telegram import notify_new_inquiry
 
 
@@ -1219,6 +1219,7 @@ class DashboardService:
             
             return {
                 "website_leads_unread": Inquiry.objects.filter(is_read=False).count(),
+                "crm_inquiries_unread": CRMInquiry.objects.filter(is_read=False).count(),
                 "complaint_calls": JobCard.objects.filter(
                     booking_category=JobCard.BookingCategory.COMPLAINT_CALL,
                     status=JobCard.JobStatus.PENDING,
@@ -1233,9 +1234,11 @@ class DashboardService:
             logger.error(f"Error retrieving dashboard counts: {str(e)}")
             return {
                 "website_leads_unread": 0,
+                "crm_inquiries_unread": 0,
                 "complaint_calls": 0,
                 "reminders": 0,
-                "feedbacks": 0
+                "feedbacks": 0,
+                "pending_quotations": 0,
             }
 
     @staticmethod
@@ -1362,13 +1365,16 @@ class CRMInquiryService:
                 city=inquiry.location.split(',')[0] if inquiry.location else 'Unknown'
             )
             
+            latest_remark = inquiry.remarks.order_by('-created_at').first()
+            notes_text = latest_remark.remark if latest_remark else (inquiry.remark or '')
+
             # 2. Map Inquiry to JobCard fields
             job_card_data = {
                 'client': client.id,
                 'client_address': inquiry.location or '',
                 'service_type': inquiry.pest_type,
                 'service_category': JobCard.ServiceCategory.AMC if inquiry.service_frequency == 'amc' else JobCard.ServiceCategory.ONE_TIME,
-                'notes': inquiry.remark or '',
+                'notes': notes_text,
                 'status': 'Pending',
                 'schedule_datetime': timezone.now(),
                 'state': client.state or 'Maharashtra',
@@ -1379,11 +1385,16 @@ class CRMInquiryService:
             # 3. Create the Job Card
             job_card = JobCardService.create_jobcard(job_card_data, user=user)
             
-            # 4. Finalize Inquiry status
+            # 4. Finalize Inquiry status (append-only remark history)
             inquiry.status = CRMInquiry.InquiryStatus.CONVERTED
             inquiry.converted_by = user
-            inquiry.remark = f"{inquiry.remark or ''}\n[Converted to Booking {job_card.code}]".strip()
-            inquiry.save()
+            inquiry.save(update_fields=['status', 'converted_by', 'updated_at'])
+            InquiryRemark.objects.create(
+                inquiry=inquiry,
+                remark=f'[Converted to Booking {job_card.code}]',
+                created_by=user,
+                remark_type=RemarkType.CONVERT,
+            )
             
             logger.info(f"Inquiry {inquiry_id} successfully converted to Booking {job_card.code}")
             return job_card

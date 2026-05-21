@@ -1229,6 +1229,12 @@ class CRMInquiry(BaseModel):
     inquiry_date = models.DateField(default=timezone.now)
     inquiry_time = models.TimeField(default=timezone.now)
     status = models.CharField(max_length=20, choices=InquiryStatus.choices, default=InquiryStatus.NEW)
+    is_read = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="Is Read",
+        help_text="Staff has reviewed this CRM inquiry in the CRM",
+    )
     
     # Store user who created it
     created_by = models.ForeignKey(
@@ -1249,11 +1255,90 @@ class CRMInquiry(BaseModel):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['is_read', 'status']),
+        ]
         verbose_name = 'CRM Inquiry'
         verbose_name_plural = 'CRM Inquiries'
 
     def __str__(self) -> str:
         return f"{self.name} - {self.mobile}"
+
+
+class RemarkType(models.TextChoices):
+    CALL = 'CALL', 'Call'
+    FOLLOWUP = 'FOLLOWUP', 'Follow-up'
+    NOTE = 'NOTE', 'Note'
+    CONVERT = 'CONVERT', 'Convert'
+    SYSTEM = 'SYSTEM', 'System'
+
+
+class InquiryRemark(BaseModel):
+    """Append-only remark history for CRM inquiries."""
+    inquiry = models.ForeignKey(
+        CRMInquiry,
+        on_delete=models.CASCADE,
+        related_name='remarks',
+    )
+    remark = models.TextField()
+    created_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='crm_inquiry_remarks',
+    )
+    remark_type = models.CharField(
+        max_length=20,
+        choices=RemarkType.choices,
+        default=RemarkType.NOTE,
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['inquiry', '-created_at']),
+        ]
+        verbose_name = 'CRM Inquiry Remark'
+        verbose_name_plural = 'CRM Inquiry Remarks'
+
+    def __str__(self) -> str:
+        return f"CRM #{self.inquiry_id} remark @ {self.created_at}"
+
+
+class WebsiteLeadRemark(BaseModel):
+    """Append-only remark history for website leads (Inquiry model)."""
+    lead = models.ForeignKey(
+        Inquiry,
+        on_delete=models.CASCADE,
+        related_name='remarks',
+    )
+    remark = models.TextField()
+    created_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='website_lead_remarks',
+    )
+    remark_type = models.CharField(
+        max_length=20,
+        choices=RemarkType.choices,
+        default=RemarkType.NOTE,
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['lead', '-created_at']),
+        ]
+        verbose_name = 'Website Lead Remark'
+        verbose_name_plural = 'Website Lead Remarks'
+
+    def __str__(self) -> str:
+        return f"Lead #{self.lead_id} remark @ {self.created_at}"
 
 
 class Reminder(BaseModel):
