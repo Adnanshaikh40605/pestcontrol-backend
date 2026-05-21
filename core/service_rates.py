@@ -119,12 +119,26 @@ def _normalize_bhk(premise_size: str | None, *extra_sources: str | None) -> str 
     return None
 
 
+def _parse_quoted_amount(*sources: str | None) -> int | None:
+    """Extract a quoted rupee amount from staff remarks (e.g. '2500 bole hai')."""
+    for raw in sources:
+        if not raw:
+            continue
+        for match in re.finditer(r'(?:₹|rs\.?|inr)?\s*(\d{3,5})\b', raw, re.I):
+            amount = int(match.group(1))
+            if 500 <= amount <= 500000:
+                return amount
+    return None
+
+
 def _match_packages(pest_type: str | None, pest_problems: str | None) -> list[str]:
     """Resolve pricing packages from pest text (deduped, order preserved)."""
     combined = f"{pest_type or ''} {pest_problems or ''}".lower()
+    combined_slash = re.sub(r'\s*,\s*', ' / ', combined)
     # Exact combined package names from Create Booking
     for pkg in PRICING_DATA:
-        if pkg.lower() in combined:
+        key = pkg.lower()
+        if key in combined or key in combined_slash:
             return [pkg]
 
     found: list[str] = []
@@ -144,6 +158,13 @@ def _match_packages(pest_type: str | None, pest_problems: str | None) -> list[st
         return ['Cockroach / Ants']
 
     return found
+
+
+def _default_bhk_for_package(package: str) -> str | None:
+    """When BHK unknown, use 2 BHK for standard residential packages."""
+    if package in ('Rodent', 'Hotel / Commercial'):
+        return None
+    return '2 BHK'
 
 
 def _package_rate(package: str, plan_key: str, area_key: str | None) -> int | None:
@@ -170,6 +191,7 @@ def compute_service_rate_info(
     service_frequency: str | None = None,
     premise_size: str | None = None,
     location: str | None = None,
+    remark: str | None = None,
     estimated_price: Decimal | int | float | None = None,
 ) -> dict[str, Any]:
     """
@@ -178,20 +200,28 @@ def compute_service_rate_info(
     """
     plan_key = _plan_label(service_frequency)
     plan_display = _display_plan(service_frequency)
-    area_key = _normalize_bhk(premise_size, location, pest_type, pest_problems)
+    area_key = _normalize_bhk(
+        premise_size, location, pest_type, pest_problems, remark,
+    )
     packages = _match_packages(pest_type, pest_problems)
+    quoted_from_remark = _parse_quoted_amount(remark, pest_type, location)
 
     items: list[dict[str, Any]] = []
     total = 0
     notes: list[str] = []
+    used_estimate_bhk = False
+
+    effective_area = area_key
+    if not effective_area and packages:
+        fallback = _default_bhk_for_package(packages[0])
+        if fallback:
+            effective_area = fallback
+            used_estimate_bhk = True
 
     for package in packages:
-        rate = _package_rate(package, plan_key, area_key)
-        if rate is None and area_key is None:
-            notes.append(f'{package}: select BHK on booking')
-            continue
+        rate = _package_rate(package, plan_key, effective_area)
         if rate is None:
-            notes.append(f'{package}: rate N/A for {area_key}')
+            notes.append(f'{package}: rate N/A for {effective_area or "size"}')
             continue
         if rate == 0:
             notes.append(f'{package}: inspection / visit quote')
@@ -210,9 +240,23 @@ def compute_service_rate_info(
         }
         if area_key:
             result['area_label'] = area_key
+        elif used_estimate_bhk and effective_area:
+            result['area_label'] = f'{effective_area} (est.)'
+            notes.insert(0, 'Confirm BHK on booking for exact price')
         if notes:
             result['rate_note'] = '; '.join(notes)
         return result
+
+    if quoted_from_remark is not None:
+        return {
+            'plan': plan_display,
+            'items': [],
+            'total': quoted_from_remark,
+            'display_total': quoted_from_remark,
+            'rate_label': 'Quoted (remark)',
+            'has_service_rate': False,
+            'area_label': area_key,
+        }
 
     if estimated_price is not None:
         try:

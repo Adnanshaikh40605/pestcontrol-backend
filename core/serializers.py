@@ -186,12 +186,15 @@ class InquirySerializer(serializers.ModelSerializer):
         return _serialize_latest_remark(_resolve_latest_remark(obj))
 
     def get_service_rate_info(self, obj):
+        latest = _resolve_latest_remark(obj)
+        remark_text = (latest.remark if latest else None) or obj.remark
         return compute_service_rate_info(
             pest_type=obj.service_interest,
             pest_problems=obj.pest_problems,
             service_frequency=obj.service_frequency,
             premise_size=obj.premise_size,
             location=obj.city,
+            remark=remark_text,
             estimated_price=obj.estimated_price,
         )
 
@@ -505,10 +508,13 @@ class CRMInquirySerializer(serializers.ModelSerializer):
         return _serialize_latest_remark(_resolve_latest_remark(obj))
 
     def get_service_rate_info(self, obj):
+        latest = _resolve_latest_remark(obj)
+        remark_text = (latest.remark if latest else None) or obj.remark
         return compute_service_rate_info(
             pest_type=obj.pest_type,
             service_frequency=obj.service_frequency,
             location=obj.location,
+            remark=remark_text,
         )
 
     def validate(self, attrs):
