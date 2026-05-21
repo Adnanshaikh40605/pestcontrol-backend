@@ -235,12 +235,9 @@ class PartnerJobSelfieSerializer(serializers.ModelSerializer):
         ]
 
     def get_selfie_url(self, obj):
-        if not obj.job_start_selfie:
-            return None
-        request = self.context.get('request')
-        if request:
-            return request.build_absolute_uri(obj.job_start_selfie.url)
-        return obj.job_start_selfie.url
+        from .media_urls import build_file_field_url
+
+        return build_file_field_url(self.context.get('request'), obj.job_start_selfie)
 
 
 class JobCardSerializer(serializers.ModelSerializer):
@@ -276,12 +273,9 @@ class JobCardSerializer(serializers.ModelSerializer):
         return getattr(obj, 'booking_priority', 0)
 
     def get_job_start_selfie_url(self, obj):
-        if obj.job_start_selfie:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.job_start_selfie.url)
-            return obj.job_start_selfie.url
-        return None
+        from .media_urls import build_file_field_url
+
+        return build_file_field_url(self.context.get('request'), obj.job_start_selfie)
 
     def get_sent_to_app(self, obj):
         """True when CRM has dispatched this booking to the partner app queue."""

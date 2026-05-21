@@ -33,6 +33,7 @@ from .remark_views import (
     WebsiteLeadRemarkDetailView,
 )
 from .theme_views import UserThemeView
+from .media_views import MediaFileView
 
 # Create router for v1 API
 router = DefaultRouter()
@@ -77,6 +78,7 @@ urlpatterns = [
         name='website-lead-remark-detail',
     ),
     path('users/theme/', UserThemeView.as_view(), name='user-theme'),
+    path('media-file/', MediaFileView.as_view(), name='media-file'),
     path('health/', health_check, name='health_check'),
     path('global-search/', GlobalSearchView.as_view(), name='global_search'),
     path('customer-history/<int:client_id>/', CustomerHistoryView.as_view(), name='customer_history'),
