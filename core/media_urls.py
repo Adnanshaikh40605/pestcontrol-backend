@@ -34,10 +34,14 @@ def is_safe_media_path(path: str) -> bool:
 def build_file_field_url(request, file_field) -> str | None:
     """
     Return a browser-loadable URL for ImageField/FileField.
-    Prefer direct S3/CDN URLs; fall back to API media proxy for local/Railway storage.
+    Job selfies use the API media proxy (private S3 — direct bucket URLs return Access Denied).
+    Blog/media on public S3/CDN may use direct URLs when readable in the browser.
     """
     if not file_field or not file_field.name:
         return None
+
+    if file_field.name.startswith('job_selfies/'):
+        return media_proxy_url(file_field.name)
 
     try:
         url = default_storage.url(file_field.name)
