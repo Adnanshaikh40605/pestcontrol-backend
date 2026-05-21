@@ -190,6 +190,8 @@ class InquirySerializer(serializers.ModelSerializer):
             pest_type=obj.service_interest,
             pest_problems=obj.pest_problems,
             service_frequency=obj.service_frequency,
+            premise_size=obj.premise_size,
+            location=obj.city,
             estimated_price=obj.estimated_price,
         )
 
@@ -506,6 +508,7 @@ class CRMInquirySerializer(serializers.ModelSerializer):
         return compute_service_rate_info(
             pest_type=obj.pest_type,
             service_frequency=obj.service_frequency,
+            location=obj.location,
         )
 
     def validate(self, attrs):
