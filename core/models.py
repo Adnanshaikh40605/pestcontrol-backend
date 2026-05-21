@@ -1601,3 +1601,31 @@ class UserProfile(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.user.username} ({self.get_role_display()})"
+
+
+class ThemePreference(models.TextChoices):
+    LIGHT = 'LIGHT', 'Light'
+    DARK = 'DARK', 'Dark'
+    SYSTEM = 'SYSTEM', 'System'
+
+
+class UserPreference(BaseModel):
+    """Per-staff UI preferences (theme, etc.)."""
+    user = models.OneToOneField(
+        'auth.User',
+        on_delete=models.CASCADE,
+        related_name='ui_preference',
+    )
+    theme = models.CharField(
+        max_length=10,
+        choices=ThemePreference.choices,
+        default=ThemePreference.LIGHT,
+        db_index=True,
+    )
+
+    class Meta:
+        verbose_name = 'User Preference'
+        verbose_name_plural = 'User Preferences'
+
+    def __str__(self) -> str:
+        return f"{self.user.username} — {self.theme}"

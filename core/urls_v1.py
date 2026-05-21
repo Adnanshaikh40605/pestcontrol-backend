@@ -33,6 +33,7 @@ from .remark_views import (
     WebsiteLeadRemarkListCreateView,
     WebsiteLeadRemarkDetailView,
 )
+from .theme_views import UserThemeView
 
 # Create router for v1 API
 router = DefaultRouter()
@@ -76,6 +77,7 @@ urlpatterns = [
         WebsiteLeadRemarkDetailView.as_view(),
         name='website-lead-remark-detail',
     ),
+    path('users/theme/', UserThemeView.as_view(), name='user-theme'),
     path('health/', health_check, name='health_check'),
     path('global-search/', GlobalSearchView.as_view(), name='global_search'),
     path('customer-history/<int:client_id>/', CustomerHistoryView.as_view(), name='customer_history'),
