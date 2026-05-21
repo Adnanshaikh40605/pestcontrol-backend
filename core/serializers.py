@@ -2,7 +2,7 @@ from rest_framework import serializers
 from .models import (
     Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder,
     Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm,
-    QuotationHistory,
+    QuotationHistory, InquiryRemark, WebsiteLeadRemark, RemarkType,
 )
 from .service_rates import compute_service_rate_info
 from .remark_serializers import LatestRemarkSummarySerializer
@@ -117,6 +117,17 @@ def _resolve_latest_remark(obj, attr_name: str = '_latest_remarks'):
     return obj.remarks.select_related('created_by').order_by('-created_at').first()
 
 
+def _initial_remark_text_on_create(serializer) -> str | None:
+    """Read optional remark from POST body when creating a new record."""
+    if serializer.instance is not None:
+        return None
+    raw = (serializer.initial_data or {}).get('remark')
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
+
+
 def _serialize_latest_remark(entry) -> dict | None:
     if not entry:
         return None
@@ -183,11 +194,25 @@ class InquirySerializer(serializers.ModelSerializer):
         )
 
     def validate(self, attrs):
-        if 'remark' in (self.initial_data or {}):
+        if self.instance is not None and 'remark' in (self.initial_data or {}):
             raise serializers.ValidationError({
                 'remark': 'Use POST /website-leads/{id}/remarks/ to add remarks. Overwriting is not allowed.',
             })
         return super().validate(attrs)
+
+    def create(self, validated_data):
+        remark_text = _initial_remark_text_on_create(self)
+        instance = super().create(validated_data)
+        if remark_text:
+            request = self.context.get('request')
+            user = request.user if request and getattr(request.user, 'is_authenticated', False) else None
+            WebsiteLeadRemark.objects.create(
+                lead=instance,
+                remark=remark_text,
+                created_by=user,
+                remark_type=RemarkType.NOTE,
+            )
+        return instance
 
 
 class PartnerJobSelfieSerializer(serializers.ModelSerializer):
@@ -484,11 +509,25 @@ class CRMInquirySerializer(serializers.ModelSerializer):
         )
 
     def validate(self, attrs):
-        if 'remark' in (self.initial_data or {}):
+        if self.instance is not None and 'remark' in (self.initial_data or {}):
             raise serializers.ValidationError({
                 'remark': 'Use POST /crm-inquiries/{id}/remarks/ to add remarks. Overwriting is not allowed.',
             })
         return super().validate(attrs)
+
+    def create(self, validated_data):
+        remark_text = _initial_remark_text_on_create(self)
+        instance = super().create(validated_data)
+        if remark_text:
+            request = self.context.get('request')
+            user = request.user if request and getattr(request.user, 'is_authenticated', False) else None
+            InquiryRemark.objects.create(
+                inquiry=instance,
+                remark=remark_text,
+                created_by=user,
+                remark_type=RemarkType.NOTE,
+            )
+        return instance
 
 
 class FeedbackSerializer(serializers.ModelSerializer):

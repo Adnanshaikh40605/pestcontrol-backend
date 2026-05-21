@@ -599,15 +599,22 @@ class CRMInquiryViewSet(BaseModelViewSet):
                 to_attr='_latest_remarks',
             )
         )
+        focus = self.request.query_params.get('focus')
+        if focus and str(focus).isdigit():
+            return qs.filter(pk=int(focus))
+
         q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
         if q:
-            qs = qs.filter(
-                Q(name__icontains=q) | 
-                Q(mobile__icontains=q) | 
-                Q(email__icontains=q) | 
+            q_filters = (
+                Q(name__icontains=q) |
+                Q(mobile__icontains=q) |
+                Q(email__icontains=q) |
                 Q(location__icontains=q) |
                 Q(pest_type__icontains=q)
             )
+            if str(q).isdigit():
+                q_filters |= Q(pk=int(q))
+            qs = qs.filter(q_filters)
         return qs
 
     def perform_create(self, serializer):
@@ -837,6 +844,22 @@ class ClientViewSet(BaseModelViewSet):
     search_fields = ['full_name', 'mobile', 'email']
     ordering_fields = ['created_at', 'updated_at', 'full_name', 'city', 'mobile']
     ordering = ['-created_at']  # Default: latest clients first
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.query_params.get('q', self.request.query_params.get('search', '')).strip()
+        if q:
+            q_filters = (
+                Q(full_name__icontains=q) |
+                Q(mobile__icontains=q) |
+                Q(email__icontains=q) |
+                Q(city__icontains=q) |
+                Q(address__icontains=q)
+            )
+            if q.isdigit():
+                q_filters |= Q(pk=int(q))
+            qs = qs.filter(q_filters)
+        return qs
     
     @method_decorator(cache_page(300))  # Cache for 5 minutes
     @method_decorator(vary_on_headers('Authorization'))
@@ -1113,14 +1136,23 @@ class InquiryViewSet(BaseModelViewSet):
                 to_attr='_latest_remarks',
             )
         )
+        focus = self.request.query_params.get('focus')
+        if focus and str(focus).isdigit():
+            return qs.filter(pk=int(focus))
+
         q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
         if q:
-            qs = qs.filter(
-                Q(name__icontains=q) | 
-                Q(mobile__icontains=q) | 
-                Q(email__icontains=q) | 
-                Q(service_interest__icontains=q)
+            q_filters = (
+                Q(name__icontains=q) |
+                Q(mobile__icontains=q) |
+                Q(email__icontains=q) |
+                Q(service_interest__icontains=q) |
+                Q(city__icontains=q) |
+                Q(state__icontains=q)
             )
+            if str(q).isdigit():
+                q_filters |= Q(pk=int(q))
+            qs = qs.filter(q_filters)
         return qs
 
     def get_permissions(self):
@@ -1971,9 +2003,13 @@ class JobCardViewSet(BaseModelViewSet):
         """CRM: list job-start selfies uploaded by technicians via the partner app."""
         from .serializers import PartnerJobSelfieSerializer
 
-        qs = JobCard.objects.filter(
-            job_start_selfie__isnull=False,
-        ).select_related('client', 'partner', 'technician').order_by('-started_at', '-id')
+        qs = (
+            JobCard.objects.exclude(
+                Q(job_start_selfie__isnull=True) | Q(job_start_selfie=''),
+            )
+            .select_related('client', 'partner', 'technician')
+            .order_by('-started_at', '-id')
+        )
 
         booking_id = request.query_params.get('booking_id')
         if booking_id:
@@ -3306,10 +3342,10 @@ class GlobalSearchView(views.APIView):
             })
             
         # 3. Search CRM Inquiries
-        crm_inquiries = CRMInquiry.objects.filter(
-            Q(name__icontains=query) |
-            Q(mobile__icontains=query)
-        ).distinct()[:5]
+        crm_q = Q(name__icontains=query) | Q(mobile__icontains=query)
+        if query.isdigit():
+            crm_q |= Q(pk=int(query))
+        crm_inquiries = CRMInquiry.objects.filter(crm_q).distinct()[:5]
         
         for inc in crm_inquiries:
             results.append({
@@ -3321,11 +3357,15 @@ class GlobalSearchView(views.APIView):
             })
 
         # 4. Search Website Leads
-        website_leads = Inquiry.objects.filter(
+        lead_q = (
             Q(name__icontains=query) |
             Q(mobile__icontains=query) |
-            Q(email__icontains=query)
-        ).distinct()[:5]
+            Q(email__icontains=query) |
+            Q(city__icontains=query)
+        )
+        if query.isdigit():
+            lead_q |= Q(pk=int(query))
+        website_leads = Inquiry.objects.filter(lead_q).distinct()[:5]
 
         for lead in website_leads:
             results.append({
