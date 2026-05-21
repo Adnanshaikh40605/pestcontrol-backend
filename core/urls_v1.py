@@ -17,7 +17,6 @@ from .views import (
     GlobalSearchView,
     CustomerHistoryView,
     ComplaintViewSet,
-    ComplaintAnalyticsView,
     StaffViewSet,
     ActivityLogViewSet,
     ReminderViewSet,
@@ -81,6 +80,5 @@ urlpatterns = [
     path('health/', health_check, name='health_check'),
     path('global-search/', GlobalSearchView.as_view(), name='global_search'),
     path('customer-history/<int:client_id>/', CustomerHistoryView.as_view(), name='customer_history'),
-    path('complaints/stats/', ComplaintAnalyticsView.as_view(), name='complaint_analytics'),
     path('', include(router.urls)),
 ]

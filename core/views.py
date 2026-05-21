@@ -3583,38 +3583,6 @@ class ComplaintViewSet(viewsets.ModelViewSet):
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-class ComplaintAnalyticsView(views.APIView):
-    """
-    Get analytics for complaints.
-    """
-    permission_classes = [IsCRMOperationalUser]
-
-    @extend_schema(
-        summary="Get complaint analytics",
-        tags=['Complaints']
-    )
-    def get(self, request):
-        total = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL).count()
-        resolved_statuses = [JobCard.ComplaintStatus.RESOLVED, JobCard.ComplaintStatus.CLOSED]
-        resolved = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL, complaint_status__in=resolved_statuses).count()
-        unresolved = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL).exclude(complaint_status__in=resolved_statuses).count()
-        high_priority = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL, priority=JobCard.Priority.HIGH).exclude(complaint_status__in=resolved_statuses).count()
-        
-        # Technician complaint rate (complaints per technician)
-        tech_stats = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL, technician__isnull=False).values('technician__name').annotate(
-            count=Count('id')
-        ).order_by('-count')
-
-        return response.Response({
-            'total_count': total,
-            'resolved_count': resolved,
-            'unresolved_count': unresolved,
-            'high_priority_count': high_priority,
-            'resolution_rate': round((resolved / total * 100), 1) if total > 0 else 0,
-            'technician_stats': list(tech_stats)
-        })
-
-
 class ReminderViewSet(viewsets.ModelViewSet):
     """
     ViewSet for handling Reminders.
