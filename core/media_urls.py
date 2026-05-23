@@ -40,20 +40,50 @@ def is_safe_media_path(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in allowed_prefixes)
 
 
+def full_storage_path(file_field) -> str | None:
+    """
+    Full object key for S3/local lookup (includes storage location prefix).
+
+    Custom storage ImageField uses SelfieS3Storage(location='technician_selfies'); the DB often
+    stores only ``2026/05/uuid.webp`` — the proxy must use
+    ``technician_selfies/2026/05/uuid.webp``.
+    """
+    if not file_field or not file_field.name:
+        return None
+    name = file_field.name.replace('\\', '/').lstrip('/')
+    known_roots = (
+        'job_selfies/',
+        'technician_selfies/',
+        'featured_images/',
+        'quill_uploads/',
+        'profiles/',
+        'quotations/',
+        'blog/',
+        'partner_profiles/',
+    )
+    if any(name.startswith(prefix) for prefix in known_roots):
+        return name
+    location = (getattr(file_field.storage, 'location', None) or '').strip('/')
+    if location:
+        return f'{location}/{name}'
+    return name
+
+
 def build_file_field_url(request, file_field) -> str | None:
     """
     Return a browser-loadable URL for ImageField/FileField.
     Job selfies use the API media proxy (private S3 — direct bucket URLs return Access Denied).
     Blog/media on public S3/CDN may use direct URLs when readable in the browser.
     """
-    if not file_field or not file_field.name:
+    full_path = full_storage_path(file_field)
+    if not full_path:
         return None
 
-    if file_field.name.startswith(('job_selfies/', 'technician_selfies/')):
-        return media_proxy_url(file_field.name)
+    if full_path.startswith(('job_selfies/', 'technician_selfies/')):
+        return media_proxy_url(full_path)
 
     try:
-        url = default_storage.url(file_field.name)
+        url = file_field.storage.url(file_field.name)
     except Exception:
         return None
 
@@ -69,13 +99,13 @@ def build_file_field_url(request, file_field) -> str | None:
             return url
 
         # Absolute URL on API host — often /media/... which 404s on Railway; use proxy
-        return media_proxy_url(file_field.name)
+        return media_proxy_url(full_path)
 
     # Relative path
     if request:
         absolute = request.build_absolute_uri(url)
         if urlparse(absolute).hostname == urlparse(_public_api_base()).hostname:
-            return media_proxy_url(file_field.name)
+            return media_proxy_url(full_path)
         return _rewrite_localhost(request, absolute)
 
-    return media_proxy_url(file_field.name)
+    return media_proxy_url(full_path)

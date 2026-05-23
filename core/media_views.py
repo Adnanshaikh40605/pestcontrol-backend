@@ -10,10 +10,45 @@ from rest_framework.views import APIView
 from .media_urls import is_safe_media_path
 
 
+def _storage_for_path(path: str):
+    """Return (storage, relative_key) for a whitelisted media path."""
+    from backend.media_storage import (
+        get_blog_editor_storage,
+        get_blog_featured_storage,
+        get_profile_storage,
+        get_selfie_storage,
+    )
+
+    scoped = (
+        ('technician_selfies/', get_selfie_storage),
+        ('job_selfies/', get_selfie_storage),
+        ('featured_images/', get_blog_featured_storage),
+        ('quill_uploads/', get_blog_editor_storage),
+        ('profiles/', get_profile_storage),
+    )
+    for prefix, factory in scoped:
+        if path.startswith(prefix):
+            storage = factory()
+            return storage, path[len(prefix):]
+    return default_storage, path
+
+
+def open_media_file(path: str):
+    """Open a media file from S3 or local storage."""
+    storage, key = _storage_for_path(path)
+    if storage.exists(key):
+        return storage.open(key, 'rb')
+    if storage is not default_storage and default_storage.exists(path):
+        return default_storage.open(path, 'rb')
+    if default_storage.exists(key):
+        return default_storage.open(key, 'rb')
+    return None
+
+
 class MediaFileView(APIView):
     """
-    GET /api/v1/media-file/?path=job_selfies/2026/05/file.jpg
-    Public read for whitelisted prefixes (job selfies shown in CRM).
+    GET /api/v1/media-file/?path=technician_selfies/2026/05/file.webp
+    Public read for whitelisted prefixes (selfies shown in CRM).
     """
 
     permission_classes = [AllowAny]
@@ -23,11 +58,12 @@ class MediaFileView(APIView):
         if not is_safe_media_path(path):
             raise Http404('Invalid path')
 
-        if not default_storage.exists(path):
-            raise Http404('File not found')
-
         try:
-            file_handle = default_storage.open(path, 'rb')
+            file_handle = open_media_file(path)
+            if file_handle is None:
+                raise Http404('File not found')
+        except Http404:
+            raise
         except Exception as exc:
             raise Http404('File not found') from exc
 
