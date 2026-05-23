@@ -65,6 +65,8 @@ INSTALLED_APPS = [
     'blog',
 ]
 
+# S3 media (django-storages) — appended when USE_AWS is enabled below
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
@@ -160,21 +162,39 @@ if (BASE_DIR / 'static').exists():
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-# AWS S3 — blog images (set USE_AWS=True in .env)
-USE_AWS = config('USE_AWS', default=False, cast=bool)
+# ── Media / AWS S3 ───────────────────────────────────────────────────────────
+# Enable with USE_AWS=True or MEDIA_BACKEND=s3 on Railway
+_media_backend = config('MEDIA_BACKEND', default='').strip().lower()
+USE_AWS = config('USE_AWS', default=False, cast=bool) or _media_backend == 's3'
+
+IMAGE_MAX_MB = config('IMAGE_MAX_MB', default=10, cast=int)
+IMAGE_WEBP_QUALITY = config('IMAGE_WEBP_QUALITY', default=82, cast=int)
+IMAGE_MAX_WIDTH = config('IMAGE_MAX_WIDTH', default=1920, cast=int)
+BLOG_EDITOR_WEBP_QUALITY = config('BLOG_EDITOR_WEBP_QUALITY', default=80, cast=int)
 
 if USE_AWS:
+    if 'storages' not in INSTALLED_APPS:
+        INSTALLED_APPS.append('storages')
+
     AWS_ACCESS_KEY_ID = config('AWS_ACCESS_KEY_ID')
     AWS_SECRET_ACCESS_KEY = config('AWS_SECRET_ACCESS_KEY')
-    AWS_STORAGE_BUCKET_NAME = config('AWS_STORAGE_BUCKET_NAME')
-    AWS_S3_REGION_NAME = config('AWS_S3_REGION_NAME', default='ap-south-1')
+    _bucket = config('S3_BUCKET_NAME', default='') or config('AWS_STORAGE_BUCKET_NAME', default='')
+    AWS_STORAGE_BUCKET_NAME = _bucket
+    _region = config('AWS_REGION', default='') or config('AWS_S3_REGION_NAME', default='ap-south-1')
+    AWS_S3_REGION_NAME = _region
     AWS_S3_SIGNATURE_VERSION = 's3v4'
     AWS_S3_FILE_OVERWRITE = False
     AWS_QUERYSTRING_AUTH = False
-    # Blog images must be readable in CRM/website <img> tags
-    AWS_DEFAULT_ACL = config('AWS_DEFAULT_ACL', default='public-read')
+    # None = omit ACL on upload (required when bucket has "Bucket owner enforced" / ACLs disabled).
+    # Use a bucket policy for public read on featured_images/* and quill_uploads/* instead.
+    _acl_raw = config('AWS_DEFAULT_ACL', default='').strip()
+    AWS_DEFAULT_ACL = (
+        None
+        if not _acl_raw or _acl_raw.lower() in ('none', 'null', 'false', '')
+        else _acl_raw
+    )
     AWS_S3_OBJECT_PARAMETERS = {
-        'CacheControl': 'max-age=31536000, public',
+        'CacheControl': 'max-age=86400, public',
     }
     AWS_LOCATION = config('AWS_LOCATION', default='')
     AWS_S3_CUSTOM_DOMAIN = config(
@@ -212,8 +232,8 @@ SITE_BASE_URL = config('SITE_BASE_URL', default='https://www.pestcontrol99.com')
 # Public API origin for media URLs returned to CRM (no /api suffix)
 PUBLIC_API_BASE_URL = config('PUBLIC_API_BASE_URL', default='https://api.vacationbna.site')
 
-# Blog CMS settings
-BLOG_IMAGE_MAX_SIZE_MB = 10
+# Blog CMS settings (IMAGE_MAX_MB also used for blog)
+BLOG_IMAGE_MAX_SIZE_MB = IMAGE_MAX_MB
 BLOG_CACHE_TTL = 300          # 5 minutes
 
 # Default primary key field type

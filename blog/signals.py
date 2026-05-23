@@ -1,3 +1,4 @@
+import io
 import uuid
 import logging
 from django.db.models.signals import post_save, pre_save, pre_delete
@@ -5,7 +6,7 @@ from django.dispatch import receiver
 from django.core.files.base import ContentFile
 
 from .models import Blog
-from .utils import generate_responsive_images
+from .utils import generate_responsive_images, read_image_field_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +70,8 @@ def process_blog_images(sender, instance, created, **kwargs):
         return
 
     try:
-        instance.featured_image.seek(0)
-        variants = generate_responsive_images(instance.featured_image)
+        image_bytes = read_image_field_bytes(instance.featured_image)
+        variants = generate_responsive_images(io.BytesIO(image_bytes))
 
         def _save_variant(field_name: str, buffer, suffix: str):
             filename = f"{uuid.uuid4().hex}_{suffix}.webp"
@@ -85,7 +86,6 @@ def process_blog_images(sender, instance, created, **kwargs):
         _save_variant("image_medium", variants["medium"], "medium")
 
         # Re-encode the original as a compressed full-size WebP
-        instance.featured_image.seek(0)
         full_buffer = variants["full"]
         full_filename = f"{uuid.uuid4().hex}_full.webp"
         full_content = ContentFile(full_buffer.read(), name=full_filename)

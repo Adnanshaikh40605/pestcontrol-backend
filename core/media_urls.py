@@ -27,7 +27,16 @@ def media_proxy_url(file_name: str) -> str:
 def is_safe_media_path(path: str) -> bool:
     if not path or '..' in path or path.startswith('/'):
         return False
-    allowed_prefixes = ('job_selfies/', 'blog/')
+    allowed_prefixes = (
+        'job_selfies/',
+        'technician_selfies/',
+        'featured_images/',
+        'quill_uploads/',
+        'profiles/',
+        'quotations/',
+        'blog/',
+        'partner_profiles/',
+    )
     return any(path.startswith(prefix) for prefix in allowed_prefixes)
 
 
@@ -40,7 +49,7 @@ def build_file_field_url(request, file_field) -> str | None:
     if not file_field or not file_field.name:
         return None
 
-    if file_field.name.startswith('job_selfies/'):
+    if file_field.name.startswith(('job_selfies/', 'technician_selfies/')):
         return media_proxy_url(file_field.name)
 
     try:

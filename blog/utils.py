@@ -1,51 +1,47 @@
 import io
-import os
 import logging
-from pathlib import Path
 from PIL import Image
+from django.conf import settings
+
+from core.image_validation import validate_image_upload
 
 logger = logging.getLogger(__name__)
 
-# Image size presets: (width, height, quality)
-IMAGE_SIZES = {
-    "thumbnail": (400, 250, 82),
-    "medium": (800, 500, 85),
-    "full": (1600, 1000, 88),
-}
 
-MAX_UPLOAD_SIZE_MB = 10
-MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
-
-
-ALLOWED_IMAGE_CONTENT_TYPES = frozenset({
-    'image/jpeg',
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'image/bmp',
-    'image/tiff',
-    'image/x-icon',
-})
+def _image_sizes():
+    quality = int(getattr(settings, 'IMAGE_WEBP_QUALITY', 82))
+    max_w = int(getattr(settings, 'IMAGE_MAX_WIDTH', 1920))
+    return {
+        'thumbnail': (400, 250, quality),
+        'medium': (800, 500, min(quality + 3, 95)),
+        'full': (max_w, int(max_w * 0.625), quality),
+    }
 
 
 def validate_image_size(image_file):
-    """Raise ValueError if image exceeds 10 MB or has disallowed content type."""
-    if image_file.size > MAX_UPLOAD_SIZE_BYTES:
-        raise ValueError(f"Image must be under {MAX_UPLOAD_SIZE_MB} MB. Got {image_file.size / 1024 / 1024:.1f} MB.")
+    """Raise ValueError if image exceeds size limit or disallowed type."""
+    validate_image_upload(image_file)
 
-    content_type = getattr(image_file, 'content_type', '') or ''
-    if content_type and content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
-        raise ValueError(f'Invalid file type: {content_type}. Only images are allowed.')
 
-    name = getattr(image_file, 'name', '') or ''
-    if name and not name.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.ico')):
-        raise ValueError('Invalid file extension. Only image files are allowed.')
+def read_image_field_bytes(image_field) -> bytes:
+    """Read bytes from an ImageField (works for local disk and S3-backed files)."""
+    image_field.open('rb')
+    try:
+        return image_field.read()
+    finally:
+        image_field.close()
 
 
 def _open_image_safe(image_file):
-    """Open an image from a Django UploadedFile or ImageFieldFile safely."""
+    """Open an image from a Django UploadedFile, BytesIO, or ImageFieldFile safely."""
     try:
-        image_file.seek(0)
+        from django.db.models.fields.files import FieldFile
+
+        if isinstance(image_file, FieldFile):
+            data = read_image_field_bytes(image_file)
+            image_file = io.BytesIO(data)
+        elif hasattr(image_file, 'seek'):
+            image_file.seek(0)
         img = Image.open(image_file)
         img.load()
         return img
@@ -90,7 +86,7 @@ def generate_responsive_images(image_file) -> dict:
         img = img.convert("RGB")
 
     result = {}
-    for size_name, (max_w, max_h, quality) in IMAGE_SIZES.items():
+    for size_name, (max_w, max_h, quality) in _image_sizes().items():
         resized = _resize_keep_aspect(img.copy(), max_w, max_h)
         buffer = io.BytesIO()
         resized.save(buffer, format="WEBP", quality=quality, method=6)

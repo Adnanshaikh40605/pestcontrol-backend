@@ -150,6 +150,22 @@ class BlogListAdminView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
 
+def _blog_save_error_response(exc: Exception) -> Response:
+    """Return JSON instead of HTML 500 for storage/upload failures."""
+    err = str(exc)
+    if 'AccessControlListNotSupported' in err:
+        err = (
+            'S3 bucket does not allow ACLs. Clear AWS_DEFAULT_ACL on Railway and '
+            'use a bucket policy for public read on featured_images/* and quill_uploads/*.'
+        )
+    elif 'NoCredentialsError' in err or 'Unable to locate credentials' in err:
+        err = 'S3 credentials missing on server (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).'
+    return Response(
+        {'error': err, 'detail': 'Blog save failed while storing images.'},
+        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
+
+
 class BlogCreateView(APIView):
     """POST /api/blogs/create/"""
     permission_classes = [IsBlogCMSUser]
@@ -157,22 +173,26 @@ class BlogCreateView(APIView):
 
     def post(self, request):
         serializer = BlogAdminSerializer(data=request.data, context={"request": request})
-        if serializer.is_valid():
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
             blog = serializer.save(author=request.user)
-            cache.delete("blog_dashboard_stats")
-            _invalidate_public_cache()
-            log_blog_audit(
-                request.user,
-                'blog_created',
-                blog=blog,
-                details=f'Created: {blog.title}',
-                request=request,
-            )
-            return Response(
-                BlogAdminSerializer(blog, context={"request": request}).data,
-                status=status.HTTP_201_CREATED,
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.exception('Blog create failed: %s', exc)
+            return _blog_save_error_response(exc)
+        cache.delete("blog_dashboard_stats")
+        _invalidate_public_cache()
+        log_blog_audit(
+            request.user,
+            'blog_created',
+            blog=blog,
+            details=f'Created: {blog.title}',
+            request=request,
+        )
+        return Response(
+            BlogAdminSerializer(blog, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class BlogDetailAdminView(APIView):
@@ -193,36 +213,44 @@ class BlogDetailAdminView(APIView):
     def put(self, request, pk):
         blog = self._get_blog(pk)
         serializer = BlogAdminSerializer(blog, data=request.data, context={"request": request})
-        if serializer.is_valid():
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
             blog = serializer.save()
-            cache.delete("blog_dashboard_stats")
-            _invalidate_public_cache(blog.slug)
-            log_blog_audit(
-                request.user,
-                'blog_edited',
-                blog=blog,
-                details=f'Updated: {blog.title}',
-                request=request,
-            )
-            return Response(BlogAdminSerializer(blog, context={"request": request}).data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.exception('Blog update failed pk=%s: %s', pk, exc)
+            return _blog_save_error_response(exc)
+        cache.delete("blog_dashboard_stats")
+        _invalidate_public_cache(blog.slug)
+        log_blog_audit(
+            request.user,
+            'blog_edited',
+            blog=blog,
+            details=f'Updated: {blog.title}',
+            request=request,
+        )
+        return Response(BlogAdminSerializer(blog, context={"request": request}).data)
 
     def patch(self, request, pk):
         blog = self._get_blog(pk)
         serializer = BlogAdminSerializer(blog, data=request.data, partial=True, context={"request": request})
-        if serializer.is_valid():
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        try:
             blog = serializer.save()
-            cache.delete("blog_dashboard_stats")
-            _invalidate_public_cache(blog.slug)
-            log_blog_audit(
-                request.user,
-                'blog_edited',
-                blog=blog,
-                details=f'Patched: {blog.title}',
-                request=request,
-            )
-            return Response(BlogAdminSerializer(blog, context={"request": request}).data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.exception('Blog patch failed pk=%s: %s', pk, exc)
+            return _blog_save_error_response(exc)
+        cache.delete("blog_dashboard_stats")
+        _invalidate_public_cache(blog.slug)
+        log_blog_audit(
+            request.user,
+            'blog_edited',
+            blog=blog,
+            details=f'Patched: {blog.title}',
+            request=request,
+        )
+        return Response(BlogAdminSerializer(blog, context={"request": request}).data)
 
 
 class BlogDeleteView(APIView):
@@ -289,23 +317,24 @@ class ImageUploadView(APIView):
         title = serializer.validated_data.get("title", "")
 
         try:
-            webp_buffer = convert_to_webp(image_file, quality=88)
-            filename = f"{uuid.uuid4().hex}.webp"
-            content = ContentFile(webp_buffer.read(), name=filename)
+            from django.conf import settings
+            from backend.media_storage import get_blog_editor_storage, editor_upload_path
 
-            from django.core.files.storage import default_storage
+            editor_quality = int(getattr(settings, 'BLOG_EDITOR_WEBP_QUALITY', 80))
+            webp_buffer = convert_to_webp(image_file, quality=editor_quality)
+            rel_path = editor_upload_path()
+            content = ContentFile(webp_buffer.read(), name=rel_path.split('/')[-1])
 
-            from .storage import storage_url
-
-            path = f"blog/uploads/{timezone.now().year}/{timezone.now().month}/{filename}"
-            saved_path = default_storage.save(path, content)
-            url = storage_url(saved_path)
+            storage = get_blog_editor_storage()
+            saved_path = storage.save(rel_path, content)
+            url = storage.url(saved_path)
             if not url.startswith(("http://", "https://")):
                 url = request.build_absolute_uri(url)
 
             from .media_urls import build_public_media_url
 
             url = build_public_media_url(request, url)
+            filename = saved_path.split('/')[-1]
 
             log_blog_audit(
                 request.user,

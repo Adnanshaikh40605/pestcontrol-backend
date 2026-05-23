@@ -17,8 +17,9 @@ urlpatterns = [
     path("blogs/<int:pk>/delete/", views.BlogDeleteView.as_view(), name="blog-delete"),
     path("blogs/<int:pk>/toggle-publish/", views.BlogPublishToggleView.as_view(), name="blog-toggle-publish"),
 
-    # Image upload
+    # Image upload (Quill / rich editor)
     path("blogs/upload-image/", views.ImageUploadView.as_view(), name="blog-upload-image"),
+    path("v1/blog/upload/", views.ImageUploadView.as_view(), name="blog-upload-image-v1"),
 
     # Analytics
     path("blogs/view/", views.BlogViewTrackView.as_view(), name="blog-view-track"),

@@ -33,11 +33,20 @@ class Command(BaseCommand):
                 'S3 is OFF — files save to local MEDIA_ROOT. Set USE_AWS=True in .env to use S3.'
             ))
 
-        test_path = 'blog/_storage_check.txt'
+        from backend.media_storage import get_blog_featured_storage
+
+        storage = get_blog_featured_storage() if use_aws else default_storage
+        test_path = '_storage_check.txt'
         try:
-            saved = default_storage.save(test_path, ContentFile(b'blog storage ok'))
-            url = default_storage.url(saved)
-            default_storage.delete(saved)
+            saved = storage.save(test_path, ContentFile(b'blog storage ok'))
+            url = storage.url(saved)
+            storage.delete(saved)
             self.stdout.write(self.style.SUCCESS(f'Write test OK — sample URL: {url}'))
+            acl = getattr(settings, 'AWS_DEFAULT_ACL', None)
+            self.stdout.write(f'AWS_DEFAULT_ACL: {acl!r}')
         except Exception as exc:
             self.stdout.write(self.style.ERROR(f'Write test FAILED: {exc}'))
+            if 'AccessControlListNotSupported' in str(exc):
+                self.stdout.write(self.style.WARNING(
+                    'Bucket blocks ACLs — remove AWS_DEFAULT_ACL=public-read from Railway.'
+                ))
