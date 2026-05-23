@@ -15,6 +15,11 @@ from backend.media_storage import (
 User = get_user_model()
 
 
+def blog_image_upload_path(instance, filename):
+    """Alias kept for blog/migrations/0001_initial.py (upload path moved to media_storage)."""
+    return blog_featured_upload_path(instance, filename)
+
+
 class BaseModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True, db_index=True)
