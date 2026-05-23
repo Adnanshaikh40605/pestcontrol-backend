@@ -7,8 +7,8 @@ import '../../core/theme/app_colors.dart';
 import '../../services/profile_service.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/notifications_provider.dart';
 import '../../providers/profile_provider.dart';
-import '../../services/push_notification_service.dart';
 import '../../shared/widgets/pest_logo.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -30,13 +30,12 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!auth.ready) await auth.init();
     if (!mounted) return;
     if (auth.loggedIn) {
-      await PushNotificationService.instance.requestPermission();
-      await PushNotificationService.instance.syncTokenWithBackend();
       try {
         final data = await ProfileService(context.read<ApiClient>()).getProfile();
         await auth.refreshApprovalFromProfile(data);
         if (mounted) {
           await context.read<ProfileProvider>().loadProfile(force: true);
+          await context.read<NotificationsProvider>().load(force: true);
         }
       } catch (_) {
         /* offline or expired */
@@ -49,7 +48,6 @@ class _SplashScreenState extends State<SplashScreen> {
       context.go('/pending-approval');
     } else {
       context.go('/bookings');
-      PushNotificationService.instance.processPendingNavigation();
     }
   }
 

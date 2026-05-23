@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import CrmPartnerEvent, Partner, PartnerDeviceToken, PartnerNotification, PartnerEarning, PartnerRating
+from .models import CrmPartnerEvent, Partner, PartnerNotification, PartnerEarning, PartnerRating
 
 
 @admin.register(Partner)
@@ -21,9 +21,6 @@ class PartnerAdmin(admin.ModelAdmin):
         ("Bank Details", {
             'fields': ('bank_name', 'account_number', 'ifsc_code', 'account_holder_name')
         }),
-        ("Push Notifications", {
-            'fields': ('fcm_token',)
-        }),
         ("Timestamps", {
             'fields': ('created_at', 'updated_at')
         }),
@@ -42,13 +39,6 @@ class PartnerRatingAdmin(admin.ModelAdmin):
     list_display = ['id', 'partner', 'job', 'rating', 'feedback', 'created_at']
     list_filter = ['rating']
     search_fields = ['partner__full_name']
-
-
-@admin.register(PartnerDeviceToken)
-class PartnerDeviceTokenAdmin(admin.ModelAdmin):
-    list_display = ['id', 'partner', 'device_type', 'is_active', 'last_used_at']
-    list_filter = ['device_type', 'is_active']
-    search_fields = ['partner__full_name', 'fcm_token']
 
 
 @admin.register(PartnerNotification)

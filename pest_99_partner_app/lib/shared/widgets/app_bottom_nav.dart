@@ -4,7 +4,8 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../providers/auth_provider.dart';
-import '../../services/push_notification_service.dart';
+import '../../providers/notifications_provider.dart';
+
 enum AppNavTab { bookings, accepted, completed, profile }
 
 extension AppNavTabX on AppNavTab {
@@ -14,7 +15,6 @@ extension AppNavTabX on AppNavTab {
         AppNavTab.completed => '/completed',
         AppNavTab.profile => '/profile',
       };
-
 }
 
 AppNavTab appNavTabFromLocation(String location) {
@@ -160,7 +160,7 @@ class _MainShellScaffoldState extends State<MainShellScaffold> with WidgetsBindi
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncFcmIfLoggedIn());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshIfLoggedIn());
   }
 
   @override
@@ -172,15 +172,15 @@ class _MainShellScaffoldState extends State<MainShellScaffold> with WidgetsBindi
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _syncFcmIfLoggedIn();
+      _refreshIfLoggedIn();
     }
   }
 
-  Future<void> _syncFcmIfLoggedIn() async {
+  Future<void> _refreshIfLoggedIn() async {
     if (!mounted) return;
     final auth = context.read<AuthProvider>();
     if (!auth.loggedIn || !auth.appApproved) return;
-    await PushNotificationService.instance.ensureTokenSyncedWithBackend();
+    await context.read<NotificationsProvider>().load(force: true);
   }
 
   @override

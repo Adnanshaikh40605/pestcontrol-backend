@@ -52,10 +52,10 @@ def broadcast_pending_filter():
 def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=None) -> tuple[JobCard, bool, dict]:
     """
     CRM: broadcast booking to all approved partner apps (Pending until one accepts).
-    technician_id is optional legacy hint only (FCM targeting); omit to notify all approved partners.
+    technician_id is optional legacy hint; omit to notify all approved partners.
 
-    Returns (job, refloated, push_result) where refloated=True when the booking was already in the
-    open pool and push notifications were sent again.
+    Returns (job, refloated, notify_result) where refloated=True when the booking was already in the
+    open pool and in-app notifications were sent again.
     """
     if job.status != JobCard.JobStatus.PENDING:
         raise PartnerBookingError(
@@ -72,17 +72,17 @@ def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=N
             and job.partner_status == JobCard.PartnerStatus.PENDING
         )
         if in_open_queue:
-            # Already in queue — re-notify partners (force bypasses 90s FCM dedupe).
-            push_result: dict = {}
+            # Already in queue — re-notify partners (force bypasses 90s dedupe).
+            notify_result: dict = {}
             try:
                 from partner.notification_service import notify_partners_new_booking
 
-                push_result = notify_partners_new_booking(
+                notify_result = notify_partners_new_booking(
                     job, technician_id=technician_id, force=True
                 )
             except Exception as exc:
-                logger.exception('FCM re-notify failed for booking #%s: %s', job.id, exc)
-            return job, True, push_result
+                logger.exception('Partner re-notify failed for booking #%s: %s', job.id, exc)
+            return job, True, notify_result
         raise PartnerBookingError(
             'Booking is already accepted or in progress in the partner app.',
             code='already_in_progress',
@@ -115,14 +115,14 @@ def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=N
         job.id,
         sent_by_user,
     )
-    push_result = {}
+    notify_result = {}
     try:
         from partner.notification_service import notify_partners_new_booking
 
-        push_result = notify_partners_new_booking(job, technician_id=technician_id)
+        notify_result = notify_partners_new_booking(job, technician_id=technician_id)
     except Exception as exc:
-        logger.exception('FCM push failed for booking #%s: %s', job.id, exc)
-    return job, False, push_result
+        logger.exception('Partner notify failed for booking #%s: %s', job.id, exc)
+    return job, False, notify_result
 
 
 @transaction.atomic
@@ -188,6 +188,13 @@ def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCar
         )
     if not selfie_file:
         raise PartnerBookingError('Selfie image is required to start the job.', code='selfie_required')
+
+    from core.image_validation import validate_image_upload
+
+    try:
+        validate_image_upload(selfie_file)
+    except ValueError as exc:
+        raise PartnerBookingError(str(exc), code='invalid_selfie') from exc
 
     job.job_start_selfie = selfie_file
     job.partner_status = JobCard.PartnerStatus.IN_SERVICE

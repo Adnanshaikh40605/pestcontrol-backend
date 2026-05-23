@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.hashers import make_password, check_password
 
+from backend.media_storage import get_profile_storage, profile_upload_path
+
 
 class Partner(models.Model):
     """
@@ -25,16 +27,11 @@ class Partner(models.Model):
 
     # Profile
     profile_image = models.ImageField(
-        upload_to='partner_profiles/',
+        upload_to=profile_upload_path,
+        storage=get_profile_storage,
         blank=True,
         null=True,
-        verbose_name="Profile Image"
-    )
-    fcm_token = models.TextField(
-        blank=True,
-        null=True,
-        verbose_name="FCM Push Token",
-        help_text="Firebase Cloud Messaging token for push notifications"
+        verbose_name="Profile Image",
     )
 
     # Bank details
@@ -157,39 +154,6 @@ class PartnerRevokedJti(models.Model):
 
     def __str__(self):
         return self.jti
-
-
-class PartnerDeviceToken(models.Model):
-    """FCM device token per partner (supports multiple devices; deduped by token)."""
-
-    class DeviceType(models.TextChoices):
-        ANDROID = 'android', 'Android'
-        IOS = 'ios', 'iOS'
-
-    partner = models.ForeignKey(
-        Partner,
-        on_delete=models.CASCADE,
-        related_name='device_tokens',
-    )
-    fcm_token = models.CharField(max_length=512, unique=True, db_index=True)
-    device_type = models.CharField(
-        max_length=20,
-        choices=DeviceType.choices,
-        default=DeviceType.ANDROID,
-    )
-    is_active = models.BooleanField(default=True, db_index=True)
-    last_used_at = models.DateTimeField(auto_now=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name = 'Partner Device Token'
-        verbose_name_plural = 'Partner Device Tokens'
-        indexes = [
-            models.Index(fields=['partner', 'is_active']),
-        ]
-
-    def __str__(self):
-        return f'{self.partner_id} — {self.device_type}'
 
 
 class PartnerNotification(models.Model):

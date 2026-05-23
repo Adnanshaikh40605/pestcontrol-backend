@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 
 import '../models/partner_notification.dart';
 import '../services/notification_api_service.dart';
-import '../services/push_notification_service.dart';
 
 class NotificationsProvider extends ChangeNotifier {
   NotificationsProvider(this._api);
@@ -12,6 +11,7 @@ class NotificationsProvider extends ChangeNotifier {
   List<PartnerNotificationItem> items = [];
   bool loading = false;
   String? error;
+  int unreadCount = 0;
 
   Future<void> load({bool force = false}) async {
     if (loading && !force) return;
@@ -21,7 +21,7 @@ class NotificationsProvider extends ChangeNotifier {
     try {
       final res = await _api.fetchNotifications();
       items = res.results;
-      PushNotificationService.instance.setUnreadCount(res.unreadCount);
+      unreadCount = res.unreadCount;
     } catch (e) {
       error = 'Could not load notifications';
     } finally {
@@ -41,7 +41,7 @@ class NotificationsProvider extends ChangeNotifier {
           isRead: true,
           createdAt: n.createdAt,
         )).toList();
-    PushNotificationService.instance.setUnreadCount(0);
+    unreadCount = 0;
     notifyListeners();
   }
 }

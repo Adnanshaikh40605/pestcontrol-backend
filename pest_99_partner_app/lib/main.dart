@@ -16,7 +16,6 @@ import 'services/auth_service.dart';
 import 'services/booking_service.dart';
 import 'services/notification_api_service.dart';
 import 'services/profile_service.dart';
-import 'services/push_notification_service.dart';
 
 final _routerHolder = _RouterHolder();
 
@@ -27,17 +26,6 @@ void main() {
     final sessionCoordinator = SessionCoordinator();
     final api = ApiClient(sessionCoordinator: sessionCoordinator);
     final notificationApi = NotificationApiService(api);
-
-    await PushNotificationService.instance.initialize();
-    PushNotificationService.instance.configure(
-      api: notificationApi,
-      onOpenBooking: (id) {
-        final router = _routerHolder.router;
-        if (router != null) {
-          navigateToBookingFromNotification(router, id);
-        }
-      },
-    );
 
     final auth = AuthProvider(AuthService(api), sessionCoordinator)..init();
 

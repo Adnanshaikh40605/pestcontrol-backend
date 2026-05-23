@@ -4,8 +4,8 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_spacing.dart';
 import '../../providers/auth_provider.dart';
-import '../../services/push_notification_service.dart';
 import '../../providers/profile_provider.dart';
+import '../../providers/notifications_provider.dart';
 import '../../shared/widgets/app_text_field.dart';
 import '../../shared/widgets/pest_logo.dart';
 import '../../shared/widgets/primary_button.dart';
@@ -51,8 +51,9 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       final approved = context.read<AuthProvider>().appApproved;
       if (approved) {
+        await context.read<NotificationsProvider>().load(force: true);
+        if (!mounted) return;
         context.go('/bookings');
-        PushNotificationService.instance.processPendingNavigation();
       } else {
         context.go('/pending-approval');
       }

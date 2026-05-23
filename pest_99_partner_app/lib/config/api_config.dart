@@ -22,10 +22,7 @@ class ApiConfig {
   static String startBooking(int id) => '$partnerPrefix/bookings/$id/start/';
   static String completeBooking(int id) => '$partnerPrefix/bookings/$id/complete/';
   static String get referClient => '$partnerPrefix/refer-client/';
-  static String get saveFcmToken => '$partnerPrefix/save-fcm-token/';
-  static String get removeFcmToken => '$partnerPrefix/remove-fcm-token/';
   static String get notifications => '$partnerPrefix/notifications/';
   static String get markAllNotificationsRead => '$partnerPrefix/notifications/mark-all-read/';
   static String markNotificationRead(int id) => '$partnerPrefix/notifications/$id/read/';
-  static String get pushHealth => '$partnerPrefix/push-health/';
 }

@@ -2,8 +2,9 @@
 Partner App APIs — Complete implementation for Flutter mobile app.
 
 All endpoints are grouped as:
-  - Authentication (Register, Login, Refresh Token, FCM Update)
+  - Authentication (Register, Login, Refresh Token)
   - Bookings (Available, Accepted, Completed, Detail, Accept, Reject, Start, Complete)
+  - In-app notifications (list, mark read)
   - Profile (My Profile, Update Profile, Stats, Earnings, Ratings)
 """
 
@@ -24,7 +25,6 @@ from .serializers import (
     PartnerLoginSerializer,
     PartnerRefreshSerializer,
     PartnerUpdateSerializer,
-    PartnerFCMSerializer,
     PartnerBookingListSerializer,
     PartnerBookingDetailSerializer,
     PartnerCompleteBookingSerializer,
@@ -219,54 +219,6 @@ class RefreshTokenAPIView(APIView):
         return Response(tokens, status=status.HTTP_200_OK)
 
 
-class SaveFCMTokenAPIView(APIView):
-    """
-    POST /api/partner/save-fcm-token/
-    Register or update device FCM token (deduplicated).
-    """
-    permission_classes = [IsPartnerAuthenticated]
-
-    @extend_schema(
-        tags=["Notifications"],
-        summary="Save FCM device token",
-        request=PartnerFCMSerializer,
-    )
-    def post(self, request):
-        serializer = PartnerFCMSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-
-        from partner.notification_service import register_device_token
-
-        try:
-            register_device_token(
-                request.partner,
-                serializer.validated_data['fcm_token'],
-                serializer.validated_data.get('device_type', 'android'),
-            )
-        except ValueError as exc:
-            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-
-        return Response({"message": "FCM token saved successfully."})
-
-
-class RemoveFCMTokenAPIView(APIView):
-    """POST /api/partner/remove-fcm-token/ — on logout."""
-    permission_classes = [IsPartnerAuthenticated]
-
-    @extend_schema(tags=["Notifications"], summary="Remove FCM token on logout")
-    def post(self, request):
-        from partner.notification_service import deactivate_device_token
-
-        token = request.data.get('fcm_token')
-        count = deactivate_device_token(request.partner, token)
-        return Response({"message": "FCM token removed.", "deactivated": count})
-
-
-# Legacy alias
-UpdateFCMTokenAPIView = SaveFCMTokenAPIView
-
-
 class PartnerNotificationsAPIView(APIView):
     """GET /api/partner/notifications/ — in-app notification history."""
     permission_classes = [IsPartner]
@@ -298,40 +250,6 @@ class MarkNotificationReadAPIView(APIView):
         if not updated:
             return Response({"error": "Not found."}, status=404)
         return Response({"message": "Marked as read."})
-
-
-class PushHealthAPIView(APIView):
-    """GET /api/partner/push-health/ — verify FCM config (authenticated partner)."""
-    permission_classes = [IsPartnerAuthenticated]
-
-    def get(self, request):
-        from partner.notification_service import (
-            active_tokens_for_partners,
-            approved_partner_ids,
-        )
-        from partner.push_service import is_fcm_configured
-
-        partner = request.partner
-        my_tokens = list(
-            partner.device_tokens.filter(is_active=True).values_list('fcm_token', flat=True)
-        )
-        in_push_pool = partner.is_active and partner.is_app_approved
-        return Response({
-            'fcm_configured': is_fcm_configured(),
-            'partner_id': partner.id,
-            'is_app_approved': partner.is_app_approved,
-            'is_active': partner.is_active,
-            'included_in_broadcast_push': in_push_pool,
-            'device_tokens_count': len(my_tokens),
-            'has_legacy_fcm_token': bool(partner.fcm_token),
-            'pool_active_tokens': len(active_tokens_for_partners()),
-            'approved_partner_count': len(approved_partner_ids()),
-            'push_hint': (
-                None
-                if in_push_pool
-                else 'Your account is not approved for broadcast push. Contact admin to enable is_app_approved.'
-            ),
-        })
 
 
 class MarkAllNotificationsReadAPIView(APIView):

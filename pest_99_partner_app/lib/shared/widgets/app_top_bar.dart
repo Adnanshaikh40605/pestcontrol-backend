@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../services/push_notification_service.dart';
+import '../../providers/notifications_provider.dart';
 import 'pest_logo.dart';
 
 class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
@@ -37,6 +38,8 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final unread = context.watch<NotificationsProvider>().unreadCount;
+
     return Material(
       color: AppColors.surface,
       child: Container(
@@ -84,19 +87,14 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                         textAlign: TextAlign.center,
                       ),
               ),
-              ValueListenableBuilder<int>(
-                valueListenable: PushNotificationService.instance.unreadNotifier,
-                builder: (context, unread, _) {
-                  return IconButton(
-                    onPressed: () => context.push('/notifications'),
-                    icon: Badge(
-                      isLabelVisible: unread > 0,
-                      label: Text(unread > 9 ? '9+' : '$unread'),
-                      child: const Icon(Icons.notifications_outlined, color: AppColors.onSurfaceVariant),
-                    ),
-                    style: IconButton.styleFrom(minimumSize: const Size(40, 40)),
-                  );
-                },
+              IconButton(
+                onPressed: () => context.push('/notifications'),
+                icon: Badge(
+                  isLabelVisible: unread > 0,
+                  label: Text(unread > 9 ? '9+' : '$unread'),
+                  child: const Icon(Icons.notifications_outlined, color: AppColors.onSurfaceVariant),
+                ),
+                style: IconButton.styleFrom(minimumSize: const Size(40, 40)),
               ),
             ],
           ),

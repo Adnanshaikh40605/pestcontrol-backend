@@ -66,16 +66,12 @@ logger = logging.getLogger(__name__)
 )
 def health_check(request):
     """Health check endpoint for monitoring."""
-    from partner.push_service import get_fcm_config_status
-
-    payload = {
+    return JsonResponse({
         'status': 'ok',
         'service': 'pestcontrol-backend',
         'version': '1.0.0',
         'endpoint': 'core',
-        'partner_fcm': get_fcm_config_status(),
-    }
-    return JsonResponse(payload)
+    })
 
 
 # CORS test endpoint removed for production security
@@ -1235,13 +1231,6 @@ class InquiryViewSet(BaseModelViewSet):
         Inquiry.objects.filter(is_read=False).update(is_read=True)
         return response.Response({'status': 'success'})
 
-
-class WebsiteLeadViewSet(InquiryViewSet):
-    """
-    Website leads API alias — same data as inquiries with /website-leads/ routes.
-    """
-    pass
-
     @extend_schema(
         summary="Mark Inquiry as Read",
         description="Mark an inquiry as read to track which inquiries have been reviewed",
@@ -1261,13 +1250,13 @@ class WebsiteLeadViewSet(InquiryViewSet):
         },
         tags=['Inquiries']
     )
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], url_path='mark_as_read')
     def mark_as_read(self, request, pk=None):
         """Mark inquiry as read."""
         try:
             inquiry = self.get_object()
             inquiry.is_read = True
-            inquiry.save()
+            inquiry.save(update_fields=['is_read', 'updated_at'])
             return response.Response({'status': 'marked as read'})
         except Exception as e:
             logger.error(f"Error marking inquiry {pk} as read: {e}")
@@ -1304,7 +1293,7 @@ class WebsiteLeadViewSet(InquiryViewSet):
         try:
             inquiry = self.get_object()
             exists, client = ClientService.check_client_exists(inquiry.mobile)
-            
+
             if exists:
                 return response.Response({
                     'exists': True,
@@ -1323,6 +1312,11 @@ class WebsiteLeadViewSet(InquiryViewSet):
                 {'error': 'Failed to check client existence'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class WebsiteLeadViewSet(InquiryViewSet):
+    """Website leads API alias — same routes as inquiries under /website-leads/."""
+    pass
 
 
 class FeedbackViewSet(BaseModelViewSet):
@@ -1915,7 +1909,7 @@ class JobCardViewSet(BaseModelViewSet):
             and instance.partner_id is None
         )
         try:
-            job, was_refloat, push_result = send_booking_to_partner_app(
+            job, was_refloat, notify_result = send_booking_to_partner_app(
                 instance,
                 int(technician_id) if technician_id else None,
                 sent_by_user=request.user,
@@ -1951,50 +1945,16 @@ class JobCardViewSet(BaseModelViewSet):
                 'All approved and verified technicians can accept it.'
             )
 
-        from partner.push_service import get_fcm_config_status, is_fcm_configured
-
-        push_success = int(push_result.get('success', 0))
-        fcm_configured = bool(
-            push_result.get('fcm_configured', is_fcm_configured())
-        )
-        if not fcm_configured:
-            fcm_status = get_fcm_config_status()
-            message += (
-                ' Warning: Firebase push is not configured on the server — '
-                'technicians must open the app to see the booking. '
-                f"({fcm_status.get('reason', 'missing credentials')})"
-            )
-        tokens_targeted = int(push_result.get('tokens_targeted', 0))
-        approved_count = int(push_result.get('approved_partner_count', 0))
-        push_hint = push_result.get('push_hint')
-        if push_hint:
-            message += f' Warning: {push_hint}'
-        elif fcm_configured and tokens_targeted == 0 and not push_result.get('skipped'):
-            if approved_count == 0:
-                message += (
-                    ' Warning: No approved partner accounts for the app — approve technicians in CRM.'
-                )
-            else:
-                message += (
-                    ' Warning: No FCM device tokens for approved partners — open Pest 99 Partner app, '
-                    'allow notifications, log out and log in again.'
-                )
-        elif push_success == 0 and tokens_targeted > 0 and not push_result.get('skipped'):
-            message += (
-                ' Warning: Push was sent to device(s) but none succeeded — ask technicians to log in again.'
-            )
+        approved_count = int(notify_result.get('approved_partner_count', 0))
+        if approved_count == 0 and not notify_result.get('skipped'):
+            message += ' Warning: No approved partner accounts for the app — approve technicians in CRM.'
 
         return response.Response({
             'success': True,
             'refloated': refloating,
             'message': message,
-            'fcm_configured': fcm_configured,
-            'push_success': push_success,
-            'push_failure': int(push_result.get('failure', 0)),
-            'push_tokens_targeted': tokens_targeted,
+            'partners_notified': int(notify_result.get('partners_notified', 0)),
             'approved_partner_count': approved_count,
-            'push_hint': push_hint,
-            'unapproved_token_holders': push_result.get('unapproved_token_holders'),
             'job': serializer.data,
         })
 
