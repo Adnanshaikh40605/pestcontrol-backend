@@ -53,6 +53,11 @@ FIREBASE_PRIVATE_KEY_ID = config('FIREBASE_PRIVATE_KEY_ID', default='')
 FIREBASE_CLIENT_EMAIL = config('FIREBASE_CLIENT_EMAIL', default='')
 GOOGLE_APPLICATION_CREDENTIALS = config('GOOGLE_APPLICATION_CREDENTIALS', default='')
 
+# Sentry (pest99.sentry.io) — set SENTRY_DSN on Railway; leave empty to disable locally
+SENTRY_DSN = config('SENTRY_DSN', default='')
+SENTRY_ENVIRONMENT = config('SENTRY_ENVIRONMENT', default='production')
+SENTRY_TRACES_SAMPLE_RATE = config('SENTRY_TRACES_SAMPLE_RATE', default='0.1')
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -605,3 +610,8 @@ SPECTACULAR_SETTINGS = {
         'tryItOutEnabled': True,
     },
 }
+
+# ── Sentry (error monitoring) ───────────────────────────────────────────────
+from backend.sentry_config import init_sentry  # noqa: E402
+
+init_sentry()

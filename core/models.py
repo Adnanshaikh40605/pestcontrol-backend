@@ -2,6 +2,9 @@ from django.db import models
 import uuid
 from django.utils import timezone
 from django.core.exceptions import ValidationError
+
+from backend.media_storage import get_selfie_storage, selfie_upload_path
+
 from .validators import (
     validate_mobile_number, 
     validate_positive_decimal, 
@@ -833,7 +836,8 @@ class JobCard(BaseModel):
         help_text="When CRM dispatched this booking to the partner mobile app",
     )
     job_start_selfie = models.ImageField(
-        upload_to='job_selfies/%Y/%m/',
+        upload_to=selfie_upload_path,
+        storage=get_selfie_storage,
         null=True,
         blank=True,
         verbose_name="Job Start Selfie",

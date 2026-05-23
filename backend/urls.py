@@ -14,12 +14,23 @@ from drf_spectacular.views import (
 from blog.views import SitemapXMLView, RobotsTxtView
 
 def health(request):
-    return JsonResponse({
-        "status": "ok", 
-        "service": "pestcontrol-backend", 
+    from backend.sentry_config import get_sentry_status
+
+    payload = {
+        "status": "ok",
+        "service": "pestcontrol-backend",
         "version": "1.0.0",
-        "endpoint": "main"
-    })
+        "endpoint": "main",
+        "sentry": get_sentry_status(),
+    }
+    return JsonResponse(payload)
+
+
+def sentry_debug(request):
+    """Verify Sentry — only when DJANGO_DEBUG=True. Visit /sentry-debug/ once."""
+    if not settings.DEBUG:
+        return JsonResponse({"error": "disabled"}, status=404)
+    raise ZeroDivisionError('Sentry test event from pestcontrol-backend')
 
 def root(request):
     return HttpResponse("PestControl Backend API v1.0.0 - Status: Running", content_type="text/plain")
@@ -28,6 +39,7 @@ def root(request):
 urlpatterns = [
     path('', root, name='root'),  # Root path for Railway healthcheck
     path('health/', health, name='health'),
+    path('sentry-debug/', sentry_debug, name='sentry-debug'),
     path('admin/', admin.site.urls),
     
     # Authentication endpoints (CRM Staff)
