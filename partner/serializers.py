@@ -76,6 +76,16 @@ class PartnerRefreshSerializer(serializers.Serializer):
     refresh = serializers.CharField()
 
 
+class PartnerFCMSerializer(serializers.Serializer):
+    """Register or update FCM device token."""
+    fcm_token = serializers.CharField(max_length=512)
+    device_type = serializers.ChoiceField(
+        choices=['android', 'ios'],
+        default='android',
+        required=False,
+    )
+
+
 class PartnerUpdateSerializer(serializers.ModelSerializer):
     """Serializer for partner profile update."""
     class Meta:

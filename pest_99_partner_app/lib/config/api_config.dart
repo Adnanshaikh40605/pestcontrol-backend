@@ -10,6 +10,9 @@ class ApiConfig {
   static String get register => '$partnerPrefix/register/';
   static String get login => '$partnerPrefix/login/';
   static String get tokenRefresh => '$partnerPrefix/token/refresh/';
+  static String get saveFcmToken => '$partnerPrefix/save-fcm-token/';
+  static String get removeFcmToken => '$partnerPrefix/remove-fcm-token/';
+  static String get pushHealth => '$partnerPrefix/push-health/';
   static String get profile => '$partnerPrefix/profile/';
   static String get bookingCounts => '$partnerPrefix/bookings/counts/';
   static String get availableBookings => '$partnerPrefix/bookings/available/';

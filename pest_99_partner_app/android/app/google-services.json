@@ -1,0 +1,29 @@
+﻿{
+  "project_info": {
+    "project_number": "1081130965061",
+    "project_id": "pest-99-partner-app",
+    "storage_bucket": "pest-99-partner-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1081130965061:android:7b27fabd53de34fd8cab2c",
+        "android_client_info": {
+          "package_name": "com.example.pest_99_partner_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBg0cUpE0FgpbNXAGhICeQM5zZ09NpmRko"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

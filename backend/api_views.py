@@ -109,33 +109,11 @@ def api_docs_json(request):
                     }
                 }
             },
-            "Simplified Notification APIs": {
-                "device_tokens": {
-                    "url": "/api/v1/device-tokens/",
-                    "methods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
-                    "description": "Simple device token management for push notifications",
-                    "features": ["Register device tokens", "Update device info", "Unregister tokens"]
-                },
-                "device_tokens_register": {
-                    "url": "/api/v1/device-tokens/register/",
-                    "methods": ["POST"],
-                    "description": "Public endpoint to register device token (no auth required)"
-                },
-                "device_tokens_unregister": {
-                    "url": "/api/v1/device-tokens/unregister/",
-                    "methods": ["POST"],
-                    "description": "Unregister device token"
-                },
-                "notifications_send": {
-                    "url": "/api/v1/notifications/send/",
-                    "methods": ["POST"],
-                    "description": "Send push notifications to devices (authenticated)"
-                },
-
-                "notification_logs": {
-                    "url": "/api/v1/notification-logs/",
+            "Partner app (in-app notifications)": {
+                "partner_notifications": {
+                    "url": "/api/partner/notifications/",
                     "methods": ["GET"],
-                    "description": "View notification delivery logs (authenticated)"
+                    "description": "In-app notification history for partner app (no Firebase push)"
                 }
             },
             "Special Endpoints": {

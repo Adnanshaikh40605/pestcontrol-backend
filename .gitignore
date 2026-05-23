@@ -10,6 +10,7 @@ __pycache__/
 .env
 *firebase-adminsdk*.json
 railway variabe.md
+RAILWAY_S3_VARIABLES.md
 env/
 venv/
 .venv/
@@ -34,6 +35,11 @@ google-services.json/
 # Exclude frontend folder
 pestcontrol-frontend/
 
+# Customer website (Vite) — keep source, ignore build artifacts
+pestcontroll99/node_modules/
+pestcontroll99/dist/
+pestcontroll99/.next/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -46,8 +52,9 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
+!pest_99_partner_app/lib/
 parts/
 sdist/
 var/

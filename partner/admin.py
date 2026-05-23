@@ -1,5 +1,12 @@
 from django.contrib import admin
-from .models import CrmPartnerEvent, Partner, PartnerNotification, PartnerEarning, PartnerRating
+from .models import (
+    CrmPartnerEvent,
+    Partner,
+    PartnerDeviceToken,
+    PartnerNotification,
+    PartnerEarning,
+    PartnerRating,
+)
 
 
 @admin.register(Partner)
@@ -39,6 +46,14 @@ class PartnerRatingAdmin(admin.ModelAdmin):
     list_display = ['id', 'partner', 'job', 'rating', 'feedback', 'created_at']
     list_filter = ['rating']
     search_fields = ['partner__full_name']
+
+
+@admin.register(PartnerDeviceToken)
+class PartnerDeviceTokenAdmin(admin.ModelAdmin):
+    list_display = ['id', 'partner', 'device_type', 'is_active', 'last_used_at', 'created_at']
+    list_filter = ['device_type', 'is_active']
+    search_fields = ['partner__full_name', 'partner__mobile', 'fcm_token']
+    readonly_fields = ['created_at', 'last_used_at']
 
 
 @admin.register(PartnerNotification)

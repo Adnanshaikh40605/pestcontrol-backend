@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../core/api_exception.dart';
 import '../core/session_coordinator.dart';
 import '../services/auth_service.dart';
+import '../services/push_notification_service.dart';
 
 class AuthProvider extends ChangeNotifier {
   AuthProvider(this._auth, this._session) {
@@ -42,6 +43,10 @@ class AuthProvider extends ChangeNotifier {
   Future<void> init() async {
     _loggedIn = await _auth.hasSession();
     _appApproved = _loggedIn ? await _auth.isAppApproved() : false;
+    if (_loggedIn) {
+      await PushNotificationService.instance.ensureTokenSyncedWithBackend();
+      PushNotificationService.instance.processPendingNavigation();
+    }
     _ready = true;
     notifyListeners();
   }
@@ -65,6 +70,11 @@ class AuthProvider extends ChangeNotifier {
       if (partner is Map) {
         _partnerName = partner['full_name'] as String?;
       }
+      final fcmOk = await PushNotificationService.instance.ensureTokenSyncedWithBackend();
+      if (!fcmOk) {
+        debugPrint('FCM token not saved — enable notifications and try again');
+      }
+      await PushNotificationService.instance.showLoginSuccessNotification();
       return true;
     } on ApiException catch (e) {
       _error = e.message;
@@ -108,10 +118,14 @@ class AuthProvider extends ChangeNotifier {
     if (partner is Map) {
       _partnerName = partner['full_name'] as String?;
     }
+    if (_loggedIn) {
+      await PushNotificationService.instance.ensureTokenSyncedWithBackend();
+    }
     notifyListeners();
   }
 
   Future<void> logout() async {
+    await PushNotificationService.instance.removeTokenFromBackend();
     await _auth.logout();
     _loggedIn = false;
     _appApproved = false;

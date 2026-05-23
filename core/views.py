@@ -66,11 +66,19 @@ logger = logging.getLogger(__name__)
 )
 def health_check(request):
     """Health check endpoint for monitoring."""
+    from partner.push_service import get_fcm_config_status
+
+    fcm = get_fcm_config_status()
     return JsonResponse({
         'status': 'ok',
         'service': 'pestcontrol-backend',
         'version': '1.0.0',
         'endpoint': 'core',
+        'partner_fcm': {
+            'configured': fcm.get('configured'),
+            'project_id': fcm.get('project_id'),
+            'reason': fcm.get('reason'),
+        },
     })
 
 
@@ -1955,6 +1963,11 @@ class JobCardViewSet(BaseModelViewSet):
             'message': message,
             'partners_notified': int(notify_result.get('partners_notified', 0)),
             'approved_partner_count': approved_count,
+            'fcm_configured': bool(notify_result.get('fcm_configured')),
+            'push_success': int(notify_result.get('push_success', 0)),
+            'push_failure': int(notify_result.get('push_failure', 0)),
+            'tokens_targeted': int(notify_result.get('tokens_targeted', 0)),
+            'push_hint': notify_result.get('push_hint'),
             'job': serializer.data,
         })
 

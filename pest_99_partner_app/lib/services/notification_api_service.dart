@@ -7,6 +7,20 @@ class NotificationApiService {
 
   final ApiClient _api;
 
+  Future<void> saveFcmToken(String token, {String deviceType = 'android'}) async {
+    await _api.post(
+      ApiConfig.saveFcmToken,
+      body: {'fcm_token': token, 'device_type': deviceType},
+    );
+  }
+
+  Future<void> removeFcmToken(String? token) async {
+    await _api.post(
+      ApiConfig.removeFcmToken,
+      body: token != null ? {'fcm_token': token} : {},
+    );
+  }
+
   Future<PartnerNotificationListResponse> fetchNotifications() async {
     final data = await _api.get(ApiConfig.notifications);
     return PartnerNotificationListResponse.fromJson(data);

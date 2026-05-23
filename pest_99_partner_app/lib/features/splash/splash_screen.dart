@@ -9,6 +9,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/notifications_provider.dart';
 import '../../providers/profile_provider.dart';
+import '../../services/push_notification_service.dart';
 import '../../shared/widgets/pest_logo.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -33,6 +34,7 @@ class _SplashScreenState extends State<SplashScreen> {
       try {
         final data = await ProfileService(context.read<ApiClient>()).getProfile();
         await auth.refreshApprovalFromProfile(data);
+        await PushNotificationService.instance.ensureTokenSyncedWithBackend();
         if (mounted) {
           await context.read<ProfileProvider>().loadProfile(force: true);
           await context.read<NotificationsProvider>().load(force: true);
@@ -40,6 +42,7 @@ class _SplashScreenState extends State<SplashScreen> {
       } catch (_) {
         /* offline or expired */
       }
+      PushNotificationService.instance.processPendingNavigation();
     }
     if (!mounted) return;
     if (!auth.loggedIn) {

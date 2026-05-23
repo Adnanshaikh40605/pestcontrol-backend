@@ -1,5 +1,5 @@
 """
-Partner in-app notification records + CRM event log (no push / Firebase).
+Partner push (FCM) + in-app notification records + CRM event log.
 """
 
 from __future__ import annotations
@@ -11,7 +11,12 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from core.models import JobCard, Technician
-from partner.models import CrmPartnerEvent, Partner, PartnerNotification
+from partner.models import CrmPartnerEvent, Partner, PartnerDeviceToken, PartnerNotification
+from partner.push_service import (
+    is_fcm_configured,
+    send_push_to_tokens,
+    should_skip_duplicate_push,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +37,6 @@ def _booking_subtitle(job: JobCard) -> str:
 
 
 def _partner_ids_for_technician(technician_id: int | None) -> list[int] | None:
-    """None = all approved partners; list = specific partner PKs only."""
     if not technician_id:
         return None
     try:
@@ -48,7 +52,6 @@ def _partner_ids_for_technician(technician_id: int | None) -> list[int] | None:
 
 
 def approved_partner_ids(technician_id: int | None = None) -> list[int]:
-    """Partner PKs that receive pool broadcast / in-app new-booking alerts."""
     qs = Partner.objects.filter(is_active=True, is_app_approved=True)
     target = _partner_ids_for_technician(technician_id)
     if target is not None:
@@ -87,6 +90,64 @@ def should_skip_duplicate_notify(
     return False
 
 
+def register_device_token(partner: Partner, fcm_token: str, device_type: str = 'android') -> PartnerDeviceToken:
+    fcm_token = (fcm_token or '').strip()
+    if not fcm_token:
+        raise ValueError('FCM token is required')
+
+    existing = PartnerDeviceToken.objects.filter(fcm_token=fcm_token).first()
+    if existing:
+        existing.partner = partner
+        existing.device_type = device_type or existing.device_type
+        existing.is_active = True
+        existing.last_used_at = timezone.now()
+        existing.save(update_fields=['partner', 'device_type', 'is_active', 'last_used_at'])
+        token_row = existing
+    else:
+        token_row = PartnerDeviceToken.objects.create(
+            partner=partner,
+            fcm_token=fcm_token,
+            device_type=device_type or PartnerDeviceToken.DeviceType.ANDROID,
+            is_active=True,
+        )
+
+    PartnerDeviceToken.objects.filter(partner=partner, is_active=True).exclude(
+        fcm_token=fcm_token
+    ).update(is_active=False)
+
+    logger.info('FCM token registered for partner %s', partner.id)
+    return token_row
+
+
+def deactivate_device_token(partner: Partner, fcm_token: str | None = None) -> int:
+    qs = PartnerDeviceToken.objects.filter(partner=partner, is_active=True)
+    if fcm_token:
+        qs = qs.filter(fcm_token=fcm_token.strip())
+    return qs.update(is_active=False)
+
+
+def active_tokens_for_partners(partner_ids: list[int] | None = None) -> list[str]:
+    qs = PartnerDeviceToken.objects.filter(is_active=True, partner__is_active=True, partner__is_app_approved=True)
+    if partner_ids is not None:
+        qs = qs.filter(partner_id__in=partner_ids)
+    return list(qs.values_list('fcm_token', flat=True))
+
+
+def partners_with_tokens_outside_push_pool() -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for dt in PartnerDeviceToken.objects.filter(is_active=True).select_related('partner'):
+        p = dt.partner
+        if p.is_active and p.is_app_approved:
+            continue
+        out.append({
+            'partner_id': p.id,
+            'partner_name': p.full_name,
+            'is_app_approved': p.is_app_approved,
+            'is_active': p.is_active,
+        })
+    return out
+
+
 def create_partner_notification(
     partner: Partner,
     *,
@@ -121,16 +182,22 @@ def notify_partners_new_booking(
     *,
     force: bool = False,
 ) -> dict[str, Any]:
-    """
-    Create in-app notifications for approved partners when CRM sends a booking to the app.
-    """
-    if not force and should_skip_duplicate_notify(
+    """In-app + FCM when CRM sends a booking to the partner app."""
+    if not force and should_skip_duplicate_push(
         job.id,
         PartnerNotification.NotificationType.NEW_BOOKING,
         technician_id,
     ):
-        logger.info('Skipping duplicate in-app notify for job #%s', job.id)
-        return {'skipped': True, 'partners_notified': 0, 'approved_partner_count': 0}
+        logger.info('Skipping duplicate push for job #%s', job.id)
+        return {
+            'skipped': True,
+            'partners_notified': 0,
+            'approved_partner_count': 0,
+            'fcm_configured': is_fcm_configured(),
+            'push_success': 0,
+            'push_failure': 0,
+            'tokens_targeted': 0,
+        }
 
     title = 'New Booking Available'
     body = _booking_subtitle(job)
@@ -139,11 +206,18 @@ def notify_partners_new_booking(
         'booking_id': str(job.id),
         'job_code': job.code or '',
     }
+    collapse_key = f'booking_{job.id}'
 
     partner_ids = approved_partner_ids(technician_id)
     partners_qs = Partner.objects.filter(pk__in=partner_ids)
 
     for partner in partners_qs:
+        if not force and should_skip_duplicate_notify(
+            job.id,
+            PartnerNotification.NotificationType.NEW_BOOKING,
+            partner_id=partner.id,
+        ):
+            continue
         create_partner_notification(
             partner,
             notification_type=PartnerNotification.NotificationType.NEW_BOOKING,
@@ -153,34 +227,60 @@ def notify_partners_new_booking(
             data=data,
         )
 
-    logger.info(
-        'In-app notify job #%s: approved_partners=%s',
-        job.id,
-        len(partner_ids),
+    tokens = active_tokens_for_partners(partner_ids)
+    excluded = partners_with_tokens_outside_push_pool()
+    if not tokens and excluded:
+        logger.warning(
+            'FCM job #%s: tokens exist but partners not approved: %s',
+            job.id,
+            excluded[:3],
+        )
+
+    push_result = send_push_to_tokens(
+        tokens,
+        title=title,
+        body=body,
+        data=data,
+        collapse_key=collapse_key,
+        data_only=True,
     )
 
     log_crm_partner_event(
         job,
         CrmPartnerEvent.EventType.BOOKING_SENT_TO_APP,
-        f'In-app notification for {len(partner_ids)} partner(s)',
+        f'Push sent to {len(tokens)} device(s)',
         {
+            'fcm_success': push_result.get('success', 0),
+            'fcm_failure': push_result.get('failure', 0),
             'technician_id': technician_id,
             'approved_partner_ids': partner_ids,
-            'partners_notified': len(partner_ids),
+            'tokens_targeted': len(tokens),
         },
     )
-    return {
+
+    result = {
         'skipped': False,
         'partners_notified': len(partner_ids),
         'approved_partner_count': len(partner_ids),
+        'fcm_configured': is_fcm_configured(),
+        'push_success': push_result.get('success', 0),
+        'push_failure': push_result.get('failure', 0),
+        'tokens_targeted': len(tokens),
     }
+    if not tokens and excluded:
+        result['push_hint'] = (
+            'FCM tokens exist but partner is not approved (is_app_approved=False). '
+            'Approve in CRM Technicians, then send again.'
+        )
+        result['unapproved_token_holders'] = excluded[:5]
+    return result
 
 
 notify_all_partners_new_booking = notify_partners_new_booking
 
 
 def notify_partner_assigned(job: JobCard, partner: Partner) -> None:
-    if should_skip_duplicate_notify(
+    if should_skip_duplicate_push(
         job.id,
         PartnerNotification.NotificationType.BOOKING_ASSIGNED,
         partner_id=partner.id,
@@ -201,6 +301,8 @@ def notify_partner_assigned(job: JobCard, partner: Partner) -> None:
         booking=job,
         data=data,
     )
+    tokens = active_tokens_for_partners([partner.id])
+    send_push_to_tokens(tokens, title=title, body=body, data=data, collapse_key=f'booking_{job.id}')
 
 
 def notify_crm_booking_accepted(job: JobCard, partner: Partner) -> None:
@@ -219,7 +321,7 @@ def notify_crm_service_completed(job: JobCard, partner: Partner) -> None:
 
 
 def notify_partner_booking_cancelled(job: JobCard, partner: Partner | None = None) -> None:
-    if should_skip_duplicate_notify(job.id, PartnerNotification.NotificationType.BOOKING_CANCELLED):
+    if should_skip_duplicate_push(job.id, PartnerNotification.NotificationType.BOOKING_CANCELLED):
         return
     title = 'Booking Cancelled'
     body = f'Booking #{job.code or job.id} was cancelled'
@@ -230,6 +332,7 @@ def notify_partner_booking_cancelled(job: JobCard, partner: Partner | None = Non
     partners_qs = Partner.objects.filter(is_active=True, is_app_approved=True)
     if partner:
         partners_qs = partners_qs.filter(pk=partner.pk)
+    partner_ids = list(partners_qs.values_list('pk', flat=True))
     for p in partners_qs:
         create_partner_notification(
             p,
@@ -239,3 +342,5 @@ def notify_partner_booking_cancelled(job: JobCard, partner: Partner | None = Non
             booking=job,
             data=data,
         )
+    tokens = active_tokens_for_partners(partner_ids)
+    send_push_to_tokens(tokens, title=title, body=body, data=data, collapse_key=f'cancel_{job.id}')
