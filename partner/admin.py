@@ -6,6 +6,7 @@ from .models import (
     PartnerNotification,
     PartnerEarning,
     PartnerRating,
+    PartnerReferral,
 )
 
 
@@ -61,6 +62,17 @@ class PartnerNotificationAdmin(admin.ModelAdmin):
     list_display = ['id', 'partner', 'notification_type', 'title', 'is_read', 'created_at']
     list_filter = ['notification_type', 'is_read']
     search_fields = ['title', 'partner__full_name']
+
+
+@admin.register(PartnerReferral)
+class PartnerReferralAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'client_name', 'mobile', 'partner', 'crm_inquiry', 'created_at',
+    ]
+    list_filter = ['created_at']
+    search_fields = ['client_name', 'mobile', 'partner__full_name', 'partner__mobile']
+    readonly_fields = ['created_at', 'updated_at']
+    raw_id_fields = ['partner', 'crm_inquiry']
 
 
 @admin.register(CrmPartnerEvent)

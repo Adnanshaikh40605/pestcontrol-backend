@@ -4,8 +4,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:go_router/go_router.dart';
-
 import '../core/constants/notification_channels.dart';
 import '../debug/debug_log_store.dart';
 import '../firebase_messaging_background.dart';
@@ -13,7 +11,10 @@ import '../firebase_options.dart';
 import 'notification_api_service.dart';
 import 'partner_local_notifications.dart';
 
-typedef BookingNavigationCallback = void Function(int bookingId);
+typedef BookingNavigationCallback = void Function(
+  int bookingId,
+  Map<String, dynamic> data,
+);
 
 /// Production FCM + local notifications (foreground, background tap, cold start).
 class PushNotificationService {
@@ -26,6 +27,7 @@ class PushNotificationService {
   String? _cachedToken;
   bool _tokenRefreshListenerAttached = false;
   int? _pendingBookingId;
+  Map<String, dynamic> _pendingData = {};
   int _unreadCount = 0;
 
   int get unreadCount => _unreadCount;
@@ -88,10 +90,12 @@ class PushNotificationService {
   void processPendingNavigation() {
     final id = _pendingBookingId;
     if (id == null) return;
+    final data = Map<String, dynamic>.from(_pendingData);
     _pendingBookingId = null;
+    _pendingData = {};
     if (_onOpenBooking != null) {
-      _log('Processing pending navigation ΓåÆ booking $id');
-      _onOpenBooking!(id);
+      _log('Processing pending navigation -> booking $id');
+      _onOpenBooking!(id, data);
     }
   }
 
@@ -242,6 +246,7 @@ class PushNotificationService {
     final bookingId = int.tryParse(data['booking_id']?.toString() ?? '');
     if (bookingId != null) {
       _pendingBookingId = bookingId;
+      _pendingData = Map<String, dynamic>.from(data);
     }
   }
 
@@ -249,9 +254,10 @@ class PushNotificationService {
     final bookingId = int.tryParse(data['booking_id']?.toString() ?? '');
     if (bookingId == null) return;
     if (_onOpenBooking != null) {
-      _onOpenBooking!(bookingId);
+      _onOpenBooking!(bookingId, data);
     } else {
       _pendingBookingId = bookingId;
+      _pendingData = Map<String, dynamic>.from(data);
     }
   }
 
@@ -312,6 +318,3 @@ class PushNotificationService {
   }
 }
 
-void navigateToBookingFromNotification(GoRouter router, int bookingId) {
-  router.push('/booking/$bookingId');
-}

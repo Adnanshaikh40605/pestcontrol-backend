@@ -265,3 +265,41 @@ class PartnerDeviceToken(models.Model):
 
     def __str__(self):
         return f'{self.partner_id}: {self.fcm_token[:20]}…'
+
+
+class PartnerReferral(models.Model):
+    """
+    Client referral submitted from the partner mobile app.
+    Linked 1:1 to a CRM inquiry for staff workflow and status updates.
+    """
+
+    partner = models.ForeignKey(
+        Partner,
+        on_delete=models.CASCADE,
+        related_name='referrals',
+        verbose_name='Referred By (Partner)',
+    )
+    client_name = models.CharField(max_length=255, db_index=True)
+    mobile = models.CharField(max_length=10, db_index=True)
+    area = models.CharField(max_length=500, blank=True, default='')
+    crm_inquiry = models.OneToOneField(
+        'core.CRMInquiry',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='partner_referral',
+        verbose_name='CRM Inquiry',
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Partner Referral'
+        verbose_name_plural = 'Partner Referrals'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['partner', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.client_name} ({self.mobile}) via {self.partner.full_name}'

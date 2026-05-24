@@ -203,17 +203,12 @@ If issues persist after deployment:
    - Check for orphaned records
    - Report data integrity issues
 
-2. **Add Sentry or error tracking:**
-   - Real-time error notifications
-   - Detailed stack traces
-   - Performance monitoring
-
-3. **Add database constraints:**
+2. **Add database constraints:**
    - Ensure all foreign keys are properly set
    - Add database-level validation
    - Prevent orphaned records
 
-4. **Add API rate limiting:**
+3. **Add API rate limiting:**
    - Protect against abuse
    - Prevent database overload
    - Improve performance

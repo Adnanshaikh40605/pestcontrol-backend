@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'app_lifecycle.dart';
 import 'core/theme/app_theme.dart';
 import 'debug/debug_config.dart';
 import 'debug/debug_dio_interceptor.dart';
@@ -26,7 +27,9 @@ class Pest99PartnerApp extends StatelessWidget {
             } catch (_) {}
           });
         }
-        return DebugOverlay(child: child ?? const SizedBox.shrink());
+        return DebugOverlay(
+          child: PartnerAppLifecycle(child: child ?? const SizedBox.shrink()),
+        );
       },
     );
   }

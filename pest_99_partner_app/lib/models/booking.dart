@@ -49,6 +49,12 @@ class PartnerBooking {
   final String? jobStartSelfieUrl;
   final String? notes;
 
+  /// Pool booking sent from CRM — partner can accept from app.
+  bool get allowsAccept {
+    final ps = partnerStatus?.toLowerCase();
+    return ps == 'pending' || ps == null || ps.isEmpty;
+  }
+
   /// True when partner can start (accepted, not yet in service).
   bool get allowsStart => canStartJob || partnerStatus == 'accepted';
 

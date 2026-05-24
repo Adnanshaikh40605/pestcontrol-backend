@@ -3,10 +3,12 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/notification_navigation.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../providers/notifications_provider.dart';
 import '../../shared/widgets/app_top_bar.dart';
+import '../../shared/widgets/async_error_view.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -37,7 +39,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ),
       body: provider.loading && provider.items.isEmpty
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
+          : provider.error != null && provider.items.isEmpty
+              ? RefreshIndicator(
+                  onRefresh: () => provider.load(force: true),
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      SizedBox(
+                        height: MediaQuery.sizeOf(context).height * 0.45,
+                        child: AsyncErrorView(
+                          message: provider.error!,
+                          onRetry: () => provider.load(force: true),
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
               onRefresh: () => provider.load(force: true),
               child: provider.items.isEmpty
                   ? ListView(
@@ -60,7 +78,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             borderRadius: BorderRadius.circular(12),
                             onTap: () {
                               if (n.bookingId != null) {
-                                context.push('/booking/${n.bookingId}');
+                                NotificationNavigation.openBookingFromInAppList(
+                                  context,
+                                  n.bookingId!,
+                                );
                               }
                             },
                             child: Padding(

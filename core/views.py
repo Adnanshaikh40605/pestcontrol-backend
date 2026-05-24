@@ -66,11 +66,9 @@ logger = logging.getLogger(__name__)
 )
 def health_check(request):
     """Health check endpoint for monitoring."""
-    from backend.sentry_config import get_sentry_status
     from partner.push_service import get_fcm_config_status
 
     fcm = get_fcm_config_status()
-    sentry = get_sentry_status()
     return JsonResponse({
         'status': 'ok',
         'service': 'pestcontrol-backend',
@@ -81,7 +79,6 @@ def health_check(request):
             'project_id': fcm.get('project_id'),
             'reason': fcm.get('reason'),
         },
-        'sentry': sentry,
     })
 
 

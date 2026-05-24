@@ -34,6 +34,7 @@ from .remark_views import (
 )
 from .theme_views import UserThemeView
 from .media_views import MediaFileView
+from partner.crm_referral_views import PartnerReferralViewSet
 
 # Create router for v1 API
 router = DefaultRouter()
@@ -55,6 +56,7 @@ router.register(r'states', StateViewSet, basename='state')
 router.register(r'cities', CityViewSet, basename='city')
 router.register(r'locations', LocationViewSet, basename='location')
 router.register(r'quotations', QuotationViewSet, basename='quotation')
+router.register(r'partner-referrals', PartnerReferralViewSet, basename='partner-referral')
 
 urlpatterns = [
     path(

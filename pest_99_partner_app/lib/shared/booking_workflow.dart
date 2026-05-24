@@ -6,6 +6,7 @@ import '../core/models/booking_type.dart';
 import '../models/booking.dart' as api;
 import '../models/booking_action_result.dart';
 import '../providers/bookings_provider.dart';
+import 'widgets/booking_confirm_dialog.dart';
 import 'widgets/processing_overlay.dart';
 import 'widgets/service_modals.dart';
 
@@ -63,6 +64,9 @@ class BookingWorkflow {
     final provider = context.read<BookingsProvider>();
     if (provider.isProcessing(bookingId)) return null;
 
+    final confirmed = await confirmBookingAccept(context);
+    if (!confirmed || !context.mounted) return null;
+
     final result = await runWithProcessingOverlay(
       context,
       title: 'Accepting job…',
@@ -83,6 +87,9 @@ class BookingWorkflow {
   ) async {
     final provider = context.read<BookingsProvider>();
     if (provider.isProcessing(bookingId)) return null;
+
+    final confirmed = await confirmBookingReject(context);
+    if (!confirmed || !context.mounted) return null;
 
     final result = await runWithProcessingOverlay(
       context,

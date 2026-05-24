@@ -42,4 +42,3 @@ pytz>=2024.1  # Timezone utilities
 firebase-admin>=6.4.0,<7.0
 
 # Monitoring & Logging
-sentry-sdk>=1.39.1,<2.0

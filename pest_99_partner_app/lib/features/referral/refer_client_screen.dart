@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../services/profile_service.dart';
+import '../../services/referral_service.dart';
 import '../../shared/widgets/app_text_field.dart';
 import '../../shared/widgets/primary_button.dart';
 
@@ -32,13 +32,13 @@ class _ReferClientScreenState extends State<ReferClientScreen> {
   Future<void> _submit() async {
     setState(() => _saving = true);
     try {
-      await ProfileService(context.read<ApiClient>()).referClient(
+      final referral = await ReferralService(context.read<ApiClient>()).submitReferral(
         clientName: _name.text.trim(),
         mobile: _mobile.text.trim(),
         area: _area.text.trim(),
       );
       if (!mounted) return;
-      context.push('/referral-success');
+      context.push('/referral-progress', extra: referral.id);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
@@ -86,54 +86,6 @@ class _ReferClientScreenState extends State<ReferClientScreen> {
             onPressed: _saving ? null : _submit,
           ),
         ],
-      ),
-    );
-  }
-}
-
-class ReferralSuccessScreen extends StatelessWidget {
-  const ReferralSuccessScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.screenEdge),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.check_circle,
-                  size: 48,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text('Referral Submitted!', style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 8),
-              Text(
-                'Our team will contact your referral shortly.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
-              ),
-              const SizedBox(height: 32),
-              PrimaryButton(
-                label: 'Back to Profile',
-                onPressed: () => context.go('/profile'),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

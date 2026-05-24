@@ -12,7 +12,9 @@ import '../../features/profile/edit_profile_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 import '../../features/referral/refer_client_screen.dart';
+import '../../features/referral/referral_progress_screen.dart';
 import '../../features/splash/splash_screen.dart';
+import 'booking_open_args.dart';
 import '../../debug/debug_config.dart';
 import '../../debug/debug_dio_interceptor.dart';
 import '../../providers/auth_provider.dart';
@@ -89,7 +91,16 @@ class AppRouter {
           parentNavigatorKey: rootNavigatorKey,
           pageBuilder: (context, state) {
             final id = int.parse(state.pathParameters['id']!);
-            return _slidePage(state, BookingDetailScreen(bookingId: id));
+            final extra = state.extra;
+            final openArgs = extra is BookingOpenArgs ? extra : null;
+            return _slidePage(
+              state,
+              BookingDetailScreen(
+                key: ValueKey(openArgs?.pageKey(id) ?? 'booking-$id'),
+                bookingId: id,
+                openArgs: openArgs,
+              ),
+            );
           },
         ),
         GoRoute(
@@ -108,9 +119,19 @@ class AppRouter {
           pageBuilder: (context, state) => _slidePage(state, const ReferClientScreen()),
         ),
         GoRoute(
-          path: '/referral-success',
+          path: '/referral-progress',
           parentNavigatorKey: rootNavigatorKey,
-          pageBuilder: (context, state) => _slidePage(state, const ReferralSuccessScreen()),
+          pageBuilder: (context, state) {
+            final highlightId = state.extra is int ? state.extra as int : null;
+            return _slidePage(
+              state,
+              ReferralProgressScreen(highlightId: highlightId),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/referral-success',
+          redirect: (_, __) => '/referral-progress',
         ),
       ],
     );

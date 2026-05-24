@@ -833,13 +833,19 @@ class RatingsAPIView(APIView):
 class ReferClientAPIView(APIView):
     """
     POST /api/partner/refer-client/
-    Submit a client referral from the partner app (creates CRM inquiry).
+    Submit a client referral (creates CRM inquiry + PartnerReferral record).
     """
     permission_classes = [IsPartner]
 
     def post(self, request):
-        from core.models import Inquiry
+        from django.db import transaction
+        from django.utils import timezone
+
+        from core.models import CRMInquiry
         from core.staff_partner_sync import normalize_mobile
+
+        from .models import PartnerReferral
+        from .referral_serializers import PartnerReferralPartnerSerializer
 
         partner = request.partner
         client_name = (request.data.get('client_name') or '').strip()
@@ -852,23 +858,81 @@ class ReferClientAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        inquiry = Inquiry.objects.create(
-            name=client_name,
-            mobile=mobile,
-            message=(
-                f'Partner referral from {partner.full_name} ({partner.mobile}). '
-                f'Area: {area or "Not specified"}'
-            ),
-            service_interest='Partner Referral',
-            city=area[:100] if area else 'Partner Referral',
-            status=Inquiry.InquiryStatus.NEW,
+        now = timezone.localtime()
+        partner_note = (
+            f'Partner referral by {partner.full_name} ({partner.mobile}). '
+            f'Area: {area or "Not specified"}'
         )
 
-        logger.info('Partner %s referred client %s (%s)', partner.mobile, client_name, mobile)
+        with transaction.atomic():
+            crm_inquiry = CRMInquiry.objects.create(
+                name=client_name,
+                mobile=mobile,
+                location=area or None,
+                pest_type='Partner Referral',
+                remark=partner_note,
+                inquiry_date=now.date(),
+                inquiry_time=now.time().replace(microsecond=0),
+                status=CRMInquiry.InquiryStatus.NEW,
+                is_read=False,
+            )
+            referral = PartnerReferral.objects.create(
+                partner=partner,
+                client_name=client_name,
+                mobile=mobile,
+                area=area,
+                crm_inquiry=crm_inquiry,
+            )
+
+        logger.info(
+            'Partner %s referred client %s (%s) → referral #%s',
+            partner.mobile,
+            client_name,
+            mobile,
+            referral.id,
+        )
+        data = PartnerReferralPartnerSerializer(referral).data
         return Response(
             {
                 'message': 'Referral submitted. Our team will contact the client soon.',
-                'inquiry_id': inquiry.id,
+                'referral': data,
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class PartnerReferralListAPIView(APIView):
+    """GET /api/partner/referrals/ — partner's referral history with status."""
+
+    permission_classes = [IsPartner]
+
+    def get(self, request):
+        from .models import PartnerReferral
+        from .referral_serializers import PartnerReferralPartnerSerializer
+
+        qs = (
+            PartnerReferral.objects.filter(partner=request.partner)
+            .select_related('crm_inquiry')
+            .order_by('-created_at')
+        )
+        serializer = PartnerReferralPartnerSerializer(qs, many=True)
+        return Response({'count': qs.count(), 'results': serializer.data})
+
+
+class PartnerReferralDetailAPIView(APIView):
+    """GET /api/partner/referrals/<id>/ — single referral for progress view."""
+
+    permission_classes = [IsPartner]
+
+    def get(self, request, id):
+        from .models import PartnerReferral
+        from .referral_serializers import PartnerReferralPartnerSerializer
+
+        try:
+            referral = PartnerReferral.objects.select_related('crm_inquiry').get(
+                pk=id,
+                partner=request.partner,
+            )
+        except PartnerReferral.DoesNotExist:
+            return Response({'error': 'Referral not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(PartnerReferralPartnerSerializer(referral).data)

@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../core/api_exception.dart';
+import '../core/user_error.dart';
 import '../models/partner_notification.dart';
 import '../services/notification_api_service.dart';
 
@@ -22,8 +24,10 @@ class NotificationsProvider extends ChangeNotifier {
       final res = await _api.fetchNotifications();
       items = res.results;
       unreadCount = res.unreadCount;
+    } on ApiException catch (e) {
+      error = e.message;
     } catch (e) {
-      error = 'Could not load notifications';
+      error = userErrorMessage(e, fallback: 'Could not load notifications.');
     } finally {
       loading = false;
       notifyListeners();

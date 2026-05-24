@@ -25,6 +25,8 @@ class ApiConfig {
   static String startBooking(int id) => '$partnerPrefix/bookings/$id/start/';
   static String completeBooking(int id) => '$partnerPrefix/bookings/$id/complete/';
   static String get referClient => '$partnerPrefix/refer-client/';
+  static String get referrals => '$partnerPrefix/referrals/';
+  static String referralDetail(int id) => '$partnerPrefix/referrals/$id/';
   static String get notifications => '$partnerPrefix/notifications/';
   static String get markAllNotificationsRead => '$partnerPrefix/notifications/mark-all-read/';
   static String markNotificationRead(int id) => '$partnerPrefix/notifications/$id/read/';

@@ -6,6 +6,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../providers/bookings_provider.dart';
 import '../../shared/widgets/profile_aware_top_bar.dart';
 import '../../shared/booking_workflow.dart';
+import '../../shared/widgets/async_error_view.dart';
 import '../../shared/widgets/booking_cards.dart';
 
 class BookingsScreen extends StatefulWidget {
@@ -44,9 +45,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(bookings.error!, textAlign: TextAlign.center),
+          SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.45,
+            child: AsyncErrorView(
+              message: bookings.error!,
+              onRetry: bookings.refreshAll,
+            ),
           ),
         ],
       );

@@ -230,7 +230,8 @@ class ApiClient {
       if (DebugConfig.enabled) {
         DebugLogStore.instance.logDioError('Network failure', message: e.message);
       }
-      throw ApiException.fromDio(e);
+      final ex = ApiException.fromDio(e);
+      throw ex;
     } on ApiException {
       rethrow;
     }

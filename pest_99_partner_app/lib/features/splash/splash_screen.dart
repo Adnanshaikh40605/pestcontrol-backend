@@ -42,7 +42,6 @@ class _SplashScreenState extends State<SplashScreen> {
       } catch (_) {
         /* offline or expired */
       }
-      PushNotificationService.instance.processPendingNavigation();
     }
     if (!mounted) return;
     if (!auth.loggedIn) {
@@ -51,6 +50,7 @@ class _SplashScreenState extends State<SplashScreen> {
       context.go('/pending-approval');
     } else {
       context.go('/bookings');
+      PushNotificationService.instance.processPendingNavigation();
     }
   }
 

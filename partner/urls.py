@@ -32,4 +32,6 @@ urlpatterns = [
     path('earnings/', apis.EarningsHistoryAPIView.as_view(), name='earnings'),
     path('ratings/', apis.RatingsAPIView.as_view(), name='ratings'),
     path('refer-client/', apis.ReferClientAPIView.as_view(), name='refer-client'),
+    path('referrals/', apis.PartnerReferralListAPIView.as_view(), name='referrals'),
+    path('referrals/<int:id>/', apis.PartnerReferralDetailAPIView.as_view(), name='referral-detail'),
 ]

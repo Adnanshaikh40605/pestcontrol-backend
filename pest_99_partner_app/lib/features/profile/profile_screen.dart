@@ -250,6 +250,7 @@ class _MenuList extends StatelessWidget {
     final items = <(IconData, String, VoidCallback)>[
       (Icons.person_outline, 'Edit Profile', onEditProfile),
       (Icons.card_giftcard_outlined, 'Refer Client', () => context.push('/refer-client')),
+      (Icons.timeline_outlined, 'My Referrals', () => context.push('/referral-progress')),
       (Icons.account_balance_outlined, 'Bank Details', () {}),
       (Icons.payments_outlined, 'Earnings History', () {}),
       (Icons.help_outline, 'Help & Support', () {}),
