@@ -57,14 +57,6 @@ class PushNotificationService {
       ),
       onDidReceiveNotificationResponse: _onLocalNotificationTap,
     );
-    await androidPlugin?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        kSystemChannelId,
-        kSystemChannelName,
-        description: 'Login and account messages',
-        importance: Importance.defaultImportance,
-      ),
-    );
 
     final messaging = FirebaseMessaging.instance;
     await messaging.setAutoInitEnabled(true);
@@ -186,13 +178,9 @@ class PushNotificationService {
   }
 
   Future<void> showLoginSuccessNotification() async {
-    await _showLocal(
-      id: 9001,
-      channelId: kSystemChannelId,
-      channelName: kSystemChannelName,
+    await showLoginSuccessLocalNotification(
       title: 'Login Successful',
       body: 'Welcome to Pest 99 Partner',
-      useNewBookingSound: false,
     );
   }
 
@@ -259,47 +247,6 @@ class PushNotificationService {
       _pendingBookingId = bookingId;
       _pendingData = Map<String, dynamic>.from(data);
     }
-  }
-
-  Future<void> _showLocal({
-    required int id,
-    required String channelId,
-    required String channelName,
-    required String title,
-    required String body,
-    String? payload,
-    required bool useNewBookingSound,
-  }) async {
-    final isSystem = channelId == kSystemChannelId;
-    final details = AndroidNotificationDetails(
-      channelId,
-      channelName,
-      channelDescription: isSystem
-          ? 'System messages'
-          : useNewBookingSound
-              ? 'New bookings ΓÇö custom alert'
-              : 'Booking updates',
-      importance: isSystem
-          ? Importance.defaultImportance
-          : useNewBookingSound
-              ? Importance.max
-              : Importance.high,
-      priority: isSystem
-          ? Priority.defaultPriority
-          : useNewBookingSound
-              ? Priority.max
-              : Priority.high,
-      icon: '@mipmap/ic_launcher',
-      playSound: true,
-      tag: channelId == kSystemChannelId ? 'login' : 'booking_$id',
-    );
-    await partnerLocalNotifications.show(
-      id,
-      title,
-      body,
-      NotificationDetails(android: details),
-      payload: payload,
-    );
   }
 
   void _bumpUnread() {

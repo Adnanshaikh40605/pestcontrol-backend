@@ -3,6 +3,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import '../core/constants/notification_channels.dart';
+import '../core/constants/notification_sounds.dart';
 
 final FlutterLocalNotificationsPlugin partnerLocalNotifications =
     FlutterLocalNotificationsPlugin();
@@ -19,12 +20,13 @@ Future<void> ensurePartnerNotificationChannels() async {
       .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
 
   await androidPlugin?.createNotificationChannel(
-    const AndroidNotificationChannel(
+    AndroidNotificationChannel(
       kNewBookingChannelId,
       kNewBookingChannelName,
-      description: 'New bookings from CRM',
+      description: 'New bookings from CRM — urgent alert',
       importance: Importance.max,
       playSound: true,
+      sound: NotificationSounds.bookingAlertUrgent,
       enableVibration: true,
       enableLights: true,
     ),
@@ -36,6 +38,16 @@ Future<void> ensurePartnerNotificationChannels() async {
       description: 'Assigned, cancelled, and other booking updates',
       importance: Importance.high,
       playSound: true,
+    ),
+  );
+  await androidPlugin?.createNotificationChannel(
+    AndroidNotificationChannel(
+      kLoginChannelId,
+      kLoginChannelName,
+      description: 'Login and account messages',
+      importance: Importance.high,
+      playSound: true,
+      sound: NotificationSounds.loginSuccessLoud,
     ),
   );
 
@@ -62,6 +74,7 @@ Future<void> showPartnerLocalNotification({
     priority: isNewBooking ? Priority.max : Priority.high,
     icon: '@mipmap/ic_launcher',
     playSound: true,
+    sound: isNewBooking ? NotificationSounds.bookingAlertUrgent : null,
     enableVibration: true,
     visibility: NotificationVisibility.public,
     tag: 'booking_$id',
@@ -73,5 +86,31 @@ Future<void> showPartnerLocalNotification({
     body,
     NotificationDetails(android: details),
     payload: jsonEncode(data),
+  );
+}
+
+Future<void> showLoginSuccessLocalNotification({
+  required String title,
+  required String body,
+}) async {
+  await ensurePartnerNotificationChannels();
+
+  const details = AndroidNotificationDetails(
+    kLoginChannelId,
+    kLoginChannelName,
+    channelDescription: 'Login success',
+    importance: Importance.high,
+    priority: Priority.high,
+    icon: '@mipmap/ic_launcher',
+    playSound: true,
+    sound: NotificationSounds.loginSuccessLoud,
+    tag: 'login_success',
+  );
+
+  await partnerLocalNotifications.show(
+    9001,
+    title,
+    body,
+    const NotificationDetails(android: details),
   );
 }
