@@ -302,7 +302,14 @@ def notify_partner_assigned(job: JobCard, partner: Partner) -> None:
         data=data,
     )
     tokens = active_tokens_for_partners([partner.id])
-    send_push_to_tokens(tokens, title=title, body=body, data=data, collapse_key=f'booking_{job.id}')
+    send_push_to_tokens(
+        tokens,
+        title=title,
+        body=body,
+        data=data,
+        collapse_key=f'booking_{job.id}',
+        data_only=True,
+    )
 
 
 def notify_crm_booking_accepted(job: JobCard, partner: Partner) -> None:
@@ -343,4 +350,11 @@ def notify_partner_booking_cancelled(job: JobCard, partner: Partner | None = Non
             data=data,
         )
     tokens = active_tokens_for_partners(partner_ids)
-    send_push_to_tokens(tokens, title=title, body=body, data=data, collapse_key=f'cancel_{job.id}')
+    send_push_to_tokens(
+        tokens,
+        title=title,
+        body=body,
+        data=data,
+        collapse_key=f'cancel_{job.id}',
+        data_only=True,
+    )

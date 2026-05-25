@@ -12,6 +12,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 from blog.views import SitemapXMLView, RobotsTxtView
+from core.app_version_views import PartnerAppVersionAPIView
 
 def health(request):
     payload = {
@@ -79,6 +80,9 @@ urlpatterns = [
     path('api-docs/', api_docs_view, name='api_docs'),
     path('reference-report/', reference_statistics_view, name='reference_statistics'),
     
+    # Partner app version (public, no auth)
+    path('api/app/version/', PartnerAppVersionAPIView.as_view(), name='partner-app-version'),
+
     # API endpoints
     path('api/', include('core.urls')),
     path('api/partner/', include('partner.urls')),

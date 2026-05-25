@@ -35,6 +35,7 @@ from .remark_views import (
 from .theme_views import UserThemeView
 from .media_views import MediaFileView
 from partner.crm_referral_views import PartnerReferralViewSet
+from .app_version_views import PartnerAppVersionCRMAPIView
 
 # Create router for v1 API
 router = DefaultRouter()
@@ -81,6 +82,7 @@ urlpatterns = [
     ),
     path('users/theme/', UserThemeView.as_view(), name='user-theme'),
     path('media-file/', MediaFileView.as_view(), name='media-file'),
+    path('partner-app-version/', PartnerAppVersionCRMAPIView.as_view(), name='partner-app-version'),
     path('health/', health_check, name='health_check'),
     path('global-search/', GlobalSearchView.as_view(), name='global_search'),
     path('customer-history/<int:client_id>/', CustomerHistoryView.as_view(), name='customer_history'),

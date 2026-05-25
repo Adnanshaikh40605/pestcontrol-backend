@@ -218,10 +218,18 @@ def send_push_to_tokens(
     payload_data['body'] = body
     payload_data.setdefault('click_action', 'FLUTTER_NOTIFICATION_CLICK')
 
-    android_config = messaging.AndroidConfig(
-        priority='high',
-        collapse_key=collapse_key,
-    )
+    android_kwargs: dict[str, Any] = {
+        'priority': 'high',
+        'collapse_key': collapse_key,
+    }
+    if not data_only:
+        android_kwargs['notification'] = messaging.AndroidNotification(
+            channel_id='pest99_booking_alerts_v7',
+            sound='booking_alert_urgent',
+            default_vibrate_timings=True,
+            default_sound=True,
+        )
+    android_config = messaging.AndroidConfig(**android_kwargs)
 
     success = 0
     failure = 0
