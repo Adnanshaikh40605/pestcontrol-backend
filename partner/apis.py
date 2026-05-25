@@ -12,6 +12,8 @@ import logging
 from django.utils import timezone
 from django.db.models import Avg, Sum, Count, Q
 from rest_framework.views import APIView
+
+from .views_base import PartnerAPIView, PartnerPublicAPIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
@@ -51,7 +53,7 @@ logger = logging.getLogger(__name__)
 # AUTHENTICATION
 # ─────────────────────────────────────────────────────────────────────────────
 
-class RegisterAPIView(APIView):
+class RegisterAPIView(PartnerPublicAPIView):
     """
     POST /api/partner/register/
     Register a new Partner (Technician) account.
@@ -108,7 +110,7 @@ class RegisterAPIView(APIView):
         )
 
 
-class LoginAPIView(APIView):
+class LoginAPIView(PartnerPublicAPIView):
     """
     POST /api/partner/login/
     Login with mobile number and password.
@@ -181,7 +183,7 @@ class LoginAPIView(APIView):
         )
 
 
-class RefreshTokenAPIView(APIView):
+class RefreshTokenAPIView(PartnerPublicAPIView):
     """
     POST /api/partner/token/refresh/
     Rotate partner refresh token and return new access + refresh pair.
@@ -220,7 +222,7 @@ class RefreshTokenAPIView(APIView):
         return Response(tokens, status=status.HTTP_200_OK)
 
 
-class SaveFCMTokenAPIView(APIView):
+class SaveFCMTokenAPIView(PartnerAPIView):
     """POST /api/partner/save-fcm-token/ — register device FCM token."""
     permission_classes = [IsPartnerAuthenticated]
 
@@ -248,7 +250,7 @@ class SaveFCMTokenAPIView(APIView):
         return Response({"message": "FCM token saved successfully."})
 
 
-class RemoveFCMTokenAPIView(APIView):
+class RemoveFCMTokenAPIView(PartnerAPIView):
     """POST /api/partner/remove-fcm-token/ — on logout."""
     permission_classes = [IsPartnerAuthenticated]
 
@@ -261,7 +263,7 @@ class RemoveFCMTokenAPIView(APIView):
         return Response({"message": "FCM token removed.", "deactivated": count})
 
 
-class PushHealthAPIView(APIView):
+class PushHealthAPIView(PartnerAPIView):
     """GET /api/partner/push-health/ — verify FCM setup for logged-in partner."""
     permission_classes = [IsPartnerAuthenticated]
 
@@ -292,7 +294,7 @@ class PushHealthAPIView(APIView):
         })
 
 
-class PartnerNotificationsAPIView(APIView):
+class PartnerNotificationsAPIView(PartnerAPIView):
     """GET /api/partner/notifications/ — in-app notification history."""
     permission_classes = [IsPartner]
 
@@ -310,7 +312,7 @@ class PartnerNotificationsAPIView(APIView):
         })
 
 
-class MarkNotificationReadAPIView(APIView):
+class MarkNotificationReadAPIView(PartnerAPIView):
     """POST /api/partner/notifications/<id>/read/"""
     permission_classes = [IsPartner]
 
@@ -325,7 +327,7 @@ class MarkNotificationReadAPIView(APIView):
         return Response({"message": "Marked as read."})
 
 
-class MarkAllNotificationsReadAPIView(APIView):
+class MarkAllNotificationsReadAPIView(PartnerAPIView):
     """POST /api/partner/notifications/mark-all-read/"""
     permission_classes = [IsPartner]
 
@@ -342,7 +344,7 @@ class MarkAllNotificationsReadAPIView(APIView):
 # BOOKINGS
 # ─────────────────────────────────────────────────────────────────────────────
 
-class AvailableBookingsAPIView(APIView):
+class AvailableBookingsAPIView(PartnerAPIView):
     """
     GET /api/partner/bookings/available/
     Returns all bookings assigned to this partner that are PENDING (not yet accepted).
@@ -378,7 +380,7 @@ class AvailableBookingsAPIView(APIView):
         return Response({"count": jobs.count(), "results": serializer.data})
 
 
-class AcceptedBookingsAPIView(APIView):
+class AcceptedBookingsAPIView(PartnerAPIView):
     """
     GET /api/partner/bookings/accepted/
     Returns all accepted bookings (not yet completed) for this partner.
@@ -407,7 +409,7 @@ class AcceptedBookingsAPIView(APIView):
         return Response({"count": jobs.count(), "results": serializer.data})
 
 
-class CompletedBookingsAPIView(APIView):
+class CompletedBookingsAPIView(PartnerAPIView):
     """
     GET /api/partner/bookings/completed/
     Returns all completed bookings for this partner.
@@ -430,7 +432,7 @@ class CompletedBookingsAPIView(APIView):
         return Response({"count": jobs.count(), "results": serializer.data})
 
 
-class BookingDetailAPIView(APIView):
+class BookingDetailAPIView(PartnerAPIView):
     """
     GET /api/partner/bookings/{id}/
     Returns full details of a specific booking.
@@ -455,7 +457,7 @@ class BookingDetailAPIView(APIView):
         return Response(serializer.data)
 
 
-class BookingCountsAPIView(APIView):
+class BookingCountsAPIView(PartnerAPIView):
     """
     GET /api/partner/bookings/counts/
     Returns tab badge counts for Available, Accepted, Completed.
@@ -484,7 +486,7 @@ class BookingCountsAPIView(APIView):
         })
 
 
-class AcceptBookingAPIView(APIView):
+class AcceptBookingAPIView(PartnerAPIView):
     """
     POST /api/partner/bookings/{id}/accept/
     Accept a pending booking.
@@ -509,7 +511,12 @@ class AcceptBookingAPIView(APIView):
         except JobCard.DoesNotExist:
             return Response({"error": "Booking not found."}, status=404)
         except PartnerBookingError as exc:
-            return Response({"error": exc.message, "code": exc.code}, status=status.HTTP_400_BAD_REQUEST)
+            http_status = (
+                status.HTTP_409_CONFLICT
+                if exc.code == 'already_accepted'
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response({"error": exc.message, "code": exc.code}, status=http_status)
 
         logger.info(f"Partner {partner.full_name} accepted booking #{job.id}")
         return Response({
@@ -519,7 +526,7 @@ class AcceptBookingAPIView(APIView):
         })
 
 
-class RejectBookingAPIView(APIView):
+class RejectBookingAPIView(PartnerAPIView):
     """
     POST /api/partner/bookings/{id}/reject/
     Reject a pending booking.
@@ -539,17 +546,31 @@ class RejectBookingAPIView(APIView):
         responses={200: {"type": "object", "properties": {"message": {"type": "string"}}}},
     )
     def post(self, request, id):
+        from django.db import transaction
+
         partner = request.partner
         try:
-            job = JobCard.objects.get(
-                Q(id=id)
-                & (
-                    Q(partner=partner)
-                    | Q(partner__isnull=True, sent_to_app_at__isnull=False)
+            with transaction.atomic():
+                job = JobCard.objects.select_for_update().get(
+                    Q(id=id)
+                    & (
+                        Q(partner=partner)
+                        | Q(partner__isnull=True, sent_to_app_at__isnull=False)
+                    )
                 )
-            )
+                return self._reject_booking(job, partner, request.data.get('reason', ''))
         except JobCard.DoesNotExist:
             return Response({"error": "Booking not found."}, status=404)
+
+    def _reject_booking(self, job, partner, reason):
+        if job.status != JobCard.JobStatus.PENDING:
+            if job.status == JobCard.JobStatus.CANCELLED:
+                message = 'This booking was cancelled in CRM and cannot be rejected from the app.'
+            elif job.status == JobCard.JobStatus.DONE:
+                message = 'This booking is already completed.'
+            else:
+                message = f"Cannot reject booking with CRM status '{job.status}'."
+            return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
 
         if job.partner_status != JobCard.PartnerStatus.PENDING:
             return Response(
@@ -557,13 +578,13 @@ class RejectBookingAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        reason = request.data.get('reason', '')
         job.partner_status = JobCard.PartnerStatus.REJECTED
         job.partner = None
         job.sent_to_app_at = None
         job.technician = None
         job.assigned_to = ''
         job.sync_booking_category()
+        # Only operational Pending bookings return to CRM queue; never overwrite Cancelled/Done.
         job.status = job.status_after_technician_removal()
         job.removal_remarks = f"Rejected by partner {partner.full_name}: {reason}"
         job.save(
@@ -577,7 +598,7 @@ class RejectBookingAPIView(APIView):
         return Response({"message": "Booking rejected. Admin will reassign it."})
 
 
-class StartServiceAPIView(APIView):
+class StartServiceAPIView(PartnerAPIView):
     """
     POST /api/partner/bookings/{id}/start/
     Mark service as started (multipart: selfie image required).
@@ -621,7 +642,7 @@ class StartServiceAPIView(APIView):
         })
 
 
-class CompleteBookingAPIView(APIView):
+class CompleteBookingAPIView(PartnerAPIView):
     """
     POST /api/partner/bookings/{id}/complete/
     End service and mark booking as completed.
@@ -692,7 +713,7 @@ class CompleteBookingAPIView(APIView):
 # PROFILE
 # ─────────────────────────────────────────────────────────────────────────────
 
-class ProfileAPIView(APIView):
+class ProfileAPIView(PartnerAPIView):
     """
     GET  /api/partner/profile/       → My profile + stats
     PUT  /api/partner/profile/       → Update profile
@@ -770,7 +791,7 @@ class ProfileAPIView(APIView):
         })
 
 
-class EarningsHistoryAPIView(APIView):
+class EarningsHistoryAPIView(PartnerAPIView):
     """
     GET /api/partner/earnings/
     Returns earnings history for the logged-in partner.
@@ -795,7 +816,7 @@ class EarningsHistoryAPIView(APIView):
         })
 
 
-class RatingsAPIView(APIView):
+class RatingsAPIView(PartnerAPIView):
     """
     GET /api/partner/ratings/
     Returns ratings given to the logged-in partner.
@@ -830,7 +851,7 @@ class RatingsAPIView(APIView):
         })
 
 
-class ReferClientAPIView(APIView):
+class ReferClientAPIView(PartnerAPIView):
     """
     POST /api/partner/refer-client/
     Submit a client referral (creates CRM inquiry + PartnerReferral record).
@@ -901,7 +922,7 @@ class ReferClientAPIView(APIView):
         )
 
 
-class PartnerReferralListAPIView(APIView):
+class PartnerReferralListAPIView(PartnerAPIView):
     """GET /api/partner/referrals/ — partner's referral history with status."""
 
     permission_classes = [IsPartner]
@@ -919,7 +940,7 @@ class PartnerReferralListAPIView(APIView):
         return Response({'count': qs.count(), 'results': serializer.data})
 
 
-class PartnerReferralDetailAPIView(APIView):
+class PartnerReferralDetailAPIView(PartnerAPIView):
     """GET /api/partner/referrals/<id>/ — single referral for progress view."""
 
     permission_classes = [IsPartner]

@@ -1759,6 +1759,22 @@ class JobCardViewSet(BaseModelViewSet):
             log_activity(self.request.user, "Marked Job Done", details=f"Job: {instance.code}, Client: {instance.client.full_name}")
             logger.info(f"Job {instance.code} marked as Done by {self.request.user}")
         elif instance.status == JobCard.JobStatus.CANCELLED and old_status != JobCard.JobStatus.CANCELLED:
+            from partner.services import clear_partner_app_on_crm_cancel
+            from partner.notification_service import notify_partner_booking_cancelled
+
+            clear_partner_app_on_crm_cancel(instance)
+            instance.save(
+                update_fields=[
+                    'sent_to_app_at', 'partner', 'technician', 'assigned_to',
+                    'is_accepted', 'accepted_at', 'started_at',
+                ]
+            )
+            try:
+                notify_partner_booking_cancelled(instance)
+            except Exception as exc:
+                logger.exception(
+                    'Partner cancel notify failed for job %s: %s', instance.code, exc
+                )
             log_activity(self.request.user, "Cancelled Job", details=f"Job: {instance.code}, Reason: {instance.cancellation_reason}")
             logger.info(f"Job {instance.code} cancelled by {self.request.user}")
         else:

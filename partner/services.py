@@ -42,10 +42,22 @@ def get_partner_for_technician(technician: Technician) -> Partner:
 def broadcast_pending_filter():
     """Jobs sent to app pool — visible to all approved partners until someone accepts."""
     return Q(
+        status=JobCard.JobStatus.PENDING,
         partner_status=JobCard.PartnerStatus.PENDING,
         sent_to_app_at__isnull=False,
         partner__isnull=True,
     )
+
+
+def clear_partner_app_on_crm_cancel(job: JobCard) -> None:
+    """Remove a CRM-cancelled booking from the partner app queue (in-memory; caller saves)."""
+    job.sent_to_app_at = None
+    job.partner = None
+    job.technician = None
+    job.assigned_to = ''
+    job.is_accepted = False
+    job.accepted_at = None
+    job.started_at = None
 
 
 @transaction.atomic
@@ -125,12 +137,35 @@ def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=N
     return job, False, notify_result
 
 
+def _raise_if_booking_already_taken(job: JobCard, partner: Partner) -> None:
+    """First partner to accept wins; others see a clear message."""
+    taken_by_other = job.partner_id is not None and job.partner_id != partner.id
+    already_locked = job.partner_status in (
+        JobCard.PartnerStatus.ACCEPTED,
+        JobCard.PartnerStatus.IN_SERVICE,
+        JobCard.PartnerStatus.COMPLETED,
+    )
+    if taken_by_other or (already_locked and job.partner_id != partner.id):
+        raise PartnerBookingError(
+            'Booking already accepted by another technician.',
+            code='already_accepted',
+        )
+
+
 @transaction.atomic
 def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
-    if job.partner_id and job.partner_id != partner.id:
-        raise PartnerBookingError('Another technician already accepted this booking.', code='forbidden')
+    # Lock row so two technicians tapping Accept at the same time cannot both win.
+    job = JobCard.objects.select_for_update().get(pk=job.pk)
+    _raise_if_booking_already_taken(job, partner)
+
+    if job.status != JobCard.JobStatus.PENDING:
+        raise PartnerBookingError(
+            f'Cannot accept booking with CRM status "{job.status}".',
+            code='invalid_state',
+        )
 
     if job.partner_status != JobCard.PartnerStatus.PENDING:
+        _raise_if_booking_already_taken(job, partner)
         raise PartnerBookingError(
             f"Cannot accept booking with status '{job.partner_status}'.",
             code='invalid_state',

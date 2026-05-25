@@ -280,6 +280,9 @@ REST_FRAMEWORK = {
         'user': '1000/hour',
         'login': '5/min',
         'blog_view_track': '60/hour',
+        # Partner app: per technician (see partner.throttling.PartnerRateThrottle)
+        'partner': '3000/hour',
+        'partner_auth': '60/min',
     }
 }
 
