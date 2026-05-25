@@ -647,8 +647,10 @@ class JobCardService:
         next_date = None
         max_cycle = 1
         
-        # Cockroach AMC: 3 services total, 4-month gap
-        if "cockroach" in service_type and service_category == JobCard.ServiceCategory.AMC:
+        # Cockroach / general AMC: 3 services total, 4-month gap
+        if service_category == JobCard.ServiceCategory.AMC and (
+            "cockroach" in service_type or "ants" in service_type
+        ):
             max_cycle = 3
             next_date = schedule_date + relativedelta(months=4)
         # BedBug: 2 services total, 15-day gap
