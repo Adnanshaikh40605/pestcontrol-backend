@@ -158,10 +158,22 @@ def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
     job = JobCard.objects.select_for_update().get(pk=job.pk)
     _raise_if_booking_already_taken(job, partner)
 
+    if job.status == JobCard.JobStatus.CANCELLED:
+        raise PartnerBookingError(
+            'This booking was already cancelled from CRM.',
+            code='cancelled_in_crm',
+        )
+
     if job.status != JobCard.JobStatus.PENDING:
         raise PartnerBookingError(
             f'Cannot accept booking with CRM status "{job.status}".',
             code='invalid_state',
+        )
+
+    if not job.sent_to_app_at:
+        raise PartnerBookingError(
+            'This booking is no longer available in the app.',
+            code='cancelled_in_crm',
         )
 
     if job.partner_status != JobCard.PartnerStatus.PENDING:
@@ -170,9 +182,6 @@ def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
             f"Cannot accept booking with status '{job.partner_status}'.",
             code='invalid_state',
         )
-
-    if not job.sent_to_app_at:
-        raise PartnerBookingError('Booking was not sent to the partner app.', code='invalid_state')
 
     tech = partner.core_technician
     if not tech:

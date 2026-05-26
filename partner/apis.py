@@ -560,17 +560,35 @@ class RejectBookingAPIView(PartnerAPIView):
                 )
                 return self._reject_booking(job, partner, request.data.get('reason', ''))
         except JobCard.DoesNotExist:
-            return Response({"error": "Booking not found."}, status=404)
+            job = JobCard.objects.filter(id=id).first()
+            if job and job.status == JobCard.JobStatus.CANCELLED:
+                return Response(
+                    {
+                        'error': 'This booking was already cancelled from CRM.',
+                        'code': 'cancelled_in_crm',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if job and job.sent_to_app_at is None and job.partner_id is None:
+                return Response(
+                    {
+                        'error': 'This booking is no longer available in the app.',
+                        'code': 'cancelled_in_crm',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return Response({'error': 'Booking not found.', 'code': 'not_found'}, status=404)
 
     def _reject_booking(self, job, partner, reason):
         if job.status != JobCard.JobStatus.PENDING:
             if job.status == JobCard.JobStatus.CANCELLED:
-                message = 'This booking was cancelled in CRM and cannot be rejected from the app.'
+                message = 'This booking was already cancelled from CRM.'
             elif job.status == JobCard.JobStatus.DONE:
                 message = 'This booking is already completed.'
             else:
                 message = f"Cannot reject booking with CRM status '{job.status}'."
-            return Response({"error": message}, status=status.HTTP_400_BAD_REQUEST)
+            code = 'cancelled_in_crm' if job.status == JobCard.JobStatus.CANCELLED else 'invalid_state'
+            return Response({'error': message, 'code': code}, status=status.HTTP_400_BAD_REQUEST)
 
         if job.partner_status != JobCard.PartnerStatus.PENDING:
             return Response(
