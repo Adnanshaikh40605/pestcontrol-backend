@@ -412,17 +412,24 @@ class JobCardSerializer(serializers.ModelSerializer):
             if not re.match(r'^[a-zA-Z0-9\s]*$', cancellation_reason):
                 raise serializers.ValidationError({'cancellation_reason': 'Special characters are not allowed in the cancellation reason.'})
         
-        # Business rule: Technician removal validation (On Process -> Pending)
+        # Business rule: Technician removal validation (On Process/Confirmed -> Pending)
+        # Only enforce remarks when assignee is actually being cleared.
         if status == 'Pending' and self.instance and self.instance.status in ['On Process', 'Confirmed']:
-            # If the current status is assigned, but we are moving back to Pending, require remarks
-            removal_remarks = data.get('removal_remarks')
-            
-            # Note: technician being None/empty also indicates removal if it was assigned
-            if not removal_remarks or not removal_remarks.strip():
-                raise serializers.ValidationError({'removal_remarks': 'Removal remarks are required when removing a technician.'})
-            
-            if len(removal_remarks.strip()) < 4:
-                raise serializers.ValidationError({'removal_remarks': 'Remarks must be at least 4 characters.'})
+            had_technician = bool(self.instance.technician_id)
+            next_technician = data.get('technician', self.instance.technician)
+            technician_removed = had_technician and not next_technician
+
+            if technician_removed:
+                removal_remarks = data.get('removal_remarks')
+                if not removal_remarks or not removal_remarks.strip():
+                    raise serializers.ValidationError({
+                        'removal_remarks': 'Removal remarks are required when removing a technician.'
+                    })
+
+                if len(removal_remarks.strip()) < 4:
+                    raise serializers.ValidationError({
+                        'removal_remarks': 'Remarks must be at least 4 characters.'
+                    })
         
         return data
 
