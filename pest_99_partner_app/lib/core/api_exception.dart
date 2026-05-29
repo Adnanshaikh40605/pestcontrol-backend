@@ -1,22 +1,38 @@
 import 'package:dio/dio.dart';
 
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode, this.code});
+  ApiException(this.message, {this.statusCode, this.code, this.retryAfterSeconds});
 
   final String message;
   final int? statusCode;
   final String? code;
+  /// From HTTP Retry-After header when status is 429.
+  final int? retryAfterSeconds;
 
   @override
   String toString() => message;
 
-  static ApiException fromResponse(int status, Map<String, dynamic>? body) {
+  static ApiException fromResponse(
+    int status,
+    Map<String, dynamic>? body, {
+    int? retryAfterSeconds,
+  }) {
     if (body == null) {
-      return ApiException('Request failed ($status)', statusCode: status);
+      return ApiException(
+        _messageForStatus(status),
+        statusCode: status,
+        retryAfterSeconds: retryAfterSeconds,
+      );
     }
     final error = body['error'] ?? body['message'] ?? body['detail'];
     if (error is String) {
-      return ApiException(error, statusCode: status, code: body['code'] as String?);
+      final parsedRetry = retryAfterSeconds ?? _parseThrottleWaitSeconds(error);
+      return ApiException(
+        error,
+        statusCode: status,
+        code: body['code'] as String?,
+        retryAfterSeconds: parsedRetry,
+      );
     }
     if (error is Map) {
       final first = error.values.first;
@@ -32,7 +48,28 @@ class ApiException implements Exception {
         }
       }
     }
-    return ApiException('Something went wrong. Please try again.', statusCode: status);
+    return ApiException(
+      _messageForStatus(status),
+      statusCode: status,
+      retryAfterSeconds: retryAfterSeconds,
+    );
+  }
+
+  static String _messageForStatus(int status) {
+    if (status == 429) {
+      return 'Too many requests. Please wait and try again.';
+    }
+    return 'Request failed ($status)';
+  }
+
+  /// DRF: "Request was throttled. Expected available in 651 seconds."
+  static int? _parseThrottleWaitSeconds(String message) {
+    final match = RegExp(
+      r'expected available in (\d+) seconds',
+      caseSensitive: false,
+    ).firstMatch(message);
+    if (match == null) return null;
+    return int.tryParse(match.group(1)!);
   }
 
   static ApiException fromDio(DioException e) {

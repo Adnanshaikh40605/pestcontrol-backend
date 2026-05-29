@@ -17,21 +17,13 @@ class CompletedScreen extends StatefulWidget {
 
 class _CompletedScreenState extends State<CompletedScreen> {
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<BookingsProvider>().refreshAll();
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
     final bookings = context.watch<BookingsProvider>();
 
     return Scaffold(
       appBar: const ProfileAwareTopBar(),
       body: RefreshIndicator(
-        onRefresh: bookings.refreshAll,
+        onRefresh: () => bookings.refreshListsLight(force: true),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(

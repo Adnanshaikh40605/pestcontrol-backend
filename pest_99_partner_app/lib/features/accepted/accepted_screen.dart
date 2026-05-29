@@ -6,6 +6,7 @@ import '../../core/mappers/booking_mapper.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../models/booking.dart' as api;
 import '../../providers/bookings_provider.dart';
+import '../../core/booking_contact_actions.dart';
 import '../../shared/booking_workflow.dart';
 import '../../shared/widgets/profile_aware_top_bar.dart';
 import '../../shared/widgets/booking_cards.dart';
@@ -18,12 +19,25 @@ class AcceptedScreen extends StatefulWidget {
 }
 
 class _AcceptedScreenState extends State<AcceptedScreen> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<BookingsProvider>().refreshAll();
-    });
+  Future<void> _call(BuildContext context, api.PartnerBooking raw) async {
+    final ok = await BookingContactActions.callPhone(raw.clientMobile);
+    if (!context.mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cannot call — phone number not available')),
+      );
+    }
+  }
+
+  Future<void> _maps(BuildContext context, api.PartnerBooking raw) async {
+    final address = raw.locationDisplay ?? raw.clientAddress;
+    final ok = await BookingContactActions.openMaps(address);
+    if (!context.mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cannot open maps — address missing')),
+      );
+    }
   }
 
   void _onPrimary(BuildContext context, api.PartnerBooking raw) {
@@ -39,7 +53,7 @@ class _AcceptedScreenState extends State<AcceptedScreen> {
     return Scaffold(
       appBar: const ProfileAwareTopBar(),
       body: RefreshIndicator(
-        onRefresh: bookings.refreshAll,
+        onRefresh: () => bookings.refreshListsLight(force: true),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(
@@ -75,6 +89,12 @@ class _AcceptedScreenState extends State<AcceptedScreen> {
                     onViewDetails: processing
                         ? null
                         : () => context.push('/booking/${raw.id}'),
+                    onCall: processing || !raw.canViewClientPhone
+                        ? null
+                        : () => _call(context, raw),
+                    onMaps: processing
+                        ? null
+                        : () => _maps(context, raw),
                     onPrimaryAction: (raw.allowsStart || raw.allowsComplete)
                         ? () => _onPrimary(context, raw)
                         : null,

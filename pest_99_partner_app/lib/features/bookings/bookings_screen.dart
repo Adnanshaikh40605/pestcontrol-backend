@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -17,12 +19,21 @@ class BookingsScreen extends StatefulWidget {
 }
 
 class _BookingsScreenState extends State<BookingsScreen> {
+  Timer? _syncTimer;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<BookingsProvider>().refreshAll();
+    _syncTimer = Timer.periodic(const Duration(seconds: 45), (_) {
+      if (!mounted) return;
+      context.read<BookingsProvider>().refreshListsLight();
     });
+  }
+
+  @override
+  void dispose() {
+    _syncTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -32,7 +43,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     return Scaffold(
       appBar: const ProfileAwareTopBar(),
       body: RefreshIndicator(
-        onRefresh: bookings.refreshAll,
+        onRefresh: () => bookings.refreshListsLight(force: true),
         child: bookings.loading && bookings.available.isEmpty
             ? const Center(child: CircularProgressIndicator())
             : _buildBody(context, bookings),
@@ -49,7 +60,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
             height: MediaQuery.sizeOf(context).height * 0.45,
             child: AsyncErrorView(
               message: bookings.error!,
-              onRetry: bookings.refreshAll,
+              onRetry: () => bookings.refreshListsLight(force: true),
             ),
           ),
         ],

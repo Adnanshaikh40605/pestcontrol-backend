@@ -32,10 +32,50 @@ class BookingsProvider extends ChangeNotifier {
 
   bool get isGlobalBusy => _processingIds.isNotEmpty;
 
-  Future<void> refreshAll() async {
-    loading = true;
-    error = null;
-    notifyListeners();
+  static const _minRefreshGap = Duration(seconds: 8);
+
+  Future<void>? _refreshInFlight;
+  DateTime? _lastRefreshAt;
+
+  /// Full load with global spinner (first open / pull-to-refresh).
+  Future<void> refreshAll({bool force = false}) async {
+    await _refreshLists(showGlobalLoader: true, force: force);
+  }
+
+  /// Background sync — no full-screen loader.
+  Future<void> refreshListsLight({bool force = false}) async {
+    await _refreshLists(showGlobalLoader: false, force: force);
+  }
+
+  Future<void> _refreshLists({
+    required bool showGlobalLoader,
+    bool force = false,
+  }) async {
+    if (_refreshInFlight != null) {
+      return _refreshInFlight;
+    }
+    final now = DateTime.now();
+    if (!force &&
+        _lastRefreshAt != null &&
+        now.difference(_lastRefreshAt!) < _minRefreshGap) {
+      return;
+    }
+
+    _refreshInFlight = _refreshInternal(showGlobalLoader);
+    try {
+      await _refreshInFlight;
+    } finally {
+      _refreshInFlight = null;
+      _lastRefreshAt = DateTime.now();
+    }
+  }
+
+  Future<void> _refreshInternal(bool showGlobalLoader) async {
+    if (showGlobalLoader) {
+      loading = true;
+      error = null;
+      notifyListeners();
+    }
     try {
       final results = await Future.wait([
         _service.getCounts(),
@@ -47,22 +87,71 @@ class BookingsProvider extends ChangeNotifier {
       available = results[1] as List<PartnerBooking>;
       accepted = results[2] as List<PartnerBooking>;
       completed = results[3] as List<PartnerBooking>;
+      if (!showGlobalLoader) error = null;
     } on ApiException catch (e) {
-      error = e.message;
+      if (showGlobalLoader || available.isEmpty) {
+        error = _throttleMessage(e);
+      }
     } catch (_) {
-      error = 'Could not load bookings.';
+      if (showGlobalLoader || available.isEmpty) {
+        error = 'Could not load bookings.';
+      }
     } finally {
-      loading = false;
+      if (showGlobalLoader) loading = false;
       notifyListeners();
     }
+  }
+
+  void removeFromAvailable(int id) {
+    final next = available.where((b) => b.id != id).toList();
+    if (next.length == available.length) return;
+    available = next;
+    counts = BookingCounts(
+      available: (counts.available - 1).clamp(0, 999999),
+      accepted: counts.accepted,
+      completed: counts.completed,
+    );
+    notifyListeners();
+  }
+
+  void applyAcceptedBooking(PartnerBooking booking) {
+    available = available.where((b) => b.id != booking.id).toList();
+    final idx = accepted.indexWhere((b) => b.id == booking.id);
+    if (idx >= 0) {
+      final next = List<PartnerBooking>.from(accepted);
+      next[idx] = booking;
+      accepted = next;
+    } else {
+      accepted = [booking, ...accepted];
+    }
+    counts = BookingCounts(
+      available: available.length,
+      accepted: accepted.length,
+      completed: counts.completed,
+    );
+    notifyListeners();
   }
 
   Future<BookingActionResult> accept(int id) => _runAction(
         id,
         initialLabel: 'Accepting…',
         action: () async {
-          await _service.accept(id);
-          await refreshAll();
+          try {
+            await _service.accept(id);
+          } on ApiException catch (e) {
+            if (_handleStaleBookingError(id, e)) {
+              final msg = e.code == 'cancelled_in_crm'
+                  ? (e.message.isNotEmpty
+                      ? e.message
+                      : 'This booking was already cancelled from CRM.')
+                  : e.message;
+              return BookingActionResult.ok(message: msg);
+            }
+            rethrow;
+          }
+          final detail = await _service.getDetail(id);
+          applyAcceptedBooking(detail);
+          unawaited(_syncCounts());
           return BookingActionResult.ok(
             message: 'Job accepted',
             navigateToAccepted: true,
@@ -74,15 +163,21 @@ class BookingsProvider extends ChangeNotifier {
         id,
         initialLabel: 'Rejecting…',
         action: () async {
-          await _service.reject(id);
-          available = available.where((b) => b.id != id).toList();
-          counts = BookingCounts(
-            available: (counts.available - 1).clamp(0, 999999),
-            accepted: counts.accepted,
-            completed: counts.completed,
-          );
-          notifyListeners();
-          unawaited(refreshAll());
+          try {
+            await _service.reject(id);
+          } on ApiException catch (e) {
+            if (_handleStaleBookingError(id, e)) {
+              final msg = e.code == 'cancelled_in_crm'
+                  ? (e.message.isNotEmpty
+                      ? e.message
+                      : 'This booking was already cancelled from CRM.')
+                  : e.message;
+              return BookingActionResult.ok(message: msg);
+            }
+            rethrow;
+          }
+          removeFromAvailable(id);
+          unawaited(_syncCounts());
           return BookingActionResult.ok(message: 'Booking rejected');
         },
       );
@@ -90,11 +185,8 @@ class BookingsProvider extends ChangeNotifier {
   Future<BookingActionResult> startJob(int id, String selfiePath) => _runAction(
         id,
         initialLabel: 'Uploading selfie…',
-        onProgress: (label) => _setProcessing(id, label),
         action: () async {
-          _setProcessing(id, 'Uploading selfie…');
           await _service.startWithSelfie(id, selfiePath);
-          _setProcessing(id, 'Starting service…');
           final updated = await _service.getDetail(id);
           _replaceInAccepted(updated);
           notifyListeners();
@@ -106,14 +198,16 @@ class BookingsProvider extends ChangeNotifier {
   Future<BookingActionResult> completeJob(int id, String paymentMode) => _runAction(
         id,
         initialLabel: 'Ending service…',
-        onProgress: (label) => _setProcessing(id, label),
         action: () async {
-          _setProcessing(id, 'Ending service…');
           await _service.complete(id, paymentMode);
-          _setProcessing(id, 'Saving payment…');
           final updated = await _service.getDetail(id);
           accepted = accepted.where((b) => b.id != id).toList();
           completed = [updated, ...completed.where((b) => b.id != id)];
+          counts = BookingCounts(
+            available: counts.available,
+            accepted: accepted.length,
+            completed: completed.length,
+          );
           notifyListeners();
           unawaited(_syncCounts());
           return BookingActionResult.ok(
@@ -122,6 +216,24 @@ class BookingsProvider extends ChangeNotifier {
           );
         },
       );
+
+  /// Remove stale booking from lists when CRM already cancelled / removed.
+  bool _handleStaleBookingError(int id, ApiException e) {
+    final stale = e.code == 'cancelled_in_crm' ||
+        e.statusCode == 404 ||
+        (e.statusCode == 409 && e.code == 'already_accepted');
+    if (e.code == 'already_accepted') {
+      removeFromAvailable(id);
+      unawaited(_syncCounts());
+      return true;
+    }
+    if (stale || e.code == 'cancelled_in_crm') {
+      removeFromAvailable(id);
+      unawaited(_syncCounts());
+      return true;
+    }
+    return false;
+  }
 
   void _replaceInAccepted(PartnerBooking updated) {
     final idx = accepted.indexWhere((b) => b.id == updated.id);
@@ -141,11 +253,19 @@ class BookingsProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
+  String _throttleMessage(ApiException e) {
+    if (e.statusCode == 429) {
+      return e.retryAfterSeconds != null
+          ? 'Too many requests. Try again in ${e.retryAfterSeconds} seconds.'
+          : 'Too many requests. Please wait a minute and try again.';
+    }
+    return e.message;
+  }
+
   Future<BookingActionResult> _runAction(
     int id, {
     required String initialLabel,
     required Future<BookingActionResult> Function() action,
-    void Function(String label)? onProgress,
   }) async {
     if (_processingIds.contains(id)) {
       return BookingActionResult.fail('Please wait…');
@@ -159,8 +279,6 @@ class BookingsProvider extends ChangeNotifier {
     try {
       return await action();
     } on ApiException catch (e) {
-      error = e.message;
-      notifyListeners();
       final msg = e.statusCode == 408
           ? 'Network slow. Please try again.'
           : e.message;
@@ -176,7 +294,6 @@ class BookingsProvider extends ChangeNotifier {
     _processingIds.add(id);
     _processingLabels[id] = label;
     notifyListeners();
-    // onProgress callback unused in _runAction but kept for future multi-step
   }
 
   void _clearProcessing(int id) {

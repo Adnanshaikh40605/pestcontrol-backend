@@ -76,7 +76,10 @@ class BookingWorkflow {
     if (!context.mounted) return result;
     _showResult(context, result);
     if (result.success && result.navigateToAccepted) {
-      context.go('/accepted');
+      final loc = GoRouterState.of(context).uri.path;
+      if (!loc.startsWith('/accepted')) {
+        context.go('/accepted');
+      }
     }
     return result;
   }

@@ -119,27 +119,25 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   }
 
   Future<void> _onRefresh() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      await context.read<BookingsProvider>().refreshAll();
-      await _fetchLatest(silent: false);
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = userErrorMessage(e, fallback: 'Could not refresh booking.');
-          _loading = false;
-        });
-      }
-    }
+    await _fetchLatest(silent: false);
   }
 
   Future<void> _afterWorkflowAction() async {
-    await context.read<BookingsProvider>().refreshAll();
     if (!mounted) return;
     await _fetchLatest(silent: false);
+    final provider = context.read<BookingsProvider>();
+    final detail = _booking;
+    if (detail != null) {
+      if (provider.available.any((x) => x.id == detail.id)) {
+        provider.removeFromAvailable(detail.id);
+      }
+      if (detail.partnerStatus == 'accepted' ||
+          detail.partnerStatus == 'in_service' ||
+          detail.allowsStart ||
+          detail.allowsComplete) {
+        provider.applyAcceptedBooking(detail);
+      }
+    }
   }
 
   @override
@@ -316,12 +314,13 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
               onPressed: processing
                   ? null
                   : () async {
-                      await BookingWorkflow.reject(context, b.id);
+                      final result = await BookingWorkflow.reject(context, b.id);
                       if (!mounted) return;
-                      if (!context.read<BookingsProvider>().available.any((x) => x.id == b.id)) {
+                      if (result?.success == true ||
+                          !context.read<BookingsProvider>().available.any((x) => x.id == b.id)) {
                         context.pop();
                       } else {
-                        await _afterWorkflowAction();
+                        await _fetchLatest(silent: true);
                       }
                     },
               child: const Text('Reject'),
@@ -342,6 +341,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                       if (!mounted) return;
                       if (result?.success == true) {
                         await _afterWorkflowAction();
+                        if (mounted) context.pop();
                       }
                     },
             ),
@@ -365,7 +365,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                 ? null
                 : () async {
                     await BookingWorkflow.startFromDetail(context, widget.bookingId);
-                    if (mounted) await _afterWorkflowAction();
+                    if (mounted) await _fetchLatest(silent: true);
                   },
           )
         else

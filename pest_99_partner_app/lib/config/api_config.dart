@@ -7,6 +7,9 @@ class ApiConfig {
 
   static const String partnerPrefix = '/api/partner';
 
+  /// Public — no auth; checked on every app launch.
+  static const String appVersion = '/api/app/version/';
+
   static String get register => '$partnerPrefix/register/';
   static String get login => '$partnerPrefix/login/';
   static String get tokenRefresh => '$partnerPrefix/token/refresh/';

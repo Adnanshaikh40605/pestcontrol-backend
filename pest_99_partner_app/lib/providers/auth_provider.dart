@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../core/api_exception.dart';
@@ -74,7 +76,8 @@ class AuthProvider extends ChangeNotifier {
       if (!fcmOk) {
         debugPrint('FCM token not saved — enable notifications and try again');
       }
-      await PushNotificationService.instance.showLoginSuccessNotification();
+      // Show login alert after token sync; permission re-checked inside service.
+      unawaited(PushNotificationService.instance.showLoginSuccessNotification());
       return true;
     } on ApiException catch (e) {
       _error = e.message;

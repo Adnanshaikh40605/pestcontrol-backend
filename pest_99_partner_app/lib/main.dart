@@ -9,10 +9,12 @@ import 'core/routing/app_router.dart';
 import 'core/session_coordinator.dart';
 import 'debug/debug_bootstrap.dart';
 import 'debug/debug_log_store.dart';
+import 'providers/app_update_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/bookings_provider.dart';
 import 'providers/notifications_provider.dart';
 import 'providers/profile_provider.dart';
+import 'services/app_version_service.dart';
 import 'services/auth_service.dart';
 import 'services/booking_service.dart';
 import 'services/notification_api_service.dart';
@@ -47,15 +49,17 @@ Future<void> _startApp() async {
     },
   );
 
+  final appUpdate = AppUpdateProvider(AppVersionService(api));
   final auth = AuthProvider(AuthService(api), sessionCoordinator)..init();
 
-  final appRouter = AppRouter(auth);
+  final appRouter = AppRouter(auth, appUpdate);
   _routerHolder.router = appRouter.router;
 
   runApp(
     MultiProvider(
       providers: [
         Provider<ApiClient>.value(value: api),
+        ChangeNotifierProvider<AppUpdateProvider>.value(value: appUpdate),
         ChangeNotifierProvider<AuthProvider>.value(value: auth),
         ChangeNotifierProvider<DebugLogStore>.value(value: DebugLogStore.instance),
         ChangeNotifierProvider(create: (_) => BookingsProvider(BookingService(api))),

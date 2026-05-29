@@ -337,7 +337,19 @@ class ApiClient {
       return body ?? {};
     }
 
-    final ex = ApiException.fromResponse(status, body);
+    int? retryAfter;
+    if (status == 429) {
+      final header = res.headers.value('retry-after');
+      if (header != null) {
+        retryAfter = int.tryParse(header.trim());
+      }
+    }
+
+    final ex = ApiException.fromResponse(
+      status,
+      body,
+      retryAfterSeconds: retryAfter,
+    );
     if (DebugConfig.enabled) {
       DebugBackendAlert.showForStatus(
         statusCode: status,

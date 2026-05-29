@@ -1,5 +1,6 @@
 ﻿import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 
 import 'core/constants/notification_channels.dart';
 import 'firebase_options.dart';
@@ -9,23 +10,33 @@ import 'services/partner_local_notifications.dart';
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Booking pushes include a notification payload ΓÇö Android already shows the tray alert.
-  if (message.notification != null) {
+  await initializePartnerLocalNotificationsForBackground();
+  await ensurePartnerNotificationChannels();
+
+  final data = message.data;
+  if (data.isEmpty && message.notification == null) {
     return;
   }
 
-  final data = message.data;
   final isNewBooking = isNewBookingPush(data);
   final title =
       message.notification?.title ?? data['title']?.toString() ?? 'New Booking Available';
   final body = message.notification?.body ?? data['body']?.toString() ?? '';
+  if (body.isEmpty && title == 'New Booking Available') {
+    return;
+  }
+
   final bookingId = int.tryParse(data['booking_id']?.toString() ?? '') ?? message.hashCode;
 
-  await showPartnerLocalNotification(
-    id: bookingId,
-    title: title,
-    body: body,
-    data: data,
-    isNewBooking: isNewBooking,
-  );
+  try {
+    await showPartnerLocalNotification(
+      id: bookingId,
+      title: title,
+      body: body,
+      data: data,
+      isNewBooking: isNewBooking,
+    );
+  } catch (e) {
+    debugPrint('[FCM background] local notification failed: $e');
+  }
 }

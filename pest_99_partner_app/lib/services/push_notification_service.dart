@@ -1,10 +1,12 @@
-﻿import 'dart:convert';
+﻿import 'dart:async';
+import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../core/constants/notification_channels.dart';
+import '../core/notification_navigation.dart';
 import '../debug/debug_log_store.dart';
 import '../firebase_messaging_background.dart';
 import '../firebase_options.dart';
@@ -45,18 +47,12 @@ class PushNotificationService {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-    await ensurePartnerNotificationChannels();
-
-    final androidPlugin = partnerLocalNotifications
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-    await androidPlugin?.requestNotificationsPermission();
-
-    await partnerLocalNotifications.initialize(
-      const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      ),
+    // Single init — do not call initialize() again in channel setup (breaks channels on Android).
+    await initializePartnerLocalNotifications(
       onDidReceiveNotificationResponse: _onLocalNotificationTap,
     );
+    await requestPartnerNotificationPermission();
+    await ensurePartnerNotificationChannels();
 
     final messaging = FirebaseMessaging.instance;
     await messaging.setAutoInitEnabled(true);
@@ -78,6 +74,12 @@ class PushNotificationService {
     _log('PushNotificationService initialized');
   }
 
+  /// Ensures Android notification permission before showing local alerts.
+  Future<bool> ensureDisplayPermission() async {
+    if (await canShowPartnerNotifications()) return true;
+    return requestPartnerNotificationPermission();
+  }
+
   /// Call after auth + router are ready (splash / post-login).
   void processPendingNavigation() {
     final id = _pendingBookingId;
@@ -92,6 +94,7 @@ class PushNotificationService {
   }
 
   Future<bool> requestPermission() async {
+    await requestPartnerNotificationPermission();
     final settings = await FirebaseMessaging.instance.requestPermission(
       alert: true,
       badge: true,
@@ -120,7 +123,7 @@ class PushNotificationService {
 
     final token = _cachedToken ?? await getToken();
     if (token == null || token.isEmpty) {
-      _log('FCM sync skipped ΓÇö no token');
+      _log('FCM sync skipped — no token');
       return;
     }
 
@@ -135,7 +138,7 @@ class PushNotificationService {
     _attachTokenRefreshListener(api);
   }
 
-  /// Call after login / app resume ΓÇö retries until token is saved on the server.
+  /// Call after login / app resume — retries until token is saved on the server.
   Future<bool> ensureTokenSyncedWithBackend({int maxAttempts = 4}) async {
     final api = _api;
     if (api == null) return false;
@@ -177,11 +180,20 @@ class PushNotificationService {
     });
   }
 
-  Future<void> showLoginSuccessNotification() async {
-    await showLoginSuccessLocalNotification(
+  Future<bool> showLoginSuccessNotification() async {
+    await ensureDisplayPermission();
+    // Brief delay so OEMs don't drop the alert during login screen transition.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    final shown = await showLoginSuccessLocalNotification(
       title: 'Login Successful',
       body: 'Welcome to Pest 99 Partner',
     );
+    if (shown) {
+      _log('Login success local notification shown');
+    } else {
+      _log('Login success local notification not shown (permission or system block)');
+    }
+    return shown;
   }
 
   Future<void> removeTokenFromBackend() async {
@@ -196,23 +208,34 @@ class PushNotificationService {
     _cachedToken = null;
   }
 
-  void _onForegroundMessage(RemoteMessage message) {
+  Future<void> _onForegroundMessage(RemoteMessage message) async {
     _log('FCM foreground: ${message.data}');
     final data = message.data;
+    unawaited(NotificationNavigation.handleForegroundPushData(data));
     final title = message.notification?.title ?? data['title']?.toString() ?? 'Pest 99 Partner';
     final body = message.notification?.body ?? data['body']?.toString() ?? '';
+    if (body.isEmpty && title == 'Pest 99 Partner') {
+      _log('FCM foreground ignored — empty payload');
+      return;
+    }
+
+    await ensureDisplayPermission();
     final bookingId = int.tryParse(data['booking_id']?.toString() ?? '');
     final notifId = bookingId ?? message.hashCode;
     final newBooking = isNewBookingPush(data);
 
-    showPartnerLocalNotification(
-      id: notifId,
-      title: title,
-      body: body,
-      data: data,
-      isNewBooking: newBooking,
-    );
-    _bumpUnread();
+    try {
+      await showPartnerLocalNotification(
+        id: notifId,
+        title: title,
+        body: body,
+        data: data,
+        isNewBooking: newBooking,
+      );
+      _bumpUnread();
+    } catch (e) {
+      _log('FCM foreground local show failed: $e');
+    }
   }
 
   void _onMessageOpenedApp(RemoteMessage message) {
@@ -264,4 +287,3 @@ class PushNotificationService {
     DebugLogStore.instance.logAuth('FCM', message: message);
   }
 }
-

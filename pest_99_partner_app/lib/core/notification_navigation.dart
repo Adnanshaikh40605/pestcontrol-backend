@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 
 import '../providers/bookings_provider.dart';
 import '../providers/notifications_provider.dart';
-import '../services/push_notification_service.dart';
 import 'constants/notification_channels.dart';
 import 'routing/app_router.dart';
 import 'routing/booking_open_args.dart';
@@ -13,6 +12,28 @@ import 'routing/booking_open_args.dart';
 /// Opens booking detail after push / notification tap with fresh API data.
 class NotificationNavigation {
   NotificationNavigation._();
+
+  /// Sync lists when FCM arrives (cancelled / new booking) without full-screen reload.
+  static Future<void> handleForegroundPushData(Map<String, dynamic> data) async {
+    final ctx = rootNavigatorKey.currentContext;
+    if (ctx == null || !ctx.mounted) return;
+    final bookings = ctx.read<BookingsProvider>();
+    final bookingId = int.tryParse(data['booking_id']?.toString() ?? '');
+
+    if (isBookingCancelledPush(data) && bookingId != null) {
+      bookings.removeFromAvailable(bookingId);
+      try {
+        await bookings.refreshListsLight(force: true);
+      } catch (_) {}
+      return;
+    }
+
+    if (isNewBookingPush(data)) {
+      try {
+        await bookings.refreshListsLight(force: true);
+      } catch (_) {}
+    }
+  }
 
   static Future<void> openBookingFromPush(
     int bookingId, {
@@ -25,7 +46,7 @@ class NotificationNavigation {
     if (ctx != null) {
       try {
         await Future.wait([
-          ctx.read<BookingsProvider>().refreshAll(),
+          ctx.read<BookingsProvider>().refreshListsLight(),
           ctx.read<NotificationsProvider>().load(force: true),
         ]);
       } catch (e, st) {
@@ -68,7 +89,7 @@ class NotificationNavigation {
     final router = GoRouter.of(context);
     try {
       await Future.wait([
-        context.read<BookingsProvider>().refreshAll(),
+        context.read<BookingsProvider>().refreshListsLight(),
         context.read<NotificationsProvider>().load(force: true),
       ]);
     } catch (_) {}

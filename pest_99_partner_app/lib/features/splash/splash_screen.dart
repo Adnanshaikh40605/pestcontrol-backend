@@ -6,6 +6,7 @@ import '../../core/api_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../services/profile_service.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../providers/app_update_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/notifications_provider.dart';
 import '../../providers/profile_provider.dart';
@@ -27,6 +28,16 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _boot() async {
+    final appUpdate = context.read<AppUpdateProvider>();
+    await appUpdate.checkForUpdate();
+    if (!mounted) return;
+
+    if (!mounted) return;
+    if (appUpdate.forceUpdateRequired) {
+      context.go('/force-update');
+      return;
+    }
+
     final auth = context.read<AuthProvider>();
     if (!auth.ready) await auth.init();
     if (!mounted) return;
@@ -56,6 +67,8 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final checking = context.watch<AppUpdateProvider>().isChecking;
+
     return Scaffold(
       backgroundColor: AppColors.primary,
       body: SafeArea(
@@ -105,7 +118,7 @@ class _SplashScreenState extends State<SplashScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'LOADING OPERATIONS',
+                    checking ? 'CHECKING FOR UPDATES' : 'LOADING OPERATIONS',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: AppColors.onPrimary.withValues(alpha: 0.8),
                           letterSpacing: 3,

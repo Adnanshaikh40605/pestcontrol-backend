@@ -121,6 +121,8 @@ class AcceptedBookingCard extends StatelessWidget {
     super.key,
     required this.booking,
     this.onViewDetails,
+    this.onCall,
+    this.onMaps,
     this.onPrimaryAction,
     this.isPrimaryLoading = false,
     this.primaryLoadingLabel,
@@ -128,6 +130,8 @@ class AcceptedBookingCard extends StatelessWidget {
 
   final Booking booking;
   final VoidCallback? onViewDetails;
+  final VoidCallback? onCall;
+  final VoidCallback? onMaps;
   final VoidCallback? onPrimaryAction;
   final bool isPrimaryLoading;
   final String? primaryLoadingLabel;
@@ -244,7 +248,7 @@ class AcceptedBookingCard extends StatelessWidget {
                   child: _SecondaryActionButton(
                     icon: Icons.call,
                     label: 'Call',
-                    onTap: () {},
+                    onTap: onCall,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -252,7 +256,7 @@ class AcceptedBookingCard extends StatelessWidget {
                   child: _SecondaryActionButton(
                     icon: Icons.directions,
                     label: 'Maps',
-                    onTap: () {},
+                    onTap: onMaps,
                   ),
                 ),
               ],
@@ -423,15 +427,16 @@ class _SecondaryActionButton extends StatelessWidget {
 
   final IconData icon;
   final String label;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final enabled = onTap != null;
     return Material(
       color: AppColors.surfaceContainerLow,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 10),

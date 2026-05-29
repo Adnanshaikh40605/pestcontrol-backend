@@ -13,7 +13,9 @@ import '../../features/profile/profile_screen.dart';
 import '../../features/notifications/notifications_screen.dart';
 import '../../features/referral/refer_client_screen.dart';
 import '../../features/referral/referral_progress_screen.dart';
+import '../../features/force_update/force_update_screen.dart';
 import '../../features/splash/splash_screen.dart';
+import '../../providers/app_update_provider.dart';
 import 'booking_open_args.dart';
 import '../../debug/debug_config.dart';
 import '../../debug/debug_dio_interceptor.dart';
@@ -23,17 +25,21 @@ import '../../shared/widgets/app_bottom_nav.dart';
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class AppRouter {
-  AppRouter(this._auth) {
+  AppRouter(this._auth, this._appUpdate) {
     router = GoRouter(
       navigatorKey: rootNavigatorKey,
       initialLocation: '/splash',
-      refreshListenable: _auth,
+      refreshListenable: Listenable.merge([_auth, _appUpdate]),
       redirect: _redirect,
       observers: DebugConfig.enabled ? [DebugRouteObserver()] : [],
       routes: [
         GoRoute(
           path: '/splash',
           pageBuilder: (context, state) => _fadePage(state, const SplashScreen()),
+        ),
+        GoRoute(
+          path: '/force-update',
+          pageBuilder: (context, state) => const NoTransitionPage(child: ForceUpdateScreen()),
         ),
         GoRoute(
           path: '/login',
@@ -138,12 +144,17 @@ class AppRouter {
   }
 
   final AuthProvider _auth;
+  final AppUpdateProvider _appUpdate;
   late final GoRouter router;
 
   String? _redirect(BuildContext context, GoRouterState state) {
-    if (!_auth.ready) return null;
-
     final path = state.matchedLocation;
+
+    if (_appUpdate.forceUpdateRequired) {
+      return path == '/force-update' ? null : '/force-update';
+    }
+
+    if (!_auth.ready) return null;
     final onAuth = path == '/login' || path == '/register';
     final onSplash = path == '/splash';
 
