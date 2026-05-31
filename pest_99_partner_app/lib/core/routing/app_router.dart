@@ -5,6 +5,7 @@ import '../../features/accepted/accepted_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/pending_approval_screen.dart';
 import '../../features/auth/register_screen.dart';
+import '../../features/auth/registration_success_screen.dart';
 import '../../features/booking_detail/booking_detail_screen.dart';
 import '../../features/bookings/bookings_screen.dart';
 import '../../features/completed/completed_screen.dart';
@@ -48,6 +49,10 @@ class AppRouter {
         GoRoute(
           path: '/register',
           pageBuilder: (context, state) => _slidePage(state, const RegisterScreen()),
+        ),
+        GoRoute(
+          path: '/registration-success',
+          pageBuilder: (context, state) => _slidePage(state, const RegistrationSuccessScreen()),
         ),
         GoRoute(
           path: '/pending-approval',
@@ -155,7 +160,9 @@ class AppRouter {
     }
 
     if (!_auth.ready) return null;
-    final onAuth = path == '/login' || path == '/register';
+    final onAuth = path == '/login' ||
+        path == '/register' ||
+        path == '/registration-success';
     final onSplash = path == '/splash';
 
     if (!_auth.loggedIn) {

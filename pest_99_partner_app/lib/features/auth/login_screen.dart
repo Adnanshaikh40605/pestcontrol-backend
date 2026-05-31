@@ -7,9 +7,10 @@ import '../../providers/auth_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../providers/notifications_provider.dart';
 import '../../services/push_notification_service.dart';
+import '../../core/constants/app_assets.dart';
 import '../../shared/widgets/app_text_field.dart';
-import '../../shared/widgets/pest_logo.dart';
 import '../../shared/widgets/primary_button.dart';
+import '../../shared/widgets/stitch_illustration.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -76,9 +77,13 @@ class _LoginScreenState extends State<LoginScreen> {
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screenEdge),
           child: Column(
             children: [
+              const SizedBox(height: 16),
+              const StitchIllustration(
+                asset: AppAssets.loginIllustration,
+                height: 240,
+                semanticLabel: 'Partner login illustration',
+              ),
               const SizedBox(height: 24),
-              const PestLogoCard(),
-              const SizedBox(height: 32),
               Text('Welcome Back', style: Theme.of(context).textTheme.headlineLarge),
               const SizedBox(height: 8),
               Text(

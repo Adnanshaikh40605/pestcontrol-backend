@@ -1185,7 +1185,49 @@ class DashboardService:
                 range_revenue = month_revenue # Default to monthly if no range
 
             logger.info(f"Dashboard Revenue Stats - Today: {today_revenue}, Yesterday: {yesterday_revenue}, Month: {month_revenue}, Range: {range_revenue}")
-            
+
+            revenue_target = 500000
+            last_month_end = month_start - timedelta(days=1)
+            last_month_start = last_month_end.replace(day=1)
+            last_month_revenue = get_revenue(
+                revenue_filter_base
+                & Q(completed_at__date__gte=last_month_start, completed_at__date__lte=last_month_end)
+            )
+            if last_month_revenue == 0:
+                last_month_revenue = get_revenue(
+                    revenue_filter_base
+                    & Q(
+                        updated_at__date__gte=last_month_start,
+                        updated_at__date__lte=last_month_end,
+                        completed_at__isnull=True,
+                    )
+                )
+
+            month_jobs_filter = revenue_filter_base & Q(completed_at__date__gte=month_start)
+            jobs_done_month = JobCard.objects.filter(month_jobs_filter).count()
+            if jobs_done_month == 0:
+                jobs_done_month = JobCard.objects.filter(
+                    revenue_filter_base
+                    & Q(updated_at__date__gte=month_start, completed_at__isnull=True)
+                ).count()
+
+            avg_ticket_month = round(month_revenue / jobs_done_month, 2) if jobs_done_month else 0
+            month_achievement_pct = (
+                min(100.0, round((month_revenue / revenue_target) * 100, 2))
+                if revenue_target
+                else 0.0
+            )
+            revenue_growth_pct = (
+                round(((month_revenue - last_month_revenue) / last_month_revenue) * 100, 2)
+                if last_month_revenue > 0
+                else (100.0 if month_revenue > 0 else 0.0)
+            )
+            today_growth_pct = (
+                round(((today_revenue - yesterday_revenue) / yesterday_revenue) * 100, 2)
+                if yesterday_revenue > 0
+                else (100.0 if today_revenue > 0 else 0.0)
+            )
+
             return {
                 'total_inquiries': total_inquiries,
                 'total_web_inquiries': total_web_inquiries,
@@ -1201,6 +1243,13 @@ class DashboardService:
                 'yesterday_revenue': yesterday_revenue,
                 'month_revenue': month_revenue,
                 'range_revenue': range_revenue,
+                'revenue_target': revenue_target,
+                'month_achievement_pct': month_achievement_pct,
+                'last_month_revenue': last_month_revenue,
+                'revenue_growth_pct': revenue_growth_pct,
+                'today_growth_pct': today_growth_pct,
+                'jobs_done_month': jobs_done_month,
+                'avg_ticket_month': avg_ticket_month,
                 'category_stats': category_stats,
                 'status_stats': status_stats,
                 'job_type_stats': job_type_stats,

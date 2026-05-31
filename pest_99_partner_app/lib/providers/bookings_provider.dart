@@ -76,6 +76,16 @@ class BookingsProvider extends ChangeNotifier {
       error = null;
       notifyListeners();
     }
+
+    if (!await _connectivity.hasConnection()) {
+      if (showGlobalLoader || available.isEmpty) {
+        error = 'No internet connection';
+      }
+      if (showGlobalLoader) loading = false;
+      notifyListeners();
+      return;
+    }
+
     try {
       final results = await Future.wait([
         _service.getCounts(),

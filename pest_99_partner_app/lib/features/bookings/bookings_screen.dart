@@ -9,6 +9,7 @@ import '../../providers/bookings_provider.dart';
 import '../../shared/widgets/profile_aware_top_bar.dart';
 import '../../shared/booking_workflow.dart';
 import '../../shared/widgets/async_error_view.dart';
+import '../../shared/widgets/no_internet_view.dart';
 import '../../shared/widgets/booking_cards.dart';
 
 class BookingsScreen extends StatefulWidget {
@@ -53,15 +54,20 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   Widget _buildBody(BuildContext context, BookingsProvider bookings) {
     if (bookings.error != null && bookings.available.isEmpty) {
+      final offline = NoInternetView.isOfflineMessage(bookings.error);
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
           SizedBox(
-            height: MediaQuery.sizeOf(context).height * 0.45,
-            child: AsyncErrorView(
-              message: bookings.error!,
-              onRetry: () => bookings.refreshListsLight(force: true),
-            ),
+            height: MediaQuery.sizeOf(context).height * 0.55,
+            child: offline
+                ? NoInternetView(
+                    onRetry: () => bookings.refreshListsLight(force: true),
+                  )
+                : AsyncErrorView(
+                    message: bookings.error!,
+                    onRetry: () => bookings.refreshListsLight(force: true),
+                  ),
           ),
         ],
       );

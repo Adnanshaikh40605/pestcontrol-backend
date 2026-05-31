@@ -3,10 +3,12 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api_client.dart';
+import '../../core/constants/app_assets.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../services/referral_service.dart';
 import '../../shared/widgets/app_text_field.dart';
 import '../../shared/widgets/primary_button.dart';
+import '../../shared/widgets/stitch_illustration.dart';
 
 class ReferClientScreen extends StatefulWidget {
   const ReferClientScreen({super.key});
@@ -61,6 +63,16 @@ class _ReferClientScreenState extends State<ReferClientScreen> {
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.screenEdge),
         children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: const StitchIllustration(
+              asset: AppAssets.referralPromotional,
+              height: 200,
+              fit: BoxFit.cover,
+              semanticLabel: 'Refer a client promotional banner',
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sectionGap),
           Text('Refer a new client', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           Text(
