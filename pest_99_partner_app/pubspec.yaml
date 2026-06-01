@@ -1,7 +1,7 @@
 name: pest_99_partner_app
 description: Pest Control 99 — Technician Partner App
 publish_to: 'none'
-version: 2.0.2+4
+version: 2.0.3+5
 
 environment:
   sdk: ^3.11.5

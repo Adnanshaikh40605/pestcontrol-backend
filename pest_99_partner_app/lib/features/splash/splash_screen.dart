@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -28,41 +30,65 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _boot() async {
-    final appUpdate = context.read<AppUpdateProvider>();
-    await appUpdate.checkForUpdate();
-    if (!mounted) return;
+    try {
+      final appUpdate = context.read<AppUpdateProvider>();
+      await appUpdate.checkForUpdate();
+      if (!mounted) return;
 
-    if (!mounted) return;
-    if (appUpdate.forceUpdateRequired) {
-      context.go('/force-update');
-      return;
-    }
-
-    final auth = context.read<AuthProvider>();
-    if (!auth.ready) await auth.init();
-    if (!mounted) return;
-    if (auth.loggedIn) {
-      try {
-        final data = await ProfileService(context.read<ApiClient>()).getProfile();
-        await auth.refreshApprovalFromProfile(data);
-        await PushNotificationService.instance.ensureTokenSyncedWithBackend();
-        if (mounted) {
-          await context.read<ProfileProvider>().loadProfile(force: true);
-          await context.read<NotificationsProvider>().load(force: true);
-        }
-      } catch (_) {
-        /* offline or expired */
+      if (appUpdate.forceUpdateRequired) {
+        context.go('/force-update');
+        return;
       }
+
+      final auth = context.read<AuthProvider>();
+      await auth.init();
+      if (!mounted) return;
+
+      _navigateForSession(auth);
+      unawaited(_warmSessionInBackground(auth));
+    } catch (e, stack) {
+      debugPrint('[Splash] boot error: $e\n$stack');
+      if (!mounted) return;
+      final auth = context.read<AuthProvider>();
+      if (!auth.ready) await auth.init();
+      if (!mounted) return;
+      _navigateForSession(auth);
     }
-    if (!mounted) return;
+  }
+
+  void _navigateForSession(AuthProvider auth) {
     if (!auth.loggedIn) {
       context.go('/login');
-    } else if (!auth.appApproved) {
-      context.go('/pending-approval');
-    } else {
-      context.go('/bookings');
-      PushNotificationService.instance.processPendingNavigation();
+      return;
     }
+    if (!auth.appApproved) {
+      context.go('/pending-approval');
+      return;
+    }
+    context.go('/bookings');
+    PushNotificationService.instance.processPendingNavigation();
+  }
+
+  Future<void> _warmSessionInBackground(AuthProvider auth) async {
+    if (!auth.loggedIn) return;
+
+    await auth.warmSessionAfterLogin();
+    if (!mounted) return;
+
+    try {
+      final data = await ProfileService(context.read<ApiClient>())
+          .getProfile()
+          .timeout(const Duration(seconds: 12));
+      await auth.refreshApprovalFromProfile(data);
+    } catch (_) {
+      /* offline or expired — router/auth redirect will handle */
+    }
+
+    if (!mounted) return;
+    if (!auth.loggedIn || !auth.appApproved) return;
+
+    unawaited(context.read<ProfileProvider>().loadProfile(force: true));
+    unawaited(context.read<NotificationsProvider>().load(force: true));
   }
 
   @override

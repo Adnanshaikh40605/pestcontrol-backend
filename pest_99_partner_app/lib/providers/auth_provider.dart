@@ -42,15 +42,33 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> init() async {
-    _loggedIn = await _auth.hasSession();
-    _appApproved = _loggedIn ? await _auth.isAppApproved() : false;
-    if (_loggedIn) {
+  Future<void>? _initFuture;
+
+  /// Fast session restore only — no network/FCM on the splash critical path.
+  Future<void> init() {
+    return _initFuture ??= _initImpl();
+  }
+
+  Future<void> _initImpl() async {
+    if (_ready) return;
+    try {
+      _loggedIn = await _auth.hasSession();
+      _appApproved = _loggedIn ? await _auth.isAppApproved() : false;
+    } finally {
+      _ready = true;
+      notifyListeners();
+    }
+  }
+
+  /// Runs after navigation to home — must not block splash/login.
+  Future<void> warmSessionAfterLogin() async {
+    if (!_loggedIn) return;
+    try {
       await PushNotificationService.instance.ensureTokenSyncedWithBackend();
       PushNotificationService.instance.processPendingNavigation();
+    } catch (e) {
+      debugPrint('[Auth] warmSession FCM sync: $e');
     }
-    _ready = true;
-    notifyListeners();
   }
 
   void clearSessionMessage() {

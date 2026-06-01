@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../core/models/app_version_info.dart';
 import '../services/app_version_service.dart';
+
+const _versionCheckTimeout = Duration(seconds: 8);
 
 enum AppUpdateCheckStatus {
   idle,
@@ -34,7 +38,9 @@ class AppUpdateProvider extends ChangeNotifier {
     }
 
     try {
-      final result = await _service.fetchVersionPolicy();
+      final result = await _service
+          .fetchVersionPolicy()
+          .timeout(_versionCheckTimeout);
       currentVersion = result.currentVersion;
       serverInfo = result.server;
 
@@ -46,6 +52,10 @@ class AppUpdateProvider extends ChangeNotifier {
       status = blocked
           ? AppUpdateCheckStatus.forceUpdateRequired
           : AppUpdateCheckStatus.upToDate;
+    } on TimeoutException {
+      debugPrint('[AppUpdate] version check timed out');
+      checkError = 'Version check timed out';
+      status = AppUpdateCheckStatus.checkFailed;
     } catch (e) {
       debugPrint('[AppUpdate] version check failed: $e');
       checkError = e.toString();

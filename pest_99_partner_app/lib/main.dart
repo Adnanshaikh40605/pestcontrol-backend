@@ -50,7 +50,7 @@ Future<void> _startApp() async {
   );
 
   final appUpdate = AppUpdateProvider(AppVersionService(api));
-  final auth = AuthProvider(AuthService(api), sessionCoordinator)..init();
+  final auth = AuthProvider(AuthService(api), sessionCoordinator);
 
   final appRouter = AppRouter(auth, appUpdate);
   _routerHolder.router = appRouter.router;
