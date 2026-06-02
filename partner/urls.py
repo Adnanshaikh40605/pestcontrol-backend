@@ -29,6 +29,7 @@ urlpatterns = [
 
     # ──────────────── PROFILE ──────────────
     path('profile/', apis.ProfileAPIView.as_view(), name='profile'),
+    path('account/', apis.DeleteAccountAPIView.as_view(), name='account-delete'),
     path('earnings/', apis.EarningsHistoryAPIView.as_view(), name='earnings'),
     path('ratings/', apis.RatingsAPIView.as_view(), name='ratings'),
     path('refer-client/', apis.ReferClientAPIView.as_view(), name='refer-client'),

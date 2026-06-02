@@ -6,7 +6,9 @@ import '../../core/theme/app_spacing.dart';
 import '../../providers/auth_provider.dart';
 import '../../shared/widgets/app_text_field.dart';
 import '../../shared/widgets/pest_logo.dart';
+import '../../config/legal_config.dart';
 import '../../shared/widgets/primary_button.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -19,6 +21,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _name = TextEditingController();
   final _mobile = TextEditingController();
   final _password = TextEditingController();
+  bool _acceptedTerms = false;
 
   @override
   void dispose() {
@@ -28,7 +31,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  Future<void> _openLegal(String url) async {
+    final uri = Uri.parse(url);
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
   Future<void> _submit() async {
+    if (!_acceptedTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please accept the Privacy Policy and Terms to register.')),
+      );
+      return;
+    }
     final auth = context.read<AuthProvider>();
     final ok = await auth.register(
       fullName: _name.text.trim(),
@@ -93,6 +107,39 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       hint: 'Create a strong password',
                       obscureText: true,
                       controller: _password,
+                    ),
+                    const SizedBox(height: 16),
+                    CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: _acceptedTerms,
+                      onChanged: (v) => setState(() => _acceptedTerms = v ?? false),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Wrap(
+                        children: [
+                          const Text('I agree to the '),
+                          GestureDetector(
+                            onTap: () => _openLegal(LegalConfig.privacyPolicy),
+                            child: Text(
+                              'Privacy Policy',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const Text(' and '),
+                          GestureDetector(
+                            onTap: () => _openLegal(LegalConfig.termsAndConditions),
+                            child: Text(
+                              'Terms & Conditions',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),

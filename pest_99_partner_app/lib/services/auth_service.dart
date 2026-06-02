@@ -75,4 +75,15 @@ class AuthService {
   }
 
   Future<bool> hasSession() => _api.hasSession();
+
+  Future<void> deleteAccount({required String password}) async {
+    await _api.delete(
+      ApiConfig.deleteAccount,
+      body: {
+        'password': password,
+        'confirm': true,
+      },
+    );
+    await logout();
+  }
 }

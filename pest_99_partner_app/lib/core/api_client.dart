@@ -93,6 +93,19 @@ class ApiClient {
     );
   }
 
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    Map<String, dynamic>? body,
+    bool auth = true,
+  }) async {
+    return _request(
+      (options) => _dio.delete(path, data: body, options: options),
+      path: path,
+      method: 'DELETE',
+      auth: auth,
+    );
+  }
+
   Future<Map<String, dynamic>> post(
     String path, {
     Map<String, dynamic>? body,

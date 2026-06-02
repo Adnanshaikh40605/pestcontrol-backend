@@ -21,11 +21,13 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExampl
 from drf_spectacular.types import OpenApiTypes
 
 from .models import Partner, PartnerEarning, PartnerRating
+from .account_deletion import PartnerAccountDeletionError, permanently_delete_partner_account
 from .serializers import (
     PartnerSerializer,
     PartnerRegisterSerializer,
     PartnerLoginSerializer,
     PartnerRefreshSerializer,
+    PartnerDeleteAccountSerializer,
     PartnerFCMSerializer,
     PartnerUpdateSerializer,
     PartnerBookingListSerializer,
@@ -807,6 +809,56 @@ class ProfileAPIView(PartnerAPIView):
             "message": "Profile updated successfully.",
             "partner": PartnerSerializer(request.partner, context=ctx).data,
         })
+
+
+class DeleteAccountAPIView(PartnerAPIView):
+    """
+    DELETE /api/partner/account/
+    Permanently delete the authenticated partner's app account (Google Play requirement).
+    """
+
+    permission_classes = [IsPartnerAuthenticated]
+
+    @extend_schema(
+        tags=['Profile'],
+        summary='Permanently delete my partner account',
+        description=(
+            'Requires current password and confirm=true. Anonymizes profile data, '
+            'removes FCM tokens, and deactivates login. Completed job records are retained.'
+        ),
+        request=PartnerDeleteAccountSerializer,
+        responses={200: {'type': 'object', 'properties': {'message': {'type': 'string'}}}},
+    )
+    def delete(self, request):
+        serializer = PartnerDeleteAccountSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        partner = request.partner
+        password = serializer.validated_data['password']
+        if not partner.check_password(password):
+            return Response(
+                {'errors': {'password': ['Incorrect password.']}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            permanently_delete_partner_account(partner)
+        except PartnerAccountDeletionError as exc:
+            return Response(
+                {'error': exc.message, 'code': exc.code},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                'message': (
+                    'Your Pest 99 Partner account has been permanently deleted. '
+                    'You can close the app.'
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class EarningsHistoryAPIView(PartnerAPIView):

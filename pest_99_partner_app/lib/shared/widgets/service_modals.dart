@@ -87,7 +87,8 @@ class _SelfieVerificationSheetState extends State<_SelfieVerificationSheet> {
           Text('Verify Identity', style: Theme.of(context).textTheme.headlineMedium),
           const SizedBox(height: 8),
           Text(
-            'Take a quick selfie to start the service visit.',
+            'Take a quick selfie to start the service visit. '
+            'Camera access is used only for profile and job verification photos.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
           ),

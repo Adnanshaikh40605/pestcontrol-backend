@@ -145,6 +145,30 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> deleteAccount(String password) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      await _auth.deleteAccount(password: password);
+      _loggedIn = false;
+      _appApproved = false;
+      _partnerName = null;
+      _ready = true;
+      _initFuture = null;
+      return true;
+    } on ApiException catch (e) {
+      _error = e.message;
+      return false;
+    } catch (_) {
+      _error = 'Could not delete account. Check your connection and try again.';
+      return false;
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> logout() async {
     await PushNotificationService.instance.removeTokenFromBackend();
     await _auth.logout();

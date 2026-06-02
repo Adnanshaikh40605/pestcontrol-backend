@@ -9,6 +9,7 @@ import '../../providers/notifications_provider.dart';
 import '../../services/push_notification_service.dart';
 import '../../core/constants/app_assets.dart';
 import '../../shared/widgets/app_text_field.dart';
+import '../../shared/widgets/legal_footer_links.dart';
 import '../../shared/widgets/primary_button.dart';
 import '../../shared/widgets/stitch_illustration.dart';
 
@@ -116,7 +117,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 onPressed: () => context.push('/register'),
                 child: const Text('Create partner account'),
               ),
-              const SizedBox(height: 32),
+              const LegalFooterLinks(),
+              const SizedBox(height: 24),
             ],
           ),
         ),

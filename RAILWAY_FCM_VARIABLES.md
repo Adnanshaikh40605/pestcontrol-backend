@@ -1,7 +1,10 @@
 # Railway — Partner app FCM (Firebase)
 
 Project: **pest-99-partner-app**  
-Android package: **com.example.pest_99_partner_app**
+Android package (Play / app): **com.multipestcare.partner**
+
+**Important:** Railway does **not** use `google-services.json`. That file is only inside the Flutter app.  
+Railway uses the **Firebase Admin service account** JSON (server-side) below.
 
 ## Variables to add on `pestcontrol-backend`
 

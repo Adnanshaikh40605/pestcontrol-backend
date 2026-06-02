@@ -17,6 +17,7 @@ class ApiConfig {
   static String get removeFcmToken => '$partnerPrefix/remove-fcm-token/';
   static String get pushHealth => '$partnerPrefix/push-health/';
   static String get profile => '$partnerPrefix/profile/';
+  static String get deleteAccount => '$partnerPrefix/account/';
   static String get bookingCounts => '$partnerPrefix/bookings/counts/';
   static String get availableBookings => '$partnerPrefix/bookings/available/';
   static String get acceptedBookings => '$partnerPrefix/bookings/accepted/';

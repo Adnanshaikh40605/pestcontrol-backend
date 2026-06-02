@@ -23,6 +23,20 @@ class PartnerSerializer(serializers.ModelSerializer):
         return data
 
 
+class PartnerDeleteAccountSerializer(serializers.Serializer):
+    """Confirm identity before permanent account deletion."""
+
+    password = serializers.CharField(write_only=True, min_length=1, trim_whitespace=False)
+    confirm = serializers.BooleanField()
+
+    def validate_confirm(self, value):
+        if value is not True:
+            raise serializers.ValidationError(
+                'You must confirm that you want to permanently delete your account.'
+            )
+        return value
+
+
 class PartnerRegisterSerializer(serializers.Serializer):
     """Serializer for partner registration."""
     full_name = serializers.CharField(max_length=255)

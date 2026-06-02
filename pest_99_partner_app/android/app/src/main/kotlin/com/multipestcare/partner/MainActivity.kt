@@ -1,4 +1,4 @@
-package com.example.pest_99_partner_app
+package com.multipestcare.partner
 
 import io.flutter.embedding.android.FlutterActivity
 

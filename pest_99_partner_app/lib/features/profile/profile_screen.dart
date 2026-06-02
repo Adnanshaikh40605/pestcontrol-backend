@@ -8,6 +8,8 @@ import '../../providers/auth_provider.dart';
 import '../../providers/bookings_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../shared/widgets/app_top_bar.dart';
+import '../../shared/widgets/legal_support_card.dart';
+import 'delete_account_dialog.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -69,8 +71,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     completed: completed,
                   ),
                   const SizedBox(height: AppSpacing.sectionGap),
+                  const LegalSupportCard(),
+                  const SizedBox(height: AppSpacing.sectionGap),
                   _MenuList(
                     onEditProfile: () => context.push('/profile/edit'),
+                    onDeleteAccount: () => _deleteAccount(context),
                     onLogout: () async {
                       context.read<ProfileProvider>().clear();
                       await context.read<AuthProvider>().logout();
@@ -81,6 +86,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
     );
+  }
+
+  Future<void> _deleteAccount(BuildContext context) async {
+    final password = await showDeleteAccountDialog(context);
+    if (password == null || !context.mounted) return;
+
+    final auth = context.read<AuthProvider>();
+    final ok = await auth.deleteAccount(password);
+    if (!context.mounted) return;
+
+    if (ok) {
+      context.read<ProfileProvider>().clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Your account has been permanently deleted.')),
+      );
+      context.go('/login');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(auth.error ?? 'Account deletion failed')),
+      );
+    }
   }
 }
 
@@ -239,10 +265,12 @@ class _StatsGrid extends StatelessWidget {
 class _MenuList extends StatelessWidget {
   const _MenuList({
     required this.onEditProfile,
+    required this.onDeleteAccount,
     required this.onLogout,
   });
 
   final VoidCallback onEditProfile;
+  final VoidCallback onDeleteAccount;
   final VoidCallback onLogout;
 
   @override
@@ -273,6 +301,18 @@ class _MenuList extends StatelessWidget {
             ),
             if (i < items.length - 1) const Divider(height: 1, indent: 16, endIndent: 16),
           ],
+          ListTile(
+            leading: const Icon(Icons.delete_forever_outlined, color: AppColors.danger),
+            title: Text(
+              'Delete Account',
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: AppColors.danger,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            onTap: onDeleteAccount,
+          ),
+          const Divider(height: 1, indent: 16, endIndent: 16),
           ListTile(
             leading: const Icon(Icons.logout, color: AppColors.danger),
             title: Text(

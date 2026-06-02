@@ -1,4 +1,4 @@
-﻿import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
+import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
 
@@ -20,7 +20,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyBg0cUpE0FgpbNXAGhICeQM5zZ09NpmRko',
-    appId: '1:1081130965061:android:7b27fabd53de34fd8cab2c',
+    appId: '1:1081130965061:android:94a59a605aa2bfa28cab2c',
     messagingSenderId: '1081130965061',
     projectId: 'pest-99-partner-app',
     storageBucket: 'pest-99-partner-app.firebasestorage.app',
