@@ -49,3 +49,5 @@ app.*.map.json
 *.aab
 *firebase-adminsdk*.json
 android/key.properties
+android/PLAY_SIGNING_README.txt
+android/upload-keystore.jks
