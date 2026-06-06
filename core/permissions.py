@@ -45,6 +45,19 @@ class IsBlogCMSUser(BasePermission):
         return can_access_blog_cms(request.user)
 
 
+class IsPricingAdmin(BasePermission):
+    """Super Admin and Admin may create/update pricing; staff read-only via CRM."""
+    message = 'Only administrators can modify pricing.'
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if is_blog_user(request.user):
+            return False
+        role = get_user_role(request.user)
+        return role in (ROLE_SUPER_ADMIN, ROLE_ADMIN)
+
+
 class IsRemarkAdmin(BasePermission):
     """Admin/super_admin may edit or delete remarks; staff may only create."""
     message = 'Permission denied'

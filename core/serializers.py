@@ -109,6 +109,39 @@ class TechnicianSerializer(serializers.ModelSerializer):
             'id', 'client__full_name', 'service_type'
         ))
 
+    def validate_mobile(self, value):
+        import re
+
+        cleaned = re.sub(r'[\s\-\(\)]', '', (value or '').strip())
+        if not re.match(r'^\d{10}$', cleaned):
+            raise serializers.ValidationError('Mobile number must be exactly 10 digits.')
+
+        qs = Technician.objects.filter(mobile=cleaned)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        existing = qs.first()
+        if existing:
+            status = 'Active' if existing.is_active else 'Inactive'
+            raise serializers.ValidationError(
+                f'Technician with this Mobile Number already exists: '
+                f'{existing.name} (ID {existing.id}, {status}). '
+                f'Search "{cleaned}" on the Technicians page to view or edit.'
+            )
+        return cleaned
+
+    def validate_alternative_mobile(self, value):
+        if not value:
+            return value
+        import re
+
+        cleaned = re.sub(r'[\s\-\(\)]', '', str(value).strip())
+        if cleaned and not re.match(r'^\d{10}$', cleaned):
+            raise serializers.ValidationError('Alternative mobile must be exactly 10 digits.')
+        return cleaned or None
+
+    def validate_name(self, value):
+        return (value or '').strip()
+
 
 def _resolve_latest_remark(obj, attr_name: str = '_latest_remarks'):
     cached = getattr(obj, attr_name, None)
@@ -194,6 +227,7 @@ class InquirySerializer(serializers.ModelSerializer):
             service_frequency=obj.service_frequency,
             premise_size=obj.premise_size,
             location=obj.city,
+            service_city=obj.city,
             remark=remark_text,
             estimated_price=obj.estimated_price,
         )
@@ -511,10 +545,12 @@ class CRMInquirySerializer(serializers.ModelSerializer):
     def get_service_rate_info(self, obj):
         latest = _resolve_latest_remark(obj)
         remark_text = (latest.remark if latest else None) or obj.remark
+        service_city = obj.master_city.name if obj.master_city_id else obj.location
         return compute_service_rate_info(
             pest_type=obj.pest_type,
             service_frequency=obj.service_frequency,
             location=obj.location,
+            service_city=service_city,
             remark=remark_text,
         )
 

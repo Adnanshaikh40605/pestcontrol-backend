@@ -1,0 +1,116 @@
+from django.test import TestCase
+
+from core.pricing import build_pricing_config_payload, get_pricing_data, pricing_region_for_city
+from core.pricing.lonavala import LONAVALA_PRICING
+from core.pricing.mumbai import MUMBAI_PRICING
+from core.service_rates import compute_service_rate_info
+
+
+class PricingRegionTests(TestCase):
+    def test_mumbai_default_region(self):
+        self.assertEqual(pricing_region_for_city('Mumbai'), 'mumbai')
+        self.assertEqual(pricing_region_for_city('Pune'), 'mumbai')
+        self.assertEqual(pricing_region_for_city(None), 'mumbai')
+
+    def test_lonavala_region(self):
+        self.assertEqual(pricing_region_for_city('Lonavala'), 'lonavala')
+        self.assertEqual(pricing_region_for_city(' lonavala '), 'lonavala')
+
+
+class LonavalaRateCardTests(TestCase):
+    def test_general_pest_2_bhk_one_time(self):
+        rates = LONAVALA_PRICING['Cockroach / Ants']['One Time Service']
+        self.assertEqual(rates['2 BHK'], 1500)
+
+    def test_general_pest_villa_amc(self):
+        rates = LONAVALA_PRICING['Cockroach / Ants']['AMC 3 Services']
+        self.assertEqual(rates['2,001-4,000 Sq.Ft.'], 10000)
+
+    def test_bed_bug_3_bhk(self):
+        self.assertEqual(LONAVALA_PRICING['Bed Bugs']['One Time Service']['3 BHK'], 5000)
+
+    def test_termite_5_bhk(self):
+        self.assertEqual(LONAVALA_PRICING['Termite']['One Time Service']['5 BHK'], 7500)
+
+    def test_mosquito_fogging(self):
+        rates = LONAVALA_PRICING['Mosquito']['One Time Service']
+        self.assertEqual(rates['5,001-10,000 Sq.Ft.'], 4000)
+
+    def test_rodent_sqft(self):
+        rates = LONAVALA_PRICING['Rodent']['One Time Service']
+        self.assertEqual(rates['15,001-20,000 Sq.Ft.'], 12000)
+
+
+class MumbaiRatesUnchangedTests(TestCase):
+    def test_mumbai_cockroach_2_bhk(self):
+        rates = get_pricing_data('Mumbai')['Cockroach / Ants']['One Time Service']
+        self.assertEqual(rates['2 BHK'], 1500)
+
+    def test_mumbai_rodent_windows(self):
+        rates = get_pricing_data('Mumbai')['Rodent']['One Time Service']
+        self.assertEqual(rates['Windows'], 1000)
+        self.assertEqual(rates['Society Area'], 0)
+
+    def test_mumbai_data_matches_legacy_module(self):
+        self.assertEqual(get_pricing_data('Mumbai'), MUMBAI_PRICING)
+
+
+class ServiceRateInfoTests(TestCase):
+    def test_lonavala_rate_inquiry_breakdown(self):
+        info = compute_service_rate_info(
+            pest_type='Cockroach / Ants',
+            service_frequency='one-time',
+            premise_size='3 BHK',
+            service_city='Lonavala',
+        )
+        self.assertEqual(info['total'], 1800)
+        self.assertEqual(info['items'][0]['rate'], 1800)
+
+    def test_mumbai_rate_unchanged(self):
+        info = compute_service_rate_info(
+            pest_type='Cockroach / Ants',
+            service_frequency='one-time',
+            premise_size='3 BHK',
+            service_city='Mumbai',
+        )
+        self.assertEqual(info['total'], 1800)
+
+    def test_pricing_config_payload_lonavala(self):
+        payload = build_pricing_config_payload('Lonavala')
+        self.assertEqual(payload['region'], 'lonavala')
+        self.assertIn('6 BHK', payload['residential_locations'])
+        self.assertIn('Up to 1,000 Sq.Ft.', payload['villa_locations'])
+
+
+class PricingMasterDbTests(TestCase):
+    def test_seeded_mumbai_matches_legacy(self):
+        from core.models import PricingRate, PricingRegion
+
+        mumbai = PricingRegion.objects.get(slug='mumbai')
+        rate = PricingRate.objects.get(
+            region=mumbai,
+            service_package='Cockroach / Ants',
+            plan_type='One Time Service',
+            area_key='2 BHK',
+        )
+        self.assertEqual(int(rate.amount), 1500)
+
+    def test_seeded_lonavala_bed_bugs(self):
+        from core.models import PricingRate, PricingRegion
+
+        lonavala = PricingRegion.objects.get(slug='lonavala')
+        rate = PricingRate.objects.get(
+            region=lonavala,
+            service_package='Bed Bugs',
+            plan_type='One Time Service',
+            area_key='3 BHK',
+        )
+        self.assertEqual(int(rate.amount), 5000)
+
+    def test_db_source_in_config(self):
+        payload = build_pricing_config_payload('Mumbai')
+        self.assertEqual(payload.get('source'), 'database')
+        self.assertEqual(
+            payload['pricing']['Cockroach / Ants']['One Time Service']['2 BHK'],
+            1500,
+        )

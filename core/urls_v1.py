@@ -36,6 +36,12 @@ from .theme_views import UserThemeView
 from .media_views import MediaFileView
 from partner.crm_referral_views import PartnerReferralViewSet
 from .app_version_views import PartnerAppVersionCRMAPIView
+from .pricing_views import PricingConfigAPIView
+from .pricing_master_views import (
+    PricingRateAuditLogViewSet,
+    PricingRateViewSet,
+    PricingRegionViewSet,
+)
 
 # Create router for v1 API
 router = DefaultRouter()
@@ -58,6 +64,9 @@ router.register(r'cities', CityViewSet, basename='city')
 router.register(r'locations', LocationViewSet, basename='location')
 router.register(r'quotations', QuotationViewSet, basename='quotation')
 router.register(r'partner-referrals', PartnerReferralViewSet, basename='partner-referral')
+router.register(r'pricing-regions', PricingRegionViewSet, basename='pricing-region')
+router.register(r'pricing-rates', PricingRateViewSet, basename='pricing-rate')
+router.register(r'pricing-audit-logs', PricingRateAuditLogViewSet, basename='pricing-audit-log')
 
 urlpatterns = [
     path(
@@ -83,6 +92,7 @@ urlpatterns = [
     path('users/theme/', UserThemeView.as_view(), name='user-theme'),
     path('media-file/', MediaFileView.as_view(), name='media-file'),
     path('partner-app-version/', PartnerAppVersionCRMAPIView.as_view(), name='partner-app-version'),
+    path('pricing-config/', PricingConfigAPIView.as_view(), name='pricing-config'),
     path('health/', health_check, name='health_check'),
     path('global-search/', GlobalSearchView.as_view(), name='global_search'),
     path('customer-history/<int:client_id>/', CustomerHistoryView.as_view(), name='customer_history'),

@@ -402,7 +402,7 @@ class TechnicianViewSet(BaseModelViewSet):
     @action(detail=False, methods=['get'])
     def active(self, request):
         """Helper action to get only active technicians for assignment dropdowns."""
-        active_techs = self.get_queryset().filter(is_active=True)
+        active_techs = self.get_queryset().filter(is_active=True).order_by('name')
         serializer = self.get_serializer(active_techs, many=True)
         return response.Response(serializer.data)
 

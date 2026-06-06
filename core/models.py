@@ -1633,3 +1633,118 @@ class UserPreference(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.user.username} — {self.theme}"
+
+
+class PricingPropertyCategory(models.TextChoices):
+    RESIDENTIAL = 'residential', 'Residential (BHK/RK)'
+    VILLA = 'villa', 'Villa / Bungalow (Sq.Ft.)'
+    FOGGING = 'fogging', 'Fogging (Sq.Ft.)'
+    RODENT = 'rodent', 'Rodent / Reptile'
+    COMMERCIAL = 'commercial', 'Commercial'
+
+
+class PricingRegion(BaseModel):
+    """City/region pricing bucket — Mumbai default for unmapped cities."""
+    slug = models.SlugField(max_length=50, unique=True, db_index=True)
+    name = models.CharField(max_length=100)
+    city = models.ForeignKey(
+        City,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pricing_regions',
+    )
+    is_default = models.BooleanField(default=False, db_index=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Pricing Region'
+        verbose_name_plural = 'Pricing Regions'
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if self.is_default:
+            PricingRegion.objects.filter(is_default=True).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)
+
+
+class PricingRate(BaseModel):
+    """Active service rate used by CRM booking/quotation calculators."""
+    region = models.ForeignKey(
+        PricingRegion,
+        on_delete=models.CASCADE,
+        related_name='rates',
+    )
+    service_package = models.CharField(max_length=100, db_index=True)
+    plan_type = models.CharField(max_length=50, db_index=True)
+    area_key = models.CharField(max_length=100, db_index=True)
+    property_category = models.CharField(
+        max_length=20,
+        choices=PricingPropertyCategory.choices,
+        default=PricingPropertyCategory.RESIDENTIAL,
+        db_index=True,
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    is_active = models.BooleanField(default=True, db_index=True)
+    notes = models.TextField(blank=True)
+    updated_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pricing_rate_updates',
+    )
+
+    class Meta:
+        ordering = ['region', 'service_package', 'plan_type', 'area_key']
+        unique_together = ('region', 'service_package', 'plan_type', 'area_key')
+        verbose_name = 'Pricing Rate'
+        verbose_name_plural = 'Pricing Rates'
+
+    def __str__(self) -> str:
+        return f"{self.region.slug} / {self.service_package} / {self.area_key} = {self.amount}"
+
+
+class PricingRateAuditAction(models.TextChoices):
+    CREATE = 'create', 'Create'
+    UPDATE = 'update', 'Update'
+    ACTIVATE = 'activate', 'Activate'
+    DEACTIVATE = 'deactivate', 'Deactivate'
+    DELETE = 'delete', 'Delete'
+
+
+class PricingRateAuditLog(BaseModel):
+    rate = models.ForeignKey(
+        PricingRate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs',
+    )
+    region_slug = models.CharField(max_length=50, db_index=True)
+    service_package = models.CharField(max_length=100)
+    plan_type = models.CharField(max_length=50)
+    area_key = models.CharField(max_length=100)
+    property_category = models.CharField(max_length=20, blank=True)
+    old_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    new_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    action = models.CharField(max_length=20, choices=PricingRateAuditAction.choices, db_index=True)
+    changed_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pricing_audit_entries',
+    )
+    change_note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Pricing Rate Audit Log'
+        verbose_name_plural = 'Pricing Rate Audit Logs'
+
+    def __str__(self) -> str:
+        return f"{self.action} {self.service_package} ({self.region_slug})"

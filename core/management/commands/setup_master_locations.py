@@ -59,7 +59,13 @@ class Command(BaseCommand):
                 'Ambernath', 'Titwala', 'Bhiwandi', 'Dombivali East', 'Diva East', 'Ulhasnagar', 
                 'Thane', 'Karjat', 'Mumbra', 'Kalwa West', 'Diva West', 'Thakurli', 'Dombivali West', 
                 'Kalyan', 'Dombivali', 'Shahad', 'Badlapur West', 'Badlapur East', 'padgha', 'Khopoli'
-            ]
+            ],
+            'Lonavala': [
+                'Lonavala', 'Khandala', 'Khopoli', 'Karjat', 'Talegaon', 'Pawna', 'Tungarli',
+                'Valvan', 'Bhushi Dam', 'Diksal', 'Varsoli', 'Kurvande', 'Ryewood Park',
+                'Kaivalyadhama', 'Lonavala Station', 'Khandala Station', 'Rajmachi', 'Malavli',
+                'Wadgaon', 'Shirgaon',
+            ],
         }
 
         for city_name, locations in data.items():

@@ -1,4 +1,4 @@
-"""Service rate helpers — aligned with CRM Create Booking PRICING_DATA."""
+"""Service rate helpers — city-aware pricing aligned with CRM Create Booking."""
 
 from __future__ import annotations
 
@@ -6,63 +6,11 @@ import re
 from decimal import Decimal
 from typing import Any
 
-# Mirrors pest crm/src/constants/pricing.ts (Create Booking)
-PRICING_DATA: dict[str, dict[str, dict[str, int]]] = {
-    'Cockroach / Ants': {
-        'AMC 3 Services': {
-            '1 RK': 1800,
-            '1 BHK': 2200,
-            '2 BHK': 2500,
-            '3 BHK': 3000,
-            '4 BHK': 3500,
-        },
-        'One Time Service': {
-            '1 RK': 1000,
-            '1 BHK': 1200,
-            '2 BHK': 1500,
-            '3 BHK': 1800,
-            '4 BHK': 2000,
-        },
-    },
-    'Bed Bugs': {
-        'One Time Service': {
-            '1 RK': 2000,
-            '1 BHK': 2500,
-            '2 BHK': 3000,
-            '3 BHK': 3500,
-            '4 BHK': 4000,
-        },
-    },
-    'Termite': {
-        'One Time Service': {
-            '1 RK': 2000,
-            '1 BHK': 2500,
-            '2 BHK': 3000,
-            '3 BHK': 3500,
-            '4 BHK': 4000,
-        },
-    },
-    'Rodent': {
-        'One Time Service': {
-            'Windows': 1000,
-            'Society Area': 0,
-        },
-    },
-    'Mosquito': {
-        'One Time Service': {
-            '1 RK': 800,
-            '1 BHK': 1000,
-            '2 BHK': 1500,
-            '3 BHK': 1800,
-            '4 BHK': 2000,
-        },
-    },
-    'Hotel / Commercial': {
-        'One Time Service': {
-            'Commercial Space': 0,
-        },
-    },
-}
+from core.pricing import get_pricing_data
+from core.pricing.mumbai import MUMBAI_PRICING
+
+# Backward-compatible default (Mumbai)
+PRICING_DATA = MUMBAI_PRICING
 
 # Map free-text pests to pricing packages (same as Create Booking checkboxes)
 PEST_TO_PACKAGE: list[tuple[str, str]] = [
@@ -88,7 +36,31 @@ BHK_ALIASES = {
     '3bhk': '3 BHK',
     '4 bhk': '4 BHK',
     '4bhk': '4 BHK',
+    '5 bhk': '5 BHK',
+    '5bhk': '5 BHK',
+    '6 bhk': '6 BHK',
+    '6bhk': '6 BHK',
+    '7 bhk': '7 BHK',
+    '7bhk': '7 BHK',
+    '8 bhk': '8 BHK',
+    '8bhk': '8 BHK',
+    '9 bhk': '9 BHK',
+    '9bhk': '9 BHK',
+    '10 bhk': '10 BHK',
+    '10bhk': '10 BHK',
 }
+
+SQFT_AREA_KEYS = [
+    'Up to 1,000 Sq.Ft.',
+    '1,001-2,000 Sq.Ft.',
+    '2,001-4,000 Sq.Ft.',
+    '2,001-5,000 Sq.Ft.',
+    '4,001-6,000 Sq.Ft.',
+    '5,001-10,000 Sq.Ft.',
+    '6,001-10,000 Sq.Ft.',
+    '10,001-15,000 Sq.Ft.',
+    '15,001-20,000 Sq.Ft.',
+]
 
 
 def _plan_label(service_frequency: str | None) -> str:
@@ -107,10 +79,13 @@ def _normalize_bhk(premise_size: str | None, *extra_sources: str | None) -> str 
     for raw in (premise_size, *extra_sources):
         if not raw:
             continue
-        text = raw.strip().lower()
+        stripped = raw.strip()
+        if stripped in SQFT_AREA_KEYS:
+            return stripped
+        text = stripped.lower()
         if text in BHK_ALIASES:
             return BHK_ALIASES[text]
-        match = re.search(r'(\d)\s*bhk', text, re.I)
+        match = re.search(r'(\d{1,2})\s*bhk', text, re.I)
         if match:
             key = f"{match.group(1)} bhk"
             return BHK_ALIASES.get(key, f"{match.group(1)} BHK")
@@ -136,7 +111,7 @@ def _match_packages(pest_type: str | None, pest_problems: str | None) -> list[st
     combined = f"{pest_type or ''} {pest_problems or ''}".lower()
     combined_slash = re.sub(r'\s*,\s*', ' / ', combined)
     # Exact combined package names from Create Booking
-    for pkg in PRICING_DATA:
+    for pkg in get_pricing_data():
         key = pkg.lower()
         if key in combined or key in combined_slash:
             return [pkg]
@@ -167,8 +142,14 @@ def _default_bhk_for_package(package: str) -> str | None:
     return '2 BHK'
 
 
-def _package_rate(package: str, plan_key: str, area_key: str | None) -> int | None:
-    service = PRICING_DATA.get(package)
+def _package_rate(
+    package: str,
+    plan_key: str,
+    area_key: str | None,
+    pricing_table: dict[str, dict[str, dict[str, int]]] | None = None,
+) -> int | None:
+    table = pricing_table or PRICING_DATA
+    service = table.get(package)
     if not service:
         return None
     type_data = service.get(plan_key)
@@ -191,6 +172,7 @@ def compute_service_rate_info(
     service_frequency: str | None = None,
     premise_size: str | None = None,
     location: str | None = None,
+    service_city: str | None = None,
     remark: str | None = None,
     estimated_price: Decimal | int | float | None = None,
 ) -> dict[str, Any]:
@@ -200,6 +182,8 @@ def compute_service_rate_info(
     """
     plan_key = _plan_label(service_frequency)
     plan_display = _display_plan(service_frequency)
+    city_for_pricing = service_city or location
+    pricing_table = get_pricing_data(city_for_pricing)
     area_key = _normalize_bhk(
         premise_size, location, pest_type, pest_problems, remark,
     )
@@ -219,7 +203,7 @@ def compute_service_rate_info(
             used_estimate_bhk = True
 
     for package in packages:
-        rate = _package_rate(package, plan_key, effective_area)
+        rate = _package_rate(package, plan_key, effective_area, pricing_table)
         if rate is None:
             notes.append(f'{package}: rate N/A for {effective_area or "size"}')
             continue
