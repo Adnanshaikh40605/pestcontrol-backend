@@ -1,8 +1,7 @@
 from decimal import Decimal
 
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import decorators, filters, permissions, response, status, viewsets
-from rest_framework.permissions import SAFE_METHODS
+from rest_framework import filters, response, status, viewsets
 
 from .models import (
     PricingRate,
@@ -10,7 +9,7 @@ from .models import (
     PricingRateAuditLog,
     PricingRegion,
 )
-from .permissions import IsCRMOperationalUser, IsPricingAdmin
+from .permissions import IsPricingAdmin
 from .pricing_master_serializers import (
     PricingRateAuditLogSerializer,
     PricingRateSerializer,
@@ -48,7 +47,7 @@ def _log_pricing_change(
 class PricingRegionViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PricingRegion.objects.filter(is_active=True).select_related('city')
     serializer_class = PricingRegionSerializer
-    permission_classes = [IsCRMOperationalUser]
+    permission_classes = [IsPricingAdmin]
     pagination_class = LargePagination
     search_fields = ['name', 'slug']
     filterset_fields = ['is_default', 'city']
@@ -66,10 +65,7 @@ class PricingRateViewSet(viewsets.ModelViewSet):
     ordering_fields = ['service_package', 'plan_type', 'area_key', 'amount', 'updated_at', 'created_at']
     ordering = ['region__name', 'service_package', 'plan_type', 'area_key']
 
-    def get_permissions(self):
-        if self.request.method in SAFE_METHODS:
-            return [IsCRMOperationalUser()]
-        return [IsPricingAdmin()]
+    permission_classes = [IsPricingAdmin]
 
     def perform_create(self, serializer):
         rate = serializer.save(updated_by=self.request.user)

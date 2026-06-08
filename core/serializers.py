@@ -319,6 +319,14 @@ class JobCardSerializer(serializers.ModelSerializer):
     job_start_selfie_url = serializers.SerializerMethodField()
     sent_to_app = serializers.SerializerMethodField()
 
+    # Free-text area label — not limited to legacy BHKSize choices (Lonavala sq.ft. slabs, 5+ BHK).
+    bhk_size = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+    )
+
     class Meta:
         model = JobCard
         fields = [
@@ -371,6 +379,25 @@ class JobCardSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """Custom validation for JobCard creation with client data."""
+        empty_to_null = (
+            'bhk_size', 'property_type', 'contract_duration', 'payment_mode',
+            'reminder_date', 'reminder_time', 'reminder_note', 'next_service_date',
+            'assigned_to', 'notes', 'extra_notes', 'cancellation_reason', 'removal_remarks',
+        )
+        for field in empty_to_null:
+            if field in data and data[field] == '':
+                data[field] = None
+
+        if data.get('technician') == '':
+            data['technician'] = None
+
+        if 'service_category' in data:
+            sc = str(data['service_category'] or '').strip()
+            if sc in ('One Time Service', 'AMC 3 Services') or sc.startswith('AMC'):
+                data['service_category'] = JobCard.ServiceCategory.AMC
+            elif sc and sc != JobCard.ServiceCategory.AMC:
+                data['service_category'] = JobCard.ServiceCategory.ONE_TIME
+
         # Check if this is a creation (no instance yet)
         is_create = self.instance is None
         

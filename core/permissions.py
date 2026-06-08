@@ -46,8 +46,8 @@ class IsBlogCMSUser(BasePermission):
 
 
 class IsPricingAdmin(BasePermission):
-    """Super Admin and Admin may create/update pricing; staff read-only via CRM."""
-    message = 'Only administrators can modify pricing.'
+    """Super Admin and Admin only — staff/technicians use pricing-config for bookings."""
+    message = 'Only Admin users can access Pricing Master.'
 
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:

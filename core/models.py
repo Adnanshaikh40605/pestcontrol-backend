@@ -603,12 +603,12 @@ class JobCard(BaseModel):
         verbose_name="Property Type"
     )
     bhk_size = models.CharField(
-        max_length=20,
-        choices=BHKSize.choices,
+        max_length=100,
         blank=True,
         null=True,
         db_index=True,
-        verbose_name="BHK Size"
+        verbose_name="BHK / Area Size",
+        help_text="Property size label (BHK, sq.ft. slab, commercial, etc.)",
     )
     contract_duration = models.CharField(
         max_length=2,
