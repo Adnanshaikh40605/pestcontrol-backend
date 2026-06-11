@@ -1721,6 +1721,11 @@ class JobCardViewSet(BaseModelViewSet):
     def filter_queryset(self, queryset):
         # Apply default filters first
         qs = super().filter_queryset(queryset)
+
+        # Explicit schedule_datetime sort from CRM (Booking Date & Time column)
+        ordering = self.request.query_params.get('ordering', '').strip()
+        if ordering in ('schedule_datetime', '-schedule_datetime'):
+            return qs.order_by(ordering)
         
         # 1. Handle Sorting Priority for Pending + On Process + Done
         # We do this here so it overrides any 'ordering' parameter from the URL
