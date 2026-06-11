@@ -31,8 +31,10 @@ from .serializers import (
     QuotationSerializer, QuotationItemSerializer, QuotationHistorySerializer
 )
 from django.contrib.auth.models import User
-from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField
+from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField, Exists, OuterRef
 from django.db.models.functions import Cast, Coalesce
+from .jobcard_schedule import order_queryset_by_schedule_datetime
+from .inquiry_filters import InquiryListCountsMixin
 from .services import ClientService, InquiryService, JobCardService, RenewalService, DashboardService, TechnicianService, CRMInquiryService
 from .permissions import IsSuperAdmin, IsCRMOperationalUser
 
@@ -583,7 +585,7 @@ class TechnicianViewSet(BaseModelViewSet):
         tags=['CRM Inquiry']
     )
 )
-class CRMInquiryViewSet(BaseModelViewSet):
+class CRMInquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
     """
     ViewSet for managing staff-created manual inquiries.
     Supports status transitions and conversion to live bookings.
@@ -591,10 +593,12 @@ class CRMInquiryViewSet(BaseModelViewSet):
     queryset = CRMInquiry.objects.all()
     serializer_class = CRMInquirySerializer
     search_fields = ['id', 'name', 'mobile', 'email', 'pest_type', 'location']
-    filterset_fields = ['status', 'pest_type', 'inquiry_date']
-    
+    filterset_fields = ['status', 'pest_type']
+    date_filter_field = 'inquiry_date'
+    search_fields_list = ('name', 'mobile', 'email', 'location', 'pest_type')
+
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = CRMInquiry.objects.all()
         qs = qs.annotate(remark_count=Count('remarks', distinct=True))
         qs = qs.prefetch_related(
             Prefetch(
@@ -603,23 +607,17 @@ class CRMInquiryViewSet(BaseModelViewSet):
                 to_attr='_latest_remarks',
             )
         )
-        focus = self.request.query_params.get('focus')
-        if focus and str(focus).isdigit():
-            return qs.filter(pk=int(focus))
+        self.queryset = qs
+        return super().get_queryset()
 
-        q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
-        if q:
-            q_filters = (
-                Q(name__icontains=q) |
-                Q(mobile__icontains=q) |
-                Q(email__icontains=q) |
-                Q(location__icontains=q) |
-                Q(pest_type__icontains=q)
-            )
-            if str(q).isdigit():
-                q_filters |= Q(pk=int(q))
-            qs = qs.filter(q_filters)
+    @staticmethod
+    def _apply_pest_type_filter(qs, request):
+        pest_type = request.query_params.get('pest_type', '').strip()
+        if pest_type:
+            qs = qs.filter(pest_type=pest_type)
         return qs
+
+    extra_list_filters = _apply_pest_type_filter
 
     def perform_create(self, serializer):
         """Automatically set the creator of the inquiry."""
@@ -1098,7 +1096,7 @@ class ClientViewSet(BaseModelViewSet):
         tags=['Inquiries']
     )
 )
-class InquiryViewSet(BaseModelViewSet):
+class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
     """
     API endpoint that allows inquiries to be viewed, created, updated, or deleted.
     
@@ -1129,9 +1127,11 @@ class InquiryViewSet(BaseModelViewSet):
     search_fields = ['id', 'name', 'mobile', 'email', 'service_interest']
     ordering_fields = ['created_at', 'updated_at', 'name', 'status', 'city']
     ordering = ['-created_at']  # Default: latest inquiries first
+    date_filter_field = 'created_at'
+    search_fields_list = ('name', 'mobile', 'email', 'service_interest', 'city', 'state')
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = Inquiry.objects.all()
         qs = qs.annotate(remark_count=Count('remarks', distinct=True))
         qs = qs.prefetch_related(
             Prefetch(
@@ -1140,24 +1140,8 @@ class InquiryViewSet(BaseModelViewSet):
                 to_attr='_latest_remarks',
             )
         )
-        focus = self.request.query_params.get('focus')
-        if focus and str(focus).isdigit():
-            return qs.filter(pk=int(focus))
-
-        q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
-        if q:
-            q_filters = (
-                Q(name__icontains=q) |
-                Q(mobile__icontains=q) |
-                Q(email__icontains=q) |
-                Q(service_interest__icontains=q) |
-                Q(city__icontains=q) |
-                Q(state__icontains=q)
-            )
-            if str(q).isdigit():
-                q_filters |= Q(pk=int(q))
-            qs = qs.filter(q_filters)
-        return qs
+        self.queryset = qs
+        return super().get_queryset()
 
     def get_permissions(self):
         """Allow unauthenticated public creation of inquiries."""
@@ -1722,10 +1706,14 @@ class JobCardViewSet(BaseModelViewSet):
         # Apply default filters first
         qs = super().filter_queryset(queryset)
 
-        # Explicit schedule_datetime sort from CRM (Booking Date & Time column)
+        # Explicit schedule_datetime sort from CRM (Booking Date & Time column).
+        # Sort on combined date + time_slot (not formatted display text).
         ordering = self.request.query_params.get('ordering', '').strip()
         if ordering in ('schedule_datetime', '-schedule_datetime'):
-            return qs.order_by(ordering)
+            return order_queryset_by_schedule_datetime(
+                qs,
+                ascending=ordering == 'schedule_datetime',
+            )
         
         # 1. Handle Sorting Priority for Pending + On Process + Done
         # We do this here so it overrides any 'ordering' parameter from the URL
@@ -1805,12 +1793,17 @@ class JobCardViewSet(BaseModelViewSet):
         elif booking_type == 'upcoming_renewals':
             today = timezone.now().date()
             tomorrow = today + timezone.timedelta(days=1)
-            qs = qs.filter(renewals__status='Due', renewals__due_date__in=[today, tomorrow]).distinct()
+            renewal_match = Renewal.objects.filter(
+                jobcard_id=OuterRef('pk'),
+                status=Renewal.RenewalStatus.DUE,
+                due_date__in=[today, tomorrow],
+            )
+            qs = qs.filter(Exists(renewal_match))
         elif booking_type == 'upcoming_services':
             qs = qs.filter(
                 status=JobCard.JobStatus.UPCOMING,
                 booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES,
-            ).order_by('next_service_date', 'schedule_datetime')
+            )
         elif booking_type == 'cancelled':
             qs = qs.filter(status=JobCard.JobStatus.CANCELLED)
         elif booking_type == 'reminders':
@@ -1843,10 +1836,15 @@ class JobCardViewSet(BaseModelViewSet):
                 if date_to:
                     qs = qs.filter(reminder_date__lte=date_to)
             elif booking_type == 'upcoming_renewals':
+                renewal_filter = Q(status=Renewal.RenewalStatus.DUE)
                 if date_from:
-                    qs = qs.filter(renewals__due_date__gte=date_from)
+                    renewal_filter &= Q(due_date__gte=date_from)
                 if date_to:
-                    qs = qs.filter(renewals__due_date__lte=date_to)
+                    renewal_filter &= Q(due_date__lte=date_to)
+                renewal_match = Renewal.objects.filter(
+                    jobcard_id=OuterRef('pk'),
+                ).filter(renewal_filter)
+                qs = qs.filter(Exists(renewal_match))
             elif booking_type == 'upcoming_services':
                 if date_from:
                     qs = qs.filter(
@@ -1868,9 +1866,8 @@ class JobCardViewSet(BaseModelViewSet):
             tomorrow = today + timezone.timedelta(days=1)
             qs = qs.filter(reminder_date__in=[today, tomorrow])
 
-        final_qs = qs.distinct()
-        logger.info(f"JobCard list returning {final_qs.count()} records for booking_type: {booking_type}")
-        return final_qs
+        logger.info(f"JobCard list returning {qs.count()} records for booking_type: {booking_type}")
+        return qs
     
     def list(self, request, *args, **kwargs):
         """List job cards with enhanced error handling."""

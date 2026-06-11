@@ -491,6 +491,19 @@ class JobCardSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({
                         'removal_remarks': 'Remarks must be at least 4 characters.'
                     })
+
+        schedule_datetime = data.get('schedule_datetime')
+        if schedule_datetime is None and self.instance:
+            schedule_datetime = self.instance.schedule_datetime
+        time_slot = data.get('time_slot')
+        if time_slot is None and self.instance:
+            time_slot = self.instance.time_slot
+        if schedule_datetime:
+            from .jobcard_schedule import effective_schedule_datetime
+            data['schedule_datetime'] = effective_schedule_datetime(
+                schedule_datetime,
+                time_slot,
+            )
         
         return data
 

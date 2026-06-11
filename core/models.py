@@ -1043,6 +1043,13 @@ class JobCard(BaseModel):
         if creating and self.booking_category in self.UPCOMING_SERVICE_CATEGORIES:
             if self.status == self.JobStatus.PENDING:
                 self.status = self.JobStatus.UPCOMING
+
+        if self.schedule_datetime:
+            from .jobcard_schedule import effective_schedule_datetime
+            self.schedule_datetime = effective_schedule_datetime(
+                self.schedule_datetime,
+                self.time_slot,
+            )
                 
         super().save(*args, **kwargs)
 
