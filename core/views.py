@@ -3617,11 +3617,21 @@ class ReminderViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
         log_activity(self.request.user, "Created Reminder", details=f"Customer: {serializer.validated_data.get('customer_name')}")
 
+    def perform_destroy(self, instance):
+        from .reminder_sync import mark_source_inquiry_reminder_done
+
+        mark_source_inquiry_reminder_done(instance)
+        log_activity(self.request.user, "Deleted Reminder", details=f"Customer: {instance.customer_name}")
+        instance.delete()
+
     @decorators.action(detail=True, methods=['post'])
     def mark_complete(self, request, pk=None):
+        from .reminder_sync import mark_source_inquiry_reminder_done
+
         reminder = self.get_object()
         reminder.status = Reminder.ReminderStatus.COMPLETED
-        reminder.save()
+        reminder.save(update_fields=['status', 'updated_at'])
+        mark_source_inquiry_reminder_done(reminder)
         log_activity(request.user, "Completed Reminder", details=f"Customer: {reminder.customer_name}")
         return response.Response({'status': 'Reminder marked as completed'})
 
