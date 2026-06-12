@@ -33,7 +33,11 @@ DISPLAY_TO_ROLE['Blog User'] = ROLE_BLOG_USER
 def get_user_profile(user):
     if not user or not getattr(user, 'is_authenticated', False):
         return None
-    return getattr(user, 'crm_profile', None)
+    try:
+        return user.crm_profile
+    except Exception:
+        # OneToOne reverse accessor raises DoesNotExist (not AttributeError).
+        return None
 
 
 def get_user_role(user) -> str | None:

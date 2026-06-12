@@ -86,34 +86,70 @@ class JobCardScheduleSortingAPITest(APITestCase):
         self.assertEqual(asc_ids, [j.id for j in created])
         self.assertEqual(desc_ids, list(reversed(asc_ids)))
 
-    def test_api_pending_tab_sorts_chronologically(self):
+    def test_api_pending_tab_sorts_chronologically_by_default(self):
+        created = []
         for _, day, slot in self.samples:
-            self._create_booking(day, slot)
+            created.append(self._create_booking(day, slot))
 
-        asc_response = self.api_client.get(
+        response = self.api_client.get(
             '/api/v1/jobcards/',
             {
                 'booking_type': 'pending',
-                'ordering': 'schedule_datetime',
                 'page_size': 20,
             },
         )
-        self.assertEqual(asc_response.status_code, status.HTTP_200_OK)
-        asc_ids = [row['id'] for row in asc_response.data['results']]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_ids = [row['id'] for row in response.data['results']]
+        self.assertEqual(result_ids, [job.id for job in created])
 
-        desc_response = self.api_client.get(
-            '/api/v1/jobcards/',
-            {
-                'booking_type': 'pending',
-                'ordering': '-schedule_datetime',
-                'page_size': 20,
-            },
-        )
-        self.assertEqual(desc_response.status_code, status.HTTP_200_OK)
-        desc_ids = [row['id'] for row in desc_response.data['results']]
+    def test_api_booking_tabs_ignore_manual_desc_ordering(self):
+        created = []
+        for _, day, slot in self.samples:
+            created.append(self._create_booking(day, slot))
 
-        self.assertEqual(len(asc_ids), 6)
-        self.assertEqual(desc_ids, list(reversed(asc_ids)))
+        for booking_type in (
+            'pending',
+            'on_process',
+            'done',
+            'upcoming_services',
+            'complaint_calls',
+            'cancelled',
+        ):
+            JobCard.objects.filter(id__in=[job.id for job in created]).update(
+                status={
+                    'pending': JobCard.JobStatus.PENDING,
+                    'on_process': JobCard.JobStatus.ON_PROCESS,
+                    'done': JobCard.JobStatus.DONE,
+                    'upcoming_services': JobCard.JobStatus.UPCOMING,
+                    'complaint_calls': JobCard.JobStatus.PENDING,
+                    'cancelled': JobCard.JobStatus.CANCELLED,
+                }[booking_type],
+                booking_category=(
+                    JobCard.BookingCategory.COMPLAINT_CALL
+                    if booking_type == 'complaint_calls'
+                    else JobCard.BookingCategory.NORMAL_BOOKING
+                ),
+            )
+            if booking_type == 'upcoming_services':
+                JobCard.objects.filter(id__in=[job.id for job in created]).update(
+                    booking_category=JobCard.BookingCategory.AMC_FOLLOWUP,
+                )
+
+            response = self.api_client.get(
+                '/api/v1/jobcards/',
+                {
+                    'booking_type': booking_type,
+                    'ordering': '-schedule_datetime',
+                    'page_size': 20,
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            result_ids = [row['id'] for row in response.data['results']]
+            self.assertEqual(
+                result_ids,
+                [job.id for job in created],
+                msg=f'{booking_type} should always sort nearest schedule first',
+            )
 
     def test_api_sorting_stable_with_pagination(self):
         """Default API page size is 10 — verify sort order is consistent across pages."""
@@ -131,11 +167,11 @@ class JobCardScheduleSortingAPITest(APITestCase):
 
         page1 = self.api_client.get(
             '/api/v1/jobcards/',
-            {'booking_type': 'pending', 'ordering': 'schedule_datetime', 'page': 1},
+            {'booking_type': 'pending', 'page': 1},
         )
         page2 = self.api_client.get(
             '/api/v1/jobcards/',
-            {'booking_type': 'pending', 'ordering': 'schedule_datetime', 'page': 2},
+            {'booking_type': 'pending', 'page': 2},
         )
         self.assertEqual(page1.status_code, status.HTTP_200_OK)
         self.assertEqual(page2.status_code, status.HTTP_200_OK)

@@ -68,16 +68,20 @@ def _postgres_sort_schedule_sql(table_name: str) -> str:
                     WHEN (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})')) IS NULL
                         THEN TIME '00:00'
                     ELSE make_time(
-                        CASE
-                            WHEN UPPER({table_name}.time_slot) LIKE '%%PM%%'
-                                AND (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})'))[1]::int BETWEEN 1 AND 11
-                                THEN (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})'))[1]::int + 12
-                            WHEN UPPER({table_name}.time_slot) LIKE '%%AM%%'
-                                AND (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})'))[1]::int = 12
-                                THEN 0
-                            ELSE (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})'))[1]::int
-                        END,
-                        (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})'))[2]::int,
+                        LEAST(GREATEST(
+                            CASE
+                                WHEN UPPER({table_name}.time_slot) LIKE '%%PM%%'
+                                    AND (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})'))[1]::int BETWEEN 1 AND 11
+                                    THEN (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})'))[1]::int + 12
+                                WHEN UPPER({table_name}.time_slot) LIKE '%%AM%%'
+                                    AND (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})'))[1]::int = 12
+                                    THEN 0
+                                ELSE (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})'))[1]::int
+                            END,
+                        0), 23),
+                        LEAST(GREATEST(
+                            (regexp_match({table_name}.time_slot, '(\\d{{1,2}}):(\\d{{2}})'))[2]::int,
+                        0), 59),
                         0
                     )
                 END

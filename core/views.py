@@ -1702,41 +1702,36 @@ class JobCardViewSet(BaseModelViewSet):
     ]
     ordering = ['-created_at']  # Default: latest job cards first
 
+    # CRM booking tabs: always sort by combined schedule date + time (nearest first).
+    BOOKING_TAB_TYPES = frozenset({
+        'pending',
+        'on_process',
+        'done',
+        'upcoming_renewals',
+        'upcoming_services',
+        'complaint_calls',
+        'cancelled',
+    })
+
     def filter_queryset(self, queryset):
-        # Apply default filters first
         qs = super().filter_queryset(queryset)
 
-        # Explicit schedule_datetime sort from CRM (Booking Date & Time column).
-        # Sort on combined date + time_slot (not formatted display text).
-        ordering = self.request.query_params.get('ordering', '').strip()
-        if ordering in ('schedule_datetime', '-schedule_datetime'):
-            return order_queryset_by_schedule_datetime(
-                qs,
-                ascending=ordering == 'schedule_datetime',
-            )
-        
-        # 1. Handle Sorting Priority for Pending + On Process + Done
-        # We do this here so it overrides any 'ordering' parameter from the URL
+        if self.action != 'list':
+            return qs
+
         booking_type = self.request.query_params.get('booking_type', '').lower()
-        if booking_type in ['pending', 'on_process', 'done']:
-            # Use Asia/Kolkata for comparison
-            tz = pytz.timezone('Asia/Kolkata')
-            now_local = timezone.now().astimezone(tz)
-            today_date = now_local.date()
-            tomorrow_date = today_date + timezone.timedelta(days=1)
-            
-            # Use booking_priority to match serializer
-            qs = qs.annotate(
-                booking_priority=Case(
-                    When(schedule_datetime__date=today_date, then=Value(1)),
-                    When(schedule_datetime__date=tomorrow_date, then=Value(2)),
-                    When(schedule_datetime__date__gt=tomorrow_date, then=Value(3)),
-                    When(schedule_datetime__date__lt=today_date, then=Value(4)),
-                    default=Value(5),
-                    output_field=IntegerField(),
-                ),
-            ).order_by('booking_priority', '-schedule_datetime')
-        
+        if booking_type in self.BOOKING_TAB_TYPES:
+            # Ignore manual ordering params; nearest upcoming appointment first.
+            try:
+                return order_queryset_by_schedule_datetime(qs, ascending=True)
+            except Exception as exc:
+                logger.exception(
+                    'Schedule datetime sort failed for booking_type=%s: %s',
+                    booking_type,
+                    exc,
+                )
+                return qs.order_by('schedule_datetime', 'id')
+
         return qs
 
     def perform_update(self, serializer):

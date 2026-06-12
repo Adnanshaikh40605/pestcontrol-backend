@@ -51,7 +51,12 @@ class BlogUserAPIRestrictionMiddleware:
                 except Exception:
                     pass
 
-            if user and user.is_authenticated and is_blog_user(user):
+            try:
+                blog_user = is_blog_user(user)
+            except Exception:
+                blog_user = False
+
+            if user and user.is_authenticated and blog_user:
                 if not _path_allowed_for_blog_user(request.path):
                     logger.warning(
                         'Blog user %s blocked from %s %s',
