@@ -1,5 +1,5 @@
 """Tests for JobCard booking date/time sorting."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 from django.contrib.auth.models import User
@@ -50,62 +50,82 @@ class JobCardScheduleSortingAPITest(APITestCase):
             city='Lonavala',
         )
 
-        self.samples = [
-            ('13/10/2025 12:15 PM', datetime(2025, 10, 13), '12:15 PM'),
-            ('21/11/2025 12:30 PM', datetime(2025, 11, 21), '12:30 PM'),
-            ('23/11/2025 02:00 PM', datetime(2025, 11, 23), '02:00 PM'),
-            ('15/06/2026 01:00 PM', datetime(2026, 6, 15), '01:00 PM'),
-            ('17/06/2026 10:00 AM', datetime(2026, 6, 17), '10:00 AM'),
-            ('21/06/2026 12:00 PM', datetime(2026, 6, 21), '12:00 PM'),
-        ]
+        self.today = timezone.now().astimezone(IST).date()
+        self.tomorrow = self.today + timedelta(days=1)
+        self.future = self.today + timedelta(days=5)
+        self.past = self.today - timedelta(days=120)
 
-    def _create_booking(self, day: datetime, time_slot: str) -> JobCard:
+    def _create_booking(self, day, time_slot: str, **kwargs) -> JobCard:
         naive_midnight = IST.localize(datetime(day.year, day.month, day.day, 0, 0, 0))
         return JobCard.objects.create(
             client=self.customer,
             service_type='General Pest Control',
-            status=JobCard.JobStatus.PENDING,
+            status=kwargs.pop('status', JobCard.JobStatus.PENDING),
             schedule_datetime=naive_midnight.astimezone(timezone.utc),
             time_slot=time_slot,
+            **kwargs,
         )
 
-    def test_queryset_order_ascending_and_descending(self):
-        created = [self._create_booking(day, slot) for _, day, slot in self.samples]
-        asc_ids = list(
+    def test_queryset_prioritizes_today_before_past_and_future(self):
+        past_job = self._create_booking(self.past, '10:00 AM')
+        today_morning = self._create_booking(self.today, '10:00 AM')
+        today_evening = self._create_booking(self.today, '08:30 PM')
+        tomorrow_job = self._create_booking(self.tomorrow, '12:00 PM')
+        future_job = self._create_booking(self.future, '01:00 PM')
+
+        ordered_ids = list(
             order_queryset_by_schedule_datetime(
-                JobCard.objects.filter(id__in=[j.id for j in created]),
+                JobCard.objects.filter(
+                    id__in=[
+                        past_job.id,
+                        today_morning.id,
+                        today_evening.id,
+                        tomorrow_job.id,
+                        future_job.id,
+                    ]
+                ),
                 ascending=True,
             ).values_list('id', flat=True)
         )
-        desc_ids = list(
-            order_queryset_by_schedule_datetime(
-                JobCard.objects.filter(id__in=[j.id for j in created]),
-                ascending=False,
-            ).values_list('id', flat=True)
-        )
-        self.assertEqual(asc_ids, [j.id for j in created])
-        self.assertEqual(desc_ids, list(reversed(asc_ids)))
 
-    def test_api_pending_tab_sorts_chronologically_by_default(self):
-        created = []
-        for _, day, slot in self.samples:
-            created.append(self._create_booking(day, slot))
+        self.assertEqual(
+            ordered_ids,
+            [today_morning.id, today_evening.id, tomorrow_job.id, future_job.id, past_job.id],
+        )
+
+    def test_api_pending_tab_puts_today_on_page_one_before_past(self):
+        past_job = self._create_booking(self.past, '12:15 PM')
+        today_job = self._create_booking(self.today, '08:30 PM')
+        tomorrow_job = self._create_booking(self.tomorrow, '12:00 PM')
+        future_job = self._create_booking(self.future, '01:00 PM')
 
         response = self.api_client.get(
             '/api/v1/jobcards/',
             {
                 'booking_type': 'pending',
-                'page_size': 20,
+                'page_size': 3,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         result_ids = [row['id'] for row in response.data['results']]
-        self.assertEqual(result_ids, [job.id for job in created])
+        self.assertEqual(result_ids, [today_job.id, tomorrow_job.id, future_job.id])
+        self.assertNotIn(past_job.id, result_ids)
+
+        page2 = self.api_client.get(
+            '/api/v1/jobcards/',
+            {'booking_type': 'pending', 'page': 2, 'page_size': 3},
+        )
+        self.assertEqual(page2.status_code, status.HTTP_200_OK)
+        self.assertEqual(page2.data['results'][0]['id'], past_job.id)
 
     def test_api_booking_tabs_ignore_manual_desc_ordering(self):
-        created = []
-        for _, day, slot in self.samples:
-            created.append(self._create_booking(day, slot))
+        jobs = [
+            self._create_booking(self.past, '10:00 AM'),
+            self._create_booking(self.today, '02:00 PM'),
+            self._create_booking(self.tomorrow, '09:00 AM'),
+            self._create_booking(self.future, '11:00 AM'),
+        ]
+        expected_order = [jobs[1].id, jobs[2].id, jobs[3].id, jobs[0].id]
 
         for booking_type in (
             'pending',
@@ -115,7 +135,7 @@ class JobCardScheduleSortingAPITest(APITestCase):
             'complaint_calls',
             'cancelled',
         ):
-            JobCard.objects.filter(id__in=[job.id for job in created]).update(
+            JobCard.objects.filter(id__in=[job.id for job in jobs]).update(
                 status={
                     'pending': JobCard.JobStatus.PENDING,
                     'on_process': JobCard.JobStatus.ON_PROCESS,
@@ -131,7 +151,7 @@ class JobCardScheduleSortingAPITest(APITestCase):
                 ),
             )
             if booking_type == 'upcoming_services':
-                JobCard.objects.filter(id__in=[job.id for job in created]).update(
+                JobCard.objects.filter(id__in=[job.id for job in jobs]).update(
                     booking_category=JobCard.BookingCategory.AMC_FOLLOWUP,
                 )
 
@@ -147,23 +167,23 @@ class JobCardScheduleSortingAPITest(APITestCase):
             result_ids = [row['id'] for row in response.data['results']]
             self.assertEqual(
                 result_ids,
-                [job.id for job in created],
-                msg=f'{booking_type} should always sort nearest schedule first',
+                expected_order,
+                msg=f'{booking_type} should always sort today → tomorrow → future → past',
             )
 
     def test_api_sorting_stable_with_pagination(self):
-        """Default API page size is 10 — verify sort order is consistent across pages."""
-        extra_days = [
-            datetime(2026, 6, 22),
-            datetime(2026, 6, 23),
-            datetime(2026, 6, 24),
-            datetime(2026, 6, 25),
-            datetime(2026, 6, 26),
-        ]
-        for _, day, slot in self.samples:
-            self._create_booking(day, slot)
-        for day in extra_days:
-            self._create_booking(day, '09:00 AM')
+        """Page 1 must contain today/tomorrow before overdue past bookings."""
+        self._create_booking(self.past, '09:00 AM')
+        self._create_booking(self.past - timedelta(days=30), '09:00 AM')
+        self._create_booking(self.past - timedelta(days=60), '09:00 AM')
+        self._create_booking(self.past - timedelta(days=90), '09:00 AM')
+        self._create_booking(self.past - timedelta(days=120), '09:00 AM')
+        self._create_booking(self.past - timedelta(days=150), '09:00 AM')
+        self._create_booking(self.past - timedelta(days=180), '09:00 AM')
+        today_job = self._create_booking(self.today, '08:30 PM')
+        tomorrow_job = self._create_booking(self.tomorrow, '12:00 PM')
+        for offset in range(1, 5):
+            self._create_booking(self.future + timedelta(days=offset), '09:00 AM')
 
         page1 = self.api_client.get(
             '/api/v1/jobcards/',
@@ -176,7 +196,7 @@ class JobCardScheduleSortingAPITest(APITestCase):
         self.assertEqual(page1.status_code, status.HTTP_200_OK)
         self.assertEqual(page2.status_code, status.HTTP_200_OK)
         self.assertEqual(len(page1.data['results']), 10)
-        self.assertEqual(len(page2.data['results']), 1)
-        page1_times = [row['schedule_datetime'] for row in page1.data['results']]
-        self.assertEqual(page1_times, sorted(page1_times))
-        self.assertGreater(page2.data['results'][0]['schedule_datetime'], page1_times[-1])
+        page1_ids = [row['id'] for row in page1.data['results']]
+        self.assertEqual(page1_ids[0], today_job.id)
+        self.assertEqual(page1_ids[1], tomorrow_job.id)
+        self.assertGreater(len(page2.data['results']), 0)

@@ -33,7 +33,10 @@ from .serializers import (
 from django.contrib.auth.models import User
 from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField, Exists, OuterRef
 from django.db.models.functions import Cast, Coalesce
-from .jobcard_schedule import order_queryset_by_schedule_datetime
+from .jobcard_schedule import (
+    order_queryset_by_reminder_date,
+    order_queryset_by_schedule_datetime,
+)
 from .inquiry_filters import InquiryListCountsMixin
 from .services import ClientService, InquiryService, JobCardService, RenewalService, DashboardService, TechnicianService, CRMInquiryService
 from .permissions import IsSuperAdmin, IsCRMOperationalUser
@@ -1718,7 +1721,7 @@ class JobCardViewSet(BaseModelViewSet):
     ]
     ordering = ['-created_at']  # Default: latest job cards first
 
-    # CRM booking tabs: always sort by combined schedule date + time (nearest first).
+    # CRM booking tabs: today → tomorrow → future → overdue, then time within each day.
     BOOKING_TAB_TYPES = frozenset({
         'pending',
         'on_process',
@@ -1727,28 +1730,43 @@ class JobCardViewSet(BaseModelViewSet):
         'upcoming_services',
         'complaint_calls',
         'cancelled',
+        'reminders',
     })
 
     def filter_queryset(self, queryset):
-        qs = super().filter_queryset(queryset)
-
         if self.action != 'list':
-            return qs
+            return super().filter_queryset(queryset)
 
         booking_type = self.request.query_params.get('booking_type', '').lower()
-        if booking_type in self.BOOKING_TAB_TYPES:
-            # Ignore manual ordering params; nearest upcoming appointment first.
-            try:
-                return order_queryset_by_schedule_datetime(qs, ascending=True)
-            except Exception as exc:
-                logger.exception(
-                    'Schedule datetime sort failed for booking_type=%s: %s',
-                    booking_type,
-                    exc,
-                )
-                return qs.order_by('schedule_datetime', 'id')
+        if booking_type not in self.BOOKING_TAB_TYPES:
+            return super().filter_queryset(queryset)
 
-        return qs
+        # Skip OrderingFilter (-created_at default) so tab sort is applied before pagination.
+        backends = [
+            backend
+            for backend in self.filter_backends
+            if backend is not filters.OrderingFilter
+        ]
+        original_backends = self.filter_backends
+        self.filter_backends = backends
+        try:
+            qs = super().filter_queryset(queryset)
+        finally:
+            self.filter_backends = original_backends
+
+        try:
+            if booking_type == 'reminders':
+                return order_queryset_by_reminder_date(qs, ascending=True)
+            return order_queryset_by_schedule_datetime(qs, ascending=True)
+        except Exception as exc:
+            logger.exception(
+                'Schedule sort failed for booking_type=%s: %s',
+                booking_type,
+                exc,
+            )
+            if booking_type == 'reminders':
+                return qs.order_by('reminder_date', 'reminder_time', 'id')
+            return qs.order_by('schedule_datetime', 'id')
 
     def perform_update(self, serializer):
         # Get old status to compare
@@ -3597,6 +3615,24 @@ class ReminderViewSet(viewsets.ModelViewSet):
     search_fields = ['customer_name', 'mobile_number', 'note']
     ordering_fields = ['reminder_date', 'reminder_time', 'created_at']
     ordering = ['reminder_date', 'reminder_time']
+
+    def filter_queryset(self, queryset):
+        if self.action != 'list':
+            return super().filter_queryset(queryset)
+
+        backends = [
+            backend
+            for backend in self.filter_backends
+            if backend is not filters.OrderingFilter
+        ]
+        original_backends = self.filter_backends
+        self.filter_backends = backends
+        try:
+            qs = super().filter_queryset(queryset)
+        finally:
+            self.filter_backends = original_backends
+
+        return order_queryset_by_reminder_date(qs, ascending=True)
 
     def perform_create(self, serializer):
         inquiry_type = serializer.validated_data.get('inquiry_type')

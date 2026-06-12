@@ -4,12 +4,13 @@ Helpers for combining JobCard schedule date + time_slot into a single sortable d
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 from django.db import connection
-from django.db.models import DateTimeField, F
+from django.db.models import Case, DateTimeField, F, IntegerField, Value, When
 from django.db.models.expressions import RawSQL
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 IST = pytz.timezone('Asia/Kolkata')
@@ -111,10 +112,73 @@ def annotate_sort_schedule_datetime(queryset, *, table_name: str | None = None):
     return queryset.annotate(sort_schedule_datetime=F('schedule_datetime'))
 
 
+def _ist_today_and_tomorrow() -> tuple:
+    today = timezone.now().astimezone(IST).date()
+    return today, today + timedelta(days=1)
+
+
+def _annotate_date_priority(queryset, date_field: str):
+    """Tier: 0=today, 1=tomorrow, 2=future, 3=past, 4=null."""
+    today, tomorrow = _ist_today_and_tomorrow()
+    return queryset.annotate(
+        sort_priority=Case(
+            When(**{f'{date_field}__isnull': True}, then=Value(4)),
+            When(**{date_field: today}, then=Value(0)),
+            When(**{date_field: tomorrow}, then=Value(1)),
+            When(**{f'{date_field}__gt': tomorrow}, then=Value(2)),
+            default=Value(3),
+            output_field=IntegerField(),
+        )
+    )
+
+
+def order_queryset_by_reminder_date(queryset, *, ascending: bool = True):
+    """Sort reminders: today, tomorrow, future, then overdue; time ascending within a day."""
+    queryset = _annotate_date_priority(queryset, 'reminder_date')
+    if ascending:
+        return queryset.order_by(
+            'sort_priority',
+            F('reminder_date').asc(nulls_last=True),
+            F('reminder_time').asc(nulls_last=True),
+            'id',
+        )
+    return queryset.order_by(
+        'sort_priority',
+        F('reminder_date').desc(nulls_last=True),
+        F('reminder_time').desc(nulls_last=True),
+        '-id',
+    )
+
+
 def order_queryset_by_schedule_datetime(queryset, *, ascending: bool = True):
-    """Apply stable ascending/descending schedule sort using the annotated field."""
+    """
+    Sort bookings: today, tomorrow, future, then overdue past dates.
+    Within each tier, order by combined schedule date + time_slot ascending.
+    """
     queryset = annotate_sort_schedule_datetime(queryset)
+    today, tomorrow = _ist_today_and_tomorrow()
+    queryset = queryset.annotate(
+        schedule_ist_date=TruncDate('sort_schedule_datetime', tzinfo=IST),
+    )
+    queryset = queryset.annotate(
+        sort_priority=Case(
+            When(sort_schedule_datetime__isnull=True, then=Value(4)),
+            When(schedule_ist_date=today, then=Value(0)),
+            When(schedule_ist_date=tomorrow, then=Value(1)),
+            When(schedule_ist_date__gt=tomorrow, then=Value(2)),
+            default=Value(3),
+            output_field=IntegerField(),
+        )
+    )
     sort_field = F('sort_schedule_datetime')
     if ascending:
-        return queryset.order_by(sort_field.asc(nulls_last=True), 'id')
-    return queryset.order_by(sort_field.desc(nulls_last=True), '-id')
+        return queryset.order_by(
+            'sort_priority',
+            sort_field.asc(nulls_last=True),
+            'id',
+        )
+    return queryset.order_by(
+        'sort_priority',
+        sort_field.desc(nulls_last=True),
+        '-id',
+    )
