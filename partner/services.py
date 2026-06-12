@@ -277,10 +277,10 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
     else:
         raise PartnerBookingError('Payment mode must be Cash or Online.', code='invalid_payment')
 
+    from core.services import JobCardService
+
     job.partner_status = JobCard.PartnerStatus.COMPLETED
     job.status = JobCard.JobStatus.DONE
-    job.payment_mode = normalized
-    job.payment_status = JobCard.PaymentStatus.PAID
     job.completed_at = timezone.now()
     if not job.started_at:
         job.started_at = job.completed_at
@@ -288,11 +288,15 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
         update_fields=[
             'partner_status',
             'status',
-            'payment_mode',
-            'payment_status',
             'completed_at',
             'started_at',
         ]
+    )
+    JobCardService.apply_completion_payment(
+        job,
+        user=None,
+        payment_mode=normalized,
+        collection_type='full',
     )
     try:
         from partner.notification_service import notify_crm_service_completed

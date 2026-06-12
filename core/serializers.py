@@ -1,9 +1,31 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from .models import (
-    Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder,
-    Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm,
-    QuotationHistory, InquiryRemark, WebsiteLeadRemark, RemarkType,
+    BookingPayment,
+    Client,
+    Inquiry,
+    JobCard,
+    Renewal,
+    Technician,
+    CRMInquiry,
+    Feedback,
+    ActivityLog,
+    Reminder,
+    Country,
+    State,
+    City,
+    Location,
+    Quotation,
+    QuotationItem,
+    QuotationScope,
+    QuotationPaymentTerm,
+    QuotationHistory,
+    InquiryRemark,
+    WebsiteLeadRemark,
+    RemarkType,
 )
+from .payment_utils import payment_status_label
+from .services import JobCardService
 from .service_rates import compute_service_rate_info
 from .remark_serializers import LatestRemarkSummarySerializer
 from django.contrib.auth.models import User
@@ -342,11 +364,13 @@ class JobCardSerializer(serializers.ModelSerializer):
         model = JobCard
         fields = [
             'id', 'code', 'client', 'client_name', 'client_mobile', 'client_state', 'client_notes', 'client_data',
-            'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'schedule_datetime', 
+            'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'service_items', 'schedule_datetime', 
             'time_slot', 'state', 'city',
             'master_country', 'master_country_name', 'master_state', 'master_state_name', 'master_city', 'master_city_name', 'master_location', 'master_location_name', 'full_address',
             'price', 'price_display', 'client_address',
-            'payment_status', 'payment_mode', 'assigned_to', 'technician', 'technician_name', 'technician_mobile', 
+            'payment_status', 'payment_status_display', 'payment_mode',
+            'total_amount', 'paid_amount', 'pending_amount',
+            'assigned_to', 'technician', 'technician_name', 'technician_mobile', 
             'partner', 'partner_name', 'partner_status', 'sent_to_app_at', 'sent_to_app',
             'job_start_selfie', 'job_start_selfie_url',
             'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
@@ -358,12 +382,25 @@ class JobCardSerializer(serializers.ModelSerializer):
             'booking_type', 'booking_category',
             'booking_priority',
             'created_by', 'created_by_name', 'on_process_by', 'on_process_by_name', 'done_by', 'done_by_name',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at',
+            'payment_collection_type', 'completion_paid_amount', 'completion_pending_amount', 'payment_remarks',
         ]
         read_only_fields = ['id', 'code', 'created_by', 'on_process_by', 'done_by', 'created_at', 'updated_at']
 
     price_display = serializers.SerializerMethodField()
-    
+    payment_status_display = serializers.SerializerMethodField()
+    payment_collection_type = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    completion_paid_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, write_only=True, required=False, allow_null=True,
+    )
+    completion_pending_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, write_only=True, required=False, allow_null=True,
+    )
+    payment_remarks = serializers.CharField(write_only=True, required=False, allow_blank=True)
+
+    def get_payment_status_display(self, obj):
+        return payment_status_label(obj.payment_status, obj.pending_amount)
+
     def get_created_by_name(self, obj):
         if obj.created_by:
             return obj.created_by.get_full_name() or obj.created_by.username
@@ -515,8 +552,126 @@ class JobCardSerializer(serializers.ModelSerializer):
                 schedule_datetime,
                 time_slot,
             )
+
+        service_items = data.get('service_items')
+        if service_items is None and self.instance:
+            service_items = self.instance.service_items
+        if service_items:
+            if not isinstance(service_items, list):
+                raise serializers.ValidationError({'service_items': 'Must be a list of service configurations.'})
+            normalized = []
+            for idx, item in enumerate(service_items):
+                if not isinstance(item, dict):
+                    raise serializers.ValidationError({'service_items': f'Item {idx + 1} is invalid.'})
+                service = str(item.get('service') or '').strip()
+                plan = str(item.get('plan') or '').strip()
+                area = str(item.get('area') or '').strip()
+                if not service or not plan or not area:
+                    raise serializers.ValidationError({
+                        'service_items': f'Item {idx + 1}: service, plan, and area are required.',
+                    })
+                try:
+                    amount = float(item.get('amount', 0) or 0)
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError({
+                        'service_items': f'Item {idx + 1}: amount must be a number.',
+                    })
+                if amount < 0:
+                    raise serializers.ValidationError({
+                        'service_items': f'Item {idx + 1}: amount cannot be negative.',
+                    })
+                normalized.append({
+                    'service': service,
+                    'plan': plan,
+                    'area': area,
+                    'amount': round(amount, 2),
+                })
+            data['service_items'] = normalized
+            if not data.get('service_type'):
+                data['service_type'] = ', '.join(i['service'] for i in normalized)
+            has_amc = any(
+                'amc' in i['plan'].lower() or i['plan'] == 'AMC 3 Services'
+                for i in normalized
+            )
+            if has_amc:
+                data['service_category'] = JobCard.ServiceCategory.AMC
+            elif is_create or 'service_category' not in data:
+                data['service_category'] = JobCard.ServiceCategory.ONE_TIME
+            if not data.get('bhk_size') and normalized:
+                data['bhk_size'] = normalized[0]['area']
         
         return data
+
+    def update(self, instance, validated_data):
+        payment_collection_type = validated_data.pop('payment_collection_type', None)
+        completion_paid_amount = validated_data.pop('completion_paid_amount', None)
+        completion_pending_amount = validated_data.pop('completion_pending_amount', None)
+        payment_remarks = validated_data.pop('payment_remarks', '')
+        old_status = instance.status
+        new_status = validated_data.get('status', instance.status)
+        payment_mode = validated_data.get('payment_mode', instance.payment_mode)
+        requested_payment_status = validated_data.get('payment_status')
+
+        instance = super().update(instance, validated_data)
+
+        completing = (
+            new_status == JobCard.JobStatus.DONE
+            and old_status != JobCard.JobStatus.DONE
+        )
+        if completing:
+            collection_type = (payment_collection_type or '').strip().lower() or 'full'
+            if (
+                not payment_collection_type
+                and requested_payment_status == JobCard.PaymentStatus.PAID
+                and completion_paid_amount is None
+                and completion_pending_amount is None
+            ):
+                collection_type = 'full'
+
+            request = self.context.get('request')
+            user = request.user if request else None
+            try:
+                JobCardService.apply_completion_payment(
+                    instance,
+                    user=user,
+                    payment_mode=payment_mode or JobCard.PaymentMode.CASH,
+                    collection_type=collection_type,
+                    paid_amount=completion_paid_amount,
+                    pending_amount=completion_pending_amount,
+                    remarks=payment_remarks,
+                )
+            except DjangoValidationError as exc:
+                if hasattr(exc, 'message_dict'):
+                    raise serializers.ValidationError(exc.message_dict)
+                raise serializers.ValidationError(str(exc))
+            instance.refresh_from_db()
+
+        return instance
+
+
+class BookingPaymentSerializer(serializers.ModelSerializer):
+    collected_by_name = serializers.SerializerMethodField()
+    jobcard_code = serializers.CharField(source='jobcard.code', read_only=True)
+
+    class Meta:
+        model = BookingPayment
+        fields = [
+            'id', 'jobcard', 'jobcard_code', 'amount', 'payment_mode',
+            'collection_type', 'balance_after', 'remarks',
+            'collected_by', 'collected_by_name', 'created_at',
+        ]
+        read_only_fields = fields
+
+    def get_collected_by_name(self, obj):
+        if obj.collected_by:
+            return obj.collected_by.get_full_name() or obj.collected_by.username
+        return 'System'
+
+
+class CollectPaymentSerializer(serializers.Serializer):
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    payment_mode = serializers.ChoiceField(choices=JobCard.PaymentMode.choices)
+    remarks = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 class RenewalSerializer(serializers.ModelSerializer):

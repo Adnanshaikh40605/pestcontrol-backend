@@ -42,6 +42,7 @@ from .pricing_master_views import (
     PricingRateViewSet,
     PricingRegionViewSet,
 )
+from .payment_views import PendingPaymentViewSet
 
 # Create router for v1 API
 router = DefaultRouter()
@@ -67,6 +68,7 @@ router.register(r'partner-referrals', PartnerReferralViewSet, basename='partner-
 router.register(r'pricing-regions', PricingRegionViewSet, basename='pricing-region')
 router.register(r'pricing-rates', PricingRateViewSet, basename='pricing-rate')
 router.register(r'pricing-audit-logs', PricingRateAuditLogViewSet, basename='pricing-audit-log')
+router.register(r'pending-payments', PendingPaymentViewSet, basename='pending-payment')
 
 urlpatterns = [
     path(

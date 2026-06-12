@@ -11,7 +11,26 @@ from django.db.models import Sum, Count, Value, FloatField, Q
 from django.db.models.functions import Coalesce, Cast
 from django.utils import timezone
 
-from .models import Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, InquiryRemark, RemarkType
+from decimal import Decimal
+
+from .models import (
+    BookingPayment,
+    Client,
+    Inquiry,
+    JobCard,
+    Renewal,
+    Technician,
+    CRMInquiry,
+    InquiryRemark,
+    RemarkType,
+)
+from .payment_utils import (
+    derive_payment_status,
+    parse_jobcard_price,
+    quantize_money,
+    resolve_completion_amounts,
+    validate_payment_amounts,
+)
 from .telegram import notify_new_inquiry
 
 
@@ -627,6 +646,7 @@ class JobCardService:
         
         service_type = jobcard.service_type.lower() if jobcard.service_type else ""
         service_category = jobcard.service_category
+        service_items = jobcard.service_items or []
         schedule_datetime = jobcard.schedule_datetime
         
         if not schedule_datetime:
@@ -646,6 +666,22 @@ class JobCardService:
             
         next_date = None
         max_cycle = 1
+
+        if service_items:
+            for item in service_items:
+                svc = str(item.get('service') or '').lower()
+                plan = str(item.get('plan') or '').lower()
+                if ('cockroach' in svc or 'ants' in svc) and 'amc' in plan:
+                    max_cycle = 3
+                    next_date = schedule_date + relativedelta(months=4)
+                    return next_date, max_cycle
+            for item in service_items:
+                svc = str(item.get('service') or '').lower()
+                if 'bedbug' in svc or 'bed bug' in svc:
+                    max_cycle = 2
+                    next_date = schedule_date + timedelta(days=15)
+                    return next_date, max_cycle
+            return None, 1
         
         # Cockroach / general AMC: 3 services total, 4-month gap
         if service_category == JobCard.ServiceCategory.AMC and (
@@ -750,6 +786,102 @@ class JobCardService:
             return False
         except JobCard.DoesNotExist:
             return False
+
+    @staticmethod
+    @transaction.atomic
+    def apply_completion_payment(
+        jobcard: JobCard,
+        *,
+        user=None,
+        payment_mode: str,
+        collection_type: str = 'full',
+        paid_amount=None,
+        pending_amount=None,
+        remarks: str = '',
+    ) -> JobCard:
+        """Record payment split when a booking is marked Done."""
+        total = parse_jobcard_price(jobcard.price)
+        if jobcard.total_amount and jobcard.total_amount > 0:
+            total = quantize_money(jobcard.total_amount)
+
+        paid, pending = resolve_completion_amounts(
+            total,
+            collection_type,
+            paid_amount=paid_amount,
+            pending_amount=pending_amount,
+        )
+        validate_payment_amounts(total, paid, pending)
+
+        jobcard.total_amount = total
+        jobcard.paid_amount = paid
+        jobcard.pending_amount = pending
+        jobcard.payment_status = derive_payment_status(paid, pending, total)
+        if payment_mode in dict(JobCard.PaymentMode.choices):
+            jobcard.payment_mode = payment_mode
+
+        jobcard.save(update_fields=[
+            'total_amount', 'paid_amount', 'pending_amount',
+            'payment_status', 'payment_mode', 'updated_at',
+        ])
+
+        if paid > 0:
+            BookingPayment.objects.create(
+                jobcard=jobcard,
+                amount=paid,
+                payment_mode=payment_mode,
+                collection_type=collection_type if collection_type in dict(BookingPayment.CollectionType.choices) else BookingPayment.CollectionType.FULL,
+                balance_after=pending,
+                remarks=remarks or '',
+                collected_by=user,
+            )
+        return jobcard
+
+    @staticmethod
+    @transaction.atomic
+    def collect_pending_payment(
+        jobcard: JobCard,
+        *,
+        user=None,
+        amount,
+        payment_mode: str,
+        remarks: str = '',
+    ) -> JobCard:
+        """Collect outstanding balance on a completed booking."""
+        collect_amount = quantize_money(amount)
+        if collect_amount <= 0:
+            raise ValidationError('Collection amount must be greater than zero.')
+
+        pending = quantize_money(jobcard.pending_amount)
+        if pending <= 0:
+            raise ValidationError('This booking has no pending balance.')
+
+        if collect_amount > pending:
+            raise ValidationError('Collection amount cannot exceed pending balance.')
+
+        total = quantize_money(jobcard.total_amount or parse_jobcard_price(jobcard.price))
+        new_paid = quantize_money(jobcard.paid_amount) + collect_amount
+        new_pending = pending - collect_amount
+        validate_payment_amounts(total, new_paid, new_pending)
+
+        jobcard.paid_amount = new_paid
+        jobcard.pending_amount = new_pending
+        jobcard.payment_status = derive_payment_status(new_paid, new_pending, total)
+        jobcard.payment_mode = payment_mode
+        jobcard.save(update_fields=[
+            'paid_amount', 'pending_amount', 'payment_status',
+            'payment_mode', 'updated_at',
+        ])
+
+        BookingPayment.objects.create(
+            jobcard=jobcard,
+            amount=collect_amount,
+            payment_mode=payment_mode,
+            collection_type=BookingPayment.CollectionType.COLLECTION,
+            balance_after=new_pending,
+            remarks=remarks or '',
+            collected_by=user,
+        )
+        return jobcard
 
 
 class RenewalService:

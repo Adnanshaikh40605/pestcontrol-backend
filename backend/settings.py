@@ -108,28 +108,30 @@ TEMPLATES = [
 WSGI_APPLICATION = 'backend.wsgi.application'
 
 # Database Configuration
-if DEBUG and not config('DATABASE_URL', default=None):
-    # Local development with PostgreSQL
+# Set DATABASE_URL in .env (local Postgres or Railway). Optional overrides: DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT.
+_database_url = config('DATABASE_URL', default=None)
+if _database_url:
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=_database_url,
+            conn_max_age=600,
+            conn_health_checks=True,
+            ssl_require=not DEBUG,
+        )
+    }
+elif DEBUG:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': 'pest',
-            'USER': 'postgres',
-            'PASSWORD': 'adnan12',
-            'HOST': 'localhost',
-            'PORT': '5432',
+            'NAME': config('DB_NAME', default='Pest99 Backend'),
+            'USER': config('DB_USER', default='postgres'),
+            'PASSWORD': config('DB_PASSWORD', default=''),
+            'HOST': config('DB_HOST', default='localhost'),
+            'PORT': config('DB_PORT', default='5432'),
         }
     }
 else:
-    # Production with Railway PostgreSQL
-    DATABASES = {
-        'default': dj_database_url.config(
-            env='DATABASE_URL',
-            conn_max_age=600,
-            conn_health_checks=True,
-            ssl_require=True,
-        )
-    }
+    raise ValueError('DATABASE_URL is required when DJANGO_DEBUG is False.')
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [

@@ -464,6 +464,8 @@ class JobCard(BaseModel):
     class PaymentStatus(models.TextChoices):
         UNPAID = 'Unpaid', 'Unpaid'
         PAID = 'Paid', 'Paid'
+        PARTIALLY_PAID = 'Partially Paid', 'Partially Paid'
+        PENDING = 'Pending', 'Pending'
     
     class PaymentMode(models.TextChoices):
         CASH = 'Cash', 'Cash'
@@ -660,6 +662,12 @@ class JobCard(BaseModel):
         verbose_name="Service Type",
         help_text="Type of pest control service to be provided"
     )
+    service_items = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Service Items",
+        help_text="Per-service plan, area, and amount breakdown for multi-service bookings",
+    )
     schedule_datetime = models.DateTimeField(
         blank=True,
         null=True,
@@ -712,6 +720,31 @@ class JobCard(BaseModel):
         null=True,
         db_index=True,
         verbose_name="Payment Mode"
+    )
+    total_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Total Service Amount",
+        help_text="Total billable amount for this booking",
+    )
+    paid_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Paid Amount",
+        help_text="Total amount collected so far",
+    )
+    pending_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        db_index=True,
+        verbose_name="Pending Amount",
+        help_text="Outstanding balance remaining on this booking",
     )
     assigned_to = models.CharField(
         max_length=255,
@@ -1422,6 +1455,62 @@ class Feedback(BaseModel):
 
     def __str__(self) -> str:
         return f"Feedback for Booking {self.booking.code} - Rating: {self.rating}"
+
+
+class BookingPayment(BaseModel):
+    """Audit trail for booking payment collections."""
+
+    class CollectionType(models.TextChoices):
+        FULL = 'full', 'Full Payment'
+        HALF = 'half', 'Half Payment'
+        CUSTOM = 'custom', 'Custom Pending'
+        COLLECTION = 'collection', 'Collection'
+
+    jobcard = models.ForeignKey(
+        JobCard,
+        on_delete=models.CASCADE,
+        related_name='payment_records',
+        db_index=True,
+    )
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[validate_positive_decimal],
+    )
+    payment_mode = models.CharField(
+        max_length=20,
+        choices=JobCard.PaymentMode.choices,
+    )
+    collection_type = models.CharField(
+        max_length=20,
+        choices=CollectionType.choices,
+        default=CollectionType.COLLECTION,
+    )
+    balance_after = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[validate_non_negative_decimal],
+        default=0,
+    )
+    remarks = models.TextField(blank=True, default='')
+    collected_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='booking_payments_collected',
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Booking Payment'
+        verbose_name_plural = 'Booking Payments'
+        indexes = [
+            models.Index(fields=['jobcard', '-created_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.jobcard.code} — ₹{self.amount} ({self.payment_mode})"
 
 
 class ActivityLog(BaseModel):
