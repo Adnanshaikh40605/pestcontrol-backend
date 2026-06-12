@@ -16,6 +16,16 @@ class PricingRegionTests(TestCase):
         self.assertEqual(pricing_region_for_city('Lonavala'), 'lonavala')
         self.assertEqual(pricing_region_for_city(' lonavala '), 'lonavala')
 
+    def test_lonavla_typo_resolves_to_lonavala(self):
+        """CRM master city is sometimes stored as Lonavla — must not fall back to Mumbai."""
+        self.assertEqual(pricing_region_for_city('Lonavla'), 'lonavala')
+        payload = build_pricing_config_payload('Lonavla')
+        self.assertEqual(payload['region'], 'lonavala')
+        self.assertEqual(
+            payload['pricing']['Cockroach / Ants']['One Time Service']['4 BHK'],
+            2200,
+        )
+
 
 class LonavalaRateCardTests(TestCase):
     def test_general_pest_2_bhk_one_time(self):

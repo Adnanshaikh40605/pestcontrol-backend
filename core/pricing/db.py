@@ -15,7 +15,18 @@ from .lonavala import (
 )
 from .mumbai import MUMBAI_PRICING, MUMBAI_PROPERTY_LOCATIONS, MUMBAI_SERVICE_TYPES
 
-LONAVALA_CITY_NAMES = frozenset({'lonavala'})
+# Include common CRM master-data spellings (e.g. "Lonavla" vs "Lonavala").
+LONAVALA_CITY_NAMES = frozenset({'lonavala', 'lonavla'})
+
+
+def is_lonavala_city_name(city: str | None) -> bool:
+    """True for Lonavala service cities, including known spelling variants."""
+    if not city:
+        return False
+    normalized = ''.join(normalize_city_name(city).lower().split())
+    if normalized in LONAVALA_CITY_NAMES:
+        return True
+    return normalized.startswith('lonaval')
 
 HARDCODED_BY_REGION: dict[str, dict[str, dict[str, dict[str, int]]]] = {
     'mumbai': MUMBAI_PRICING,
@@ -60,6 +71,11 @@ def _resolve_region_slug_from_db(city: str | None) -> str | None:
         if not name:
             return None
 
+        if is_lonavala_city_name(name):
+            region = PricingRegion.objects.filter(is_active=True, slug='lonavala').first()
+            if region:
+                return region.slug
+
         region = (
             PricingRegion.objects.filter(is_active=True)
             .filter(city__name__iexact=name)
@@ -67,6 +83,15 @@ def _resolve_region_slug_from_db(city: str | None) -> str | None:
         )
         if region:
             return region.slug
+
+        # Fuzzy match: Lonavla ↔ Lonavala
+        if is_lonavala_city_name(name):
+            region = (
+                PricingRegion.objects.filter(is_active=True, city__name__icontains='lonaval')
+                .first()
+            )
+            if region:
+                return region.slug
 
         region = PricingRegion.objects.filter(is_active=True, slug__iexact=name).first()
         if region:
@@ -81,8 +106,7 @@ def pricing_region_for_city(city: str | None) -> str:
     if db_slug:
         return db_slug
 
-    name = normalize_city_name(city).lower()
-    if name in LONAVALA_CITY_NAMES:
+    if is_lonavala_city_name(city):
         return 'lonavala'
     return 'mumbai'
 
@@ -105,6 +129,10 @@ def resolve_pricing_region_slug(
             )
             if region:
                 return region.slug
+            if is_lonavala_city_name(city_obj.name):
+                region = PricingRegion.objects.filter(is_active=True, slug='lonavala').first()
+                if region:
+                    return region.slug
             city = city_obj.name
         except (City.DoesNotExist, ValueError, TypeError):
             pass
