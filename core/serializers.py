@@ -33,10 +33,21 @@ class CitySerializer(serializers.ModelSerializer):
 
 class LocationSerializer(serializers.ModelSerializer):
     city_name = serializers.CharField(source='city.name', read_only=True)
+    state_id = serializers.IntegerField(source='city.state_id', read_only=True)
+    state_name = serializers.CharField(source='city.state.name', read_only=True)
+    display_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Location
-        fields = ['id', 'city', 'city_name', 'name', 'normalized_name', 'is_active']
+        fields = [
+            'id', 'city', 'city_name', 'state_id', 'state_name', 'display_name',
+            'name', 'normalized_name', 'is_active',
+        ]
+
+    def get_display_name(self, obj):
+        if obj.city_id:
+            return f"{obj.name}, {obj.city.name}"
+        return obj.name
         read_only_fields = ['normalized_name']
 
     def validate(self, data):

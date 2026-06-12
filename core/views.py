@@ -258,14 +258,14 @@ class LocationViewSet(BaseModelViewSet):
     filterset_fields = ['city', 'is_active']
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related('city', 'city__state')
         q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
         if q:
             qs = qs.filter(
                 Q(name__icontains=q) | 
                 Q(city__name__icontains=q) | 
                 Q(city__state__name__icontains=q)
-            ).select_related('city', 'city__state')
+            )
         return qs
 
     @decorators.action(detail=False, methods=['get'])
@@ -1711,7 +1711,15 @@ class JobCardViewSet(BaseModelViewSet):
     - created_at, updated_at, schedule_datetime, status, payment_status, 
       client__full_name, client__city, job_type, contract_duration
     """
-    queryset = JobCard.objects.select_related('client').prefetch_related('renewals').all()
+    queryset = JobCard.objects.select_related(
+        'client',
+        'master_country',
+        'master_state',
+        'master_city',
+        'master_location',
+        'master_location__city',
+        'master_location__city__state',
+    ).prefetch_related('renewals').all()
     serializer_class = JobCardSerializer
     filterset_fields = ['status', 'payment_status', 'client__city', 'client__mobile', 'job_type', 'commercial_type', 'service_category', 'contract_duration', 'is_paused', 'assigned_to']
     search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type', 'assigned_to', 'master_location__name', 'commercial_type']
