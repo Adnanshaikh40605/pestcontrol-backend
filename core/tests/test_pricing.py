@@ -81,6 +81,19 @@ class ServiceRateInfoTests(TestCase):
         self.assertIn('6 BHK', payload['residential_locations'])
         self.assertIn('Up to 1,000 Sq.Ft.', payload['villa_locations'])
 
+    def test_lonavala_termite_4_bhk_matches_rate_card(self):
+        payload = build_pricing_config_payload('Lonavala')
+        self.assertEqual(
+            payload['pricing']['Termite']['One Time Service']['4 BHK'],
+            6500,
+        )
+
+    def test_mumbai_termite_4_bhk_differs_from_lonavala(self):
+        mumbai = build_pricing_config_payload('Mumbai')
+        lonavala = build_pricing_config_payload('Lonavala')
+        self.assertEqual(mumbai['pricing']['Termite']['One Time Service']['4 BHK'], 4000)
+        self.assertEqual(lonavala['pricing']['Termite']['One Time Service']['4 BHK'], 6500)
+
 
 class PricingMasterDbTests(TestCase):
     def test_seeded_mumbai_matches_legacy(self):

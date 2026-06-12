@@ -87,6 +87,31 @@ def pricing_region_for_city(city: str | None) -> str:
     return 'mumbai'
 
 
+def resolve_pricing_region_slug(
+    city: str | None = None,
+    *,
+    master_city_id: int | None = None,
+) -> str:
+    """Resolve pricing region from master city id (preferred) or city name."""
+    if master_city_id:
+        try:
+            from core.models import City, PricingRegion
+
+            city_obj = City.objects.get(pk=int(master_city_id))
+            region = (
+                PricingRegion.objects.filter(is_active=True, city_id=city_obj.id)
+                .order_by('slug')
+                .first()
+            )
+            if region:
+                return region.slug
+            city = city_obj.name
+        except (City.DoesNotExist, ValueError, TypeError):
+            pass
+
+    return pricing_region_for_city(city)
+
+
 def _rates_queryset(region_slug: str):
     from core.models import PricingRate
 
@@ -204,11 +229,23 @@ def get_area_options(
     return list(dict.fromkeys(options))
 
 
-def build_pricing_config_payload(city: str | None = None) -> dict[str, Any]:
-    region = pricing_region_for_city(city)
+def build_pricing_config_payload(
+    city: str | None = None,
+    *,
+    master_city_id: int | None = None,
+) -> dict[str, Any]:
+    region = resolve_pricing_region_slug(city, master_city_id=master_city_id)
+    resolved_city = normalize_city_name(city)
+    if not resolved_city and master_city_id:
+        try:
+            from core.models import City
+
+            resolved_city = City.objects.filter(pk=int(master_city_id)).values_list('name', flat=True).first()
+        except (ValueError, TypeError):
+            resolved_city = None
     return {
         'region': region,
-        'city': normalize_city_name(city) or 'Mumbai',
+        'city': resolved_city or 'Mumbai',
         'pricing': get_pricing_data(region=region),
         'service_types': get_service_types(region=region),
         'residential_locations': _location_list(

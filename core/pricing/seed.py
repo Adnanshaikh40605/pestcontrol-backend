@@ -71,7 +71,7 @@ def _seed_region(
     if city_name:
         city = City.objects.filter(name__iexact=city_name).first()
 
-    region, _ = PricingRegion.objects.get_or_create(
+    region, created = PricingRegion.objects.get_or_create(
         slug=slug,
         defaults={
             'name': name,
@@ -80,6 +80,9 @@ def _seed_region(
             'is_active': True,
         },
     )
+    if city and region.city_id != city.id:
+        region.city = city
+        region.save(update_fields=['city', 'updated_at'])
 
     created = 0
     skipped = 0

@@ -7,6 +7,7 @@ from .db import (
     get_service_types,
     normalize_city_name,
     pricing_region_for_city,
+    resolve_pricing_region_slug,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     'get_service_types',
     'normalize_city_name',
     'pricing_region_for_city',
+    'resolve_pricing_region_slug',
 ]
