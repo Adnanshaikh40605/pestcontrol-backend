@@ -68,20 +68,36 @@ logger = logging.getLogger(__name__)
 )
 def health_check(request):
     """Health check endpoint for monitoring."""
+    from django.db import connection
     from partner.push_service import get_fcm_config_status
 
+    db_ok = True
+    db_error = None
+    try:
+        connection.ensure_connection()
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+    except Exception as exc:
+        db_ok = False
+        db_error = str(exc)
+
     fcm = get_fcm_config_status()
-    return JsonResponse({
-        'status': 'ok',
+    payload = {
+        'status': 'ok' if db_ok else 'degraded',
         'service': 'pestcontrol-backend',
         'version': '1.0.0',
         'endpoint': 'core',
+        'database': 'ok' if db_ok else 'error',
         'partner_fcm': {
             'configured': fcm.get('configured'),
             'project_id': fcm.get('project_id'),
             'reason': fcm.get('reason'),
         },
-    })
+    }
+    if db_error:
+        payload['database_error'] = db_error
+    status_code = 200 if db_ok else 503
+    return JsonResponse(payload, status=status_code)
 
 
 # CORS test endpoint removed for production security
