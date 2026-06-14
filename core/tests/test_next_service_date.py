@@ -6,8 +6,8 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from core.jobcard_schedule import schedule_datetime_from_service_date
-from core.models import Client, JobCard
-from core.services import JobCardService
+from core.models import Client, JobCard, Renewal
+from core.services import JobCardService, RenewalService
 
 
 class NextServiceDateRulesTests(TestCase):
@@ -113,7 +113,8 @@ class CompletionFollowUpTests(TestCase):
 
         follow_up = JobCard.objects.get(parent_job=job, service_cycle=2)
         self.assertEqual(follow_up.status, JobCard.JobStatus.UPCOMING)
-        self.assertEqual(follow_up.included_in_amc, True)
+        self.assertEqual(follow_up.included_in_amc, False)
+        self.assertEqual(follow_up.booking_category, JobCard.BookingCategory.SERVICE_CALL)
         self.assertIsNotNone(follow_up.schedule_datetime)
         self.assertEqual(follow_up.time_slot, '11:00 AM')
 
@@ -148,3 +149,24 @@ class CompletionFollowUpTests(TestCase):
         visit2 = JobCard.objects.get(parent_job=job, service_cycle=2)
         self.assertEqual(visit2.next_service_date, date(2027, 2, 1))
         self.assertEqual(visit2.max_cycle, 3)
+        self.assertEqual(visit2.included_in_amc, True)
+        self.assertEqual(visit2.booking_category, JobCard.BookingCategory.AMC_FOLLOWUP)
+
+
+class RenewalGenerationTests(TestCase):
+    def setUp(self):
+        self.client_record = Client.objects.create(full_name='Renewal Test', mobile='9333333333')
+        self.schedule = datetime(2026, 6, 1, 10, 0, tzinfo=dt_timezone.utc)
+
+    def test_multi_visit_jobs_do_not_create_contract_renewals(self):
+        job = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Bed Bugs',
+            schedule_datetime=self.schedule,
+            next_service_date=date(2026, 6, 16),
+            max_cycle=2,
+            price='3000',
+            reference='Other',
+        )
+        renewals = RenewalService.generate_renewals_for_jobcard(job)
+        self.assertEqual(renewals, [])

@@ -794,11 +794,15 @@ class JobCardService:
                     'full_address': jobcard.full_address,
                     'reference': jobcard.reference,
                     'status': JobCard.JobStatus.UPCOMING,
-                    'payment_status': JobCard.PaymentStatus.PAID,  # Mark as paid since it's included in AMC
+                    'payment_status': JobCard.PaymentStatus.PAID,
                     'is_service_call': True,
                     'is_followup_visit': True,
-                    'included_in_amc': True, # Always included for auto-generated follow-ups
-                    'booking_type': JobCard.BookingType.AMC_FOLLOWUP if jobcard.service_category == JobCard.ServiceCategory.AMC else JobCard.BookingType.SERVICE_CALL,
+                    'included_in_amc': jobcard.service_category == JobCard.ServiceCategory.AMC,
+                    'booking_type': (
+                        JobCard.BookingType.AMC_FOLLOWUP
+                        if jobcard.service_category == JobCard.ServiceCategory.AMC
+                        else JobCard.BookingType.SERVICE_CALL
+                    ),
                     'created_by': jobcard.created_by,
                     'creation_source': JobCard.CreationSource.AMC_AUTO,
                 }
@@ -970,7 +974,12 @@ class RenewalService:
                 return list(existing_renewals)
         
         if jobcard.job_type == JobCard.JobType.CUSTOMER:
-            # For customers, create renewal based on next_service_date
+            # Multi-visit plans (Bed Bug 2x, Cockroach AMC 3x) use auto follow-up jobs
+            # in Upcoming Services — not contract renewal reminders.
+            if jobcard.max_cycle and jobcard.max_cycle > 1:
+                return []
+
+            # For single-visit customers, create renewal based on next_service_date
             if jobcard.next_service_date:
                 renewal_date = jobcard.next_service_date
                 

@@ -978,9 +978,12 @@ class JobCard(BaseModel):
         """Keep booking_type aligned with flags (legacy field used in reports/revenue)."""
         if self.is_complaint_call:
             self.booking_type = self.BookingType.COMPLAINT_CALL
-        elif self.is_followup_visit or self.included_in_amc:
+        elif self.included_in_amc or (
+            self.is_followup_visit
+            and self.service_category == self.ServiceCategory.AMC
+        ):
             self.booking_type = self.BookingType.AMC_FOLLOWUP
-        elif self.is_service_call or self.service_cycle > 1:
+        elif self.is_followup_visit or self.is_service_call or self.service_cycle > 1:
             self.booking_type = self.BookingType.SERVICE_CALL
         elif self.is_amc_main_booking or (
             self.service_category == self.ServiceCategory.AMC and self.service_cycle == 1
