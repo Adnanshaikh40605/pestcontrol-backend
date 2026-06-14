@@ -31,6 +31,17 @@ from .payment_utils import (
     resolve_completion_amounts,
     validate_payment_amounts,
 )
+
+
+def _is_bed_bug_label(text: str) -> bool:
+    normalized = (text or '').lower()
+    return 'bed bug' in normalized or 'bedbug' in normalized or 'bed bugs' in normalized
+
+
+def _is_cockroach_amc(service: str, plan: str) -> bool:
+    svc = (service or '').lower()
+    plan_l = (plan or '').lower()
+    return ('cockroach' in svc or 'ants' in svc) and 'amc' in plan_l
 from .telegram import notify_new_inquiry
 
 
@@ -611,14 +622,7 @@ class JobCardService:
                 jobcard.booking_type = JobCard.BookingType.NEW_BOOKING
             
             # Auto-calculate next service date if not provided
-            if not jobcard.next_service_date:
-                next_date, max_cycle = JobCardService.calculate_next_service_date(jobcard)
-                jobcard.next_service_date = next_date
-                jobcard.max_cycle = max_cycle
-            elif jobcard.service_type:
-                # If next_service_date IS provided manually, still ensure max_cycle is set correctly
-                _, max_cycle = JobCardService.calculate_next_service_date(jobcard)
-                jobcard.max_cycle = max_cycle
+            JobCardService.ensure_next_service_schedule(jobcard)
 
             jobcard.full_clean()  # Run model validation
             jobcard.save()  # This will create a new record with a new ID and code
@@ -635,6 +639,27 @@ class JobCardService:
             logger.error(f"Unexpected error during jobcard creation: {e}")
             raise ValidationError(f"Failed to create job card: {str(e)}")
     
+    @staticmethod
+    def ensure_next_service_schedule(jobcard: JobCard) -> JobCard:
+        """
+        Populate or correct next_service_date / max_cycle from service rules.
+        Keeps a manually entered next_service_date but still syncs max_cycle.
+        """
+        next_date, max_cycle = JobCardService.calculate_next_service_date(jobcard)
+        update_fields = []
+
+        if not jobcard.next_service_date and next_date:
+            jobcard.next_service_date = next_date
+            update_fields.append('next_service_date')
+
+        if max_cycle and jobcard.max_cycle != max_cycle:
+            jobcard.max_cycle = max_cycle
+            update_fields.append('max_cycle')
+
+        if update_fields:
+            jobcard.save(update_fields=update_fields)
+        return jobcard
+
     @staticmethod
     def calculate_next_service_date(jobcard: JobCard) -> tuple[Optional[timezone.datetime.date], int]:
         """
@@ -669,15 +694,15 @@ class JobCardService:
 
         if service_items:
             for item in service_items:
-                svc = str(item.get('service') or '').lower()
-                plan = str(item.get('plan') or '').lower()
-                if ('cockroach' in svc or 'ants' in svc) and 'amc' in plan:
+                svc = str(item.get('service') or '')
+                plan = str(item.get('plan') or '')
+                if _is_cockroach_amc(svc, plan):
                     max_cycle = 3
                     next_date = schedule_date + relativedelta(months=4)
                     return next_date, max_cycle
             for item in service_items:
-                svc = str(item.get('service') or '').lower()
-                if 'bedbug' in svc or 'bed bug' in svc:
+                svc = str(item.get('service') or '')
+                if _is_bed_bug_label(svc):
                     max_cycle = 2
                     next_date = schedule_date + timedelta(days=15)
                     return next_date, max_cycle
@@ -690,7 +715,7 @@ class JobCardService:
             max_cycle = 3
             next_date = schedule_date + relativedelta(months=4)
         # BedBug: 2 services total, 15-day gap
-        elif "bedbug" in service_type or "bed bug" in service_type:
+        elif _is_bed_bug_label(service_type):
             max_cycle = 2
             next_date = schedule_date + timedelta(days=15)
             
@@ -706,6 +731,8 @@ class JobCardService:
         """
         # Refetch with lock to prevent race conditions
         jobcard = JobCard.objects.select_for_update().get(id=jobcard.id)
+
+        JobCardService.ensure_next_service_schedule(jobcard)
         
         logger.info(f"Checking completion automation for JobCard {jobcard.code} (Status: {jobcard.status})")
         
@@ -745,6 +772,7 @@ class JobCardService:
                 next_job_data = {
                     'client': jobcard.client,
                     'service_type': jobcard.service_type,
+                    'service_items': jobcard.service_items or [],
                     'service_category': jobcard.service_category,
                     'schedule_datetime': follow_up_schedule,
                     'time_slot': jobcard.time_slot,
@@ -778,10 +806,7 @@ class JobCardService:
                 next_job = JobCard.objects.create(**next_job_data)
                 
                 # Calculate next service date for the NEWLY created job
-                next_next_date, _ = JobCardService.calculate_next_service_date(next_job)
-                if next_job.service_cycle < next_job.max_cycle:
-                    next_job.next_service_date = next_next_date
-                    next_job.save(update_fields=['next_service_date'])
+                JobCardService.ensure_next_service_schedule(next_job)
                 
                 logger.info(f"✅ Successfully auto-created follow-up job {next_job.code} for job {jobcard.code}")
                 return next_job

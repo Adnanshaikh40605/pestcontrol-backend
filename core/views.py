@@ -2190,12 +2190,19 @@ class JobCardViewSet(BaseModelViewSet):
                     instance.save(update_fields=['done_by'])
             
             logger.info(f"✅ JobCard {instance.code} updated. New Price in DB: {instance.price}")
-            
-            # 1. Handle automation when job is newly marked DONE
-            if (
+
+            newly_completed = (
                 instance.status == JobCard.JobStatus.DONE
                 and old_status != JobCard.JobStatus.DONE
-            ):
+            )
+
+            # Ensure next visit schedule exists before follow-up automation
+            if newly_completed and not request.data.get('next_service_date'):
+                JobCardService.ensure_next_service_schedule(instance)
+                instance.refresh_from_db()
+            
+            # 1. Handle automation when job is newly marked DONE
+            if newly_completed:
                 try:
                     JobCardService.handle_job_completion(instance)
                 except Exception as exc:
