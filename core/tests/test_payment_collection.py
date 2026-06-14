@@ -101,6 +101,36 @@ class PaymentCollectionAPITests(TestCase):
         self.assertEqual(self.job.payment_status, JobCard.PaymentStatus.PARTIALLY_PAID)
         self.assertEqual(BookingPayment.objects.filter(jobcard=self.job).count(), 1)
 
+    def test_complete_bed_bug_booking_creates_follow_up_without_error(self):
+        """Bed Bug cycle bookings use next_service_date (date) for follow-ups — must not 500."""
+        from datetime import timedelta
+
+        schedule = self.job.schedule_datetime
+        self.job.service_type = 'Bed Bugs'
+        self.job.service_category = JobCard.ServiceCategory.ONE_TIME
+        self.job.next_service_date = (schedule + timedelta(days=15)).date()
+        self.job.max_cycle = 2
+        self.job.service_cycle = 1
+        self.job.price = '3000'
+        self.job.save()
+
+        response = self.api.patch(
+            f'/api/v1/jobcards/{self.job.id}/',
+            {
+                'status': 'Done',
+                'payment_mode': 'Online',
+                'payment_collection_type': 'full',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.status, JobCard.JobStatus.DONE)
+        self.assertEqual(self.job.paid_amount, Decimal('3000.00'))
+        follow_up = JobCard.objects.filter(parent_job=self.job, service_cycle=2).first()
+        self.assertIsNotNone(follow_up)
+        self.assertIsNotNone(follow_up.schedule_datetime)
+
     def test_collect_pending_payment(self):
         JobCardService.apply_completion_payment(
             self.job,

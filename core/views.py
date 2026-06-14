@@ -2191,11 +2191,26 @@ class JobCardViewSet(BaseModelViewSet):
             
             logger.info(f"✅ JobCard {instance.code} updated. New Price in DB: {instance.price}")
             
-            # 1. Handle automation when job is marked DONE
-            if instance.status == JobCard.JobStatus.DONE:
-                JobCardService.handle_job_completion(instance)
-                log_activity(request.user, "Completed Booking", booking_id=instance.code, details=f"Payment: {instance.payment_mode}")
-            else:
+            # 1. Handle automation when job is newly marked DONE
+            if (
+                instance.status == JobCard.JobStatus.DONE
+                and old_status != JobCard.JobStatus.DONE
+            ):
+                try:
+                    JobCardService.handle_job_completion(instance)
+                except Exception as exc:
+                    logger.exception(
+                        'Follow-up job creation failed for %s: %s',
+                        instance.code,
+                        exc,
+                    )
+                log_activity(
+                    request.user,
+                    "Completed Booking",
+                    booking_id=instance.code,
+                    details=f"Payment: {instance.payment_mode}",
+                )
+            elif instance.status != JobCard.JobStatus.DONE:
                 log_activity(request.user, "Updated Booking", booking_id=instance.code)
 
             # 2. Re-calculate next_service_date if missing and relevant fields changed

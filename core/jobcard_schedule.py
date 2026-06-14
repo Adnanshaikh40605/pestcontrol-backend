@@ -4,7 +4,7 @@ Helpers for combining JobCard schedule date + time_slot into a single sortable d
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytz
 from django.db import connection
@@ -36,6 +36,42 @@ def parse_time_slot(time_slot: str | None) -> tuple[int, int] | None:
     return hours, minutes
 
 
+def schedule_datetime_from_service_date(
+    service_date,
+    *,
+    reference_datetime=None,
+    time_slot: str | None = None,
+):
+    """Convert a service date (or datetime) into a timezone-aware UTC datetime."""
+    if not service_date:
+        return None
+
+    if isinstance(service_date, datetime):
+        dt = service_date
+        if not timezone.is_aware(dt):
+            dt = timezone.make_aware(dt, timezone.utc)
+        return effective_schedule_datetime(dt, time_slot)
+
+    if not isinstance(service_date, date):
+        return None
+
+    hours, minutes = 10, 0
+    if reference_datetime and isinstance(reference_datetime, datetime):
+        if not timezone.is_aware(reference_datetime):
+            reference_datetime = timezone.make_aware(reference_datetime, timezone.utc)
+        local = reference_datetime.astimezone(IST)
+        hours, minutes = local.hour, local.minute
+
+    parsed = parse_time_slot(time_slot)
+    if parsed:
+        hours, minutes = parsed
+
+    combined = IST.localize(
+        datetime(service_date.year, service_date.month, service_date.day, hours, minutes, 0)
+    )
+    return combined.astimezone(timezone.utc)
+
+
 def effective_schedule_datetime(schedule_datetime, time_slot: str | None):
     """
     Return a timezone-aware datetime for sorting/display.
@@ -45,6 +81,8 @@ def effective_schedule_datetime(schedule_datetime, time_slot: str | None):
     """
     if not schedule_datetime:
         return None
+    if isinstance(schedule_datetime, date) and not isinstance(schedule_datetime, datetime):
+        return schedule_datetime_from_service_date(schedule_datetime, time_slot=time_slot)
     if not timezone.is_aware(schedule_datetime):
         schedule_datetime = timezone.make_aware(schedule_datetime, timezone.utc)
     parsed = parse_time_slot(time_slot)

@@ -731,6 +731,14 @@ class JobCardService:
                     return None
 
                 logger.info(f"Creating follow-up cycle {jobcard.service_cycle + 1} for JobCard {jobcard.code}")
+
+                from core.jobcard_schedule import schedule_datetime_from_service_date
+
+                follow_up_schedule = schedule_datetime_from_service_date(
+                    jobcard.next_service_date,
+                    reference_datetime=jobcard.schedule_datetime,
+                    time_slot=jobcard.time_slot,
+                )
                 
                 # Prepare data for next job
                 # Note: next_job will automatically have is_service_call=True via model save logic
@@ -738,7 +746,8 @@ class JobCardService:
                     'client': jobcard.client,
                     'service_type': jobcard.service_type,
                     'service_category': jobcard.service_category,
-                    'schedule_datetime': jobcard.next_service_date,
+                    'schedule_datetime': follow_up_schedule,
+                    'time_slot': jobcard.time_slot,
                     'service_cycle': jobcard.service_cycle + 1,
                     'max_cycle': jobcard.max_cycle,
                     'parent_job': jobcard,
@@ -750,6 +759,12 @@ class JobCardService:
                     'client_address': jobcard.client_address,
                     'state': jobcard.state,
                     'city': jobcard.city,
+                    'master_country': jobcard.master_country,
+                    'master_state': jobcard.master_state,
+                    'master_city': jobcard.master_city,
+                    'master_location': jobcard.master_location,
+                    'full_address': jobcard.full_address,
+                    'reference': jobcard.reference,
                     'status': JobCard.JobStatus.UPCOMING,
                     'payment_status': JobCard.PaymentStatus.PAID,  # Mark as paid since it's included in AMC
                     'is_service_call': True,
