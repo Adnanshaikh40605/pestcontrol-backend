@@ -626,6 +626,12 @@ class JobCardService:
 
             jobcard.full_clean()  # Run model validation
             jobcard.save()  # This will create a new record with a new ID and code
+
+            # Mirror service price into total_amount for payment collection on completion
+            price_total = parse_jobcard_price(jobcard.price)
+            if price_total > 0 and (not jobcard.total_amount or jobcard.total_amount <= 0):
+                jobcard.total_amount = price_total
+                jobcard.save(update_fields=['total_amount'])
             
             logger.info(f"Successfully created NEW jobcard {jobcard.code} (ID: {jobcard.id}) for client {client.full_name} (ID: {client.id})")
             return jobcard
@@ -656,7 +662,7 @@ class JobCardService:
             jobcard.max_cycle = max_cycle
             update_fields.append('max_cycle')
 
-        if update_fields:
+        if update_fields and jobcard.pk:
             jobcard.save(update_fields=update_fields)
         return jobcard
 
@@ -1600,17 +1606,37 @@ class CRMInquiryService:
             latest_remark = inquiry.remarks.order_by('-created_at').first()
             notes_text = latest_remark.remark if latest_remark else (inquiry.remark or '')
 
+            from core.service_rates import compute_service_rate_info
+
+            rate_info = compute_service_rate_info(
+                pest_type=inquiry.pest_type,
+                service_frequency=inquiry.service_frequency,
+                location=inquiry.location,
+                service_city=inquiry.master_city.name if inquiry.master_city_id else inquiry.location,
+                remark=notes_text,
+            )
+            quoted_price = rate_info.get('display_total') or rate_info.get('total') or 0
+            area_label = rate_info.get('area_label') or ''
+            if area_label.endswith(' (est.)'):
+                area_label = area_label[:-8]
+
             # 2. Map Inquiry to JobCard fields
             job_card_data = {
                 'client': client.id,
                 'client_address': inquiry.location or '',
                 'service_type': inquiry.pest_type,
                 'service_category': JobCard.ServiceCategory.AMC if inquiry.service_frequency == 'amc' else JobCard.ServiceCategory.ONE_TIME,
+                'bhk_size': area_label or None,
                 'notes': notes_text,
                 'status': 'Pending',
                 'schedule_datetime': timezone.now(),
-                'state': client.state or 'Maharashtra',
-                'city': client.city or 'Pune',
+                'state': inquiry.master_state.name if inquiry.master_state_id else (client.state or 'Maharashtra'),
+                'city': inquiry.master_city.name if inquiry.master_city_id else (client.city or 'Pune'),
+                'master_country': inquiry.master_country_id,
+                'master_state': inquiry.master_state_id,
+                'master_city': inquiry.master_city_id,
+                'master_location': inquiry.master_location_id,
+                'price': str(int(quoted_price)) if quoted_price else '',
                 'reference': 'CRM Inquiry',
             }
             
