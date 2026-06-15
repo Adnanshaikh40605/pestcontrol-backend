@@ -83,6 +83,47 @@ class JobCardCreationTests(TestCase):
         self.assertEqual(job.pending_amount, Decimal('0.00'))
         self.assertEqual(job.payment_status, JobCard.PaymentStatus.PAID)
 
+    def test_update_manual_price_syncs_service_items(self):
+        job = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.schedule,
+            price='1200',
+            total_amount=Decimal('1200.00'),
+            pending_amount=Decimal('1200.00'),
+            reference='Instagram',
+            status=JobCard.JobStatus.ON_PROCESS,
+            service_items=[
+                {
+                    'service': 'Cockroach / Ants',
+                    'plan': 'One Time Service',
+                    'area': '2 BHK',
+                    'amount': 1200,
+                },
+            ],
+        )
+        response = self.api.patch(
+            f'/api/v1/jobcards/{job.id}/',
+            {
+                'price': '1000',
+                'service_items': [
+                    {
+                        'service': 'Cockroach / Ants',
+                        'plan': 'One Time Service',
+                        'area': '2 BHK',
+                        'amount': 1200,
+                    },
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        job.refresh_from_db()
+        self.assertEqual(job.price, '1000')
+        self.assertEqual(job.service_items[0]['amount'], 1000.0)
+        self.assertEqual(job.total_amount, Decimal('1000.00'))
+        self.assertEqual(job.pending_amount, Decimal('1000.00'))
+
 
 class CRMInquiryConversionTests(TestCase):
     def setUp(self):

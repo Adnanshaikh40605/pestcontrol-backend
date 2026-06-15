@@ -24,7 +24,7 @@ from .models import (
     WebsiteLeadRemark,
     RemarkType,
 )
-from .payment_utils import payment_status_label
+from .payment_utils import payment_status_label, parse_jobcard_price, quantize_money
 from .services import JobCardService
 from .service_rates import compute_service_rate_info
 from .remark_serializers import LatestRemarkSummarySerializer
@@ -599,6 +599,30 @@ class JobCardSerializer(serializers.ModelSerializer):
                 data['service_category'] = JobCard.ServiceCategory.ONE_TIME
             if not data.get('bhk_size') and normalized:
                 data['bhk_size'] = normalized[0]['area']
+
+            price_raw = data.get('price')
+            if price_raw is None and self.instance:
+                price_raw = self.instance.price
+            manual_total = parse_jobcard_price(price_raw)
+            if manual_total > 0 and normalized:
+                items_total = sum(parse_jobcard_price(i['amount']) for i in normalized)
+                if abs(manual_total - items_total) > parse_jobcard_price('0.01'):
+                    if len(normalized) == 1:
+                        normalized[0]['amount'] = float(manual_total)
+                    else:
+                        running = parse_jobcard_price('0')
+                        for idx, item in enumerate(normalized):
+                            if idx == len(normalized) - 1:
+                                item['amount'] = float(manual_total - running)
+                            else:
+                                share = quantize_money(
+                                    parse_jobcard_price(item['amount'])
+                                    * manual_total
+                                    / items_total
+                                )
+                                item['amount'] = float(share)
+                                running += share
+                    data['service_items'] = normalized
         
         return data
 
@@ -613,6 +637,18 @@ class JobCardSerializer(serializers.ModelSerializer):
         requested_payment_status = validated_data.get('payment_status')
 
         instance = super().update(instance, validated_data)
+
+        new_price = parse_jobcard_price(instance.price)
+        if new_price > 0:
+            paid = quantize_money(instance.paid_amount)
+            if paid <= 0:
+                instance.total_amount = new_price
+                instance.pending_amount = new_price
+                instance.save(update_fields=['total_amount', 'pending_amount'])
+            elif new_price > paid:
+                instance.total_amount = new_price
+                instance.pending_amount = quantize_money(new_price - paid)
+                instance.save(update_fields=['total_amount', 'pending_amount'])
 
         completing = (
             new_status == JobCard.JobStatus.DONE
