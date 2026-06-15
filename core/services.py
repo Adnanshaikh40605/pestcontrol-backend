@@ -33,6 +33,39 @@ from .payment_utils import (
 )
 
 
+def revenue_service_date_q(
+    *,
+    on_date=None,
+    from_date=None,
+    to_date=None,
+) -> Q:
+    """
+    Attribute done-job revenue to the booking/service date (schedule_datetime).
+
+    Legacy rows without schedule_datetime fall back to completed_at only — never
+    created_at or updated_at, so backfilled historical bookings do not inflate
+    the current month when entered later in the CRM.
+    """
+    scheduled = Q(schedule_datetime__isnull=False)
+    legacy = Q(schedule_datetime__isnull=True, completed_at__isnull=False)
+
+    if on_date is not None:
+        return (scheduled & Q(schedule_datetime__date=on_date)) | (
+            legacy & Q(completed_at__date=on_date)
+        )
+
+    clause = Q()
+    if from_date is not None:
+        clause &= (scheduled & Q(schedule_datetime__date__gte=from_date)) | (
+            legacy & Q(completed_at__date__gte=from_date)
+        )
+    if to_date is not None:
+        clause &= (scheduled & Q(schedule_datetime__date__lte=to_date)) | (
+            legacy & Q(completed_at__date__lte=to_date)
+        )
+    return clause
+
+
 def _is_bed_bug_label(text: str) -> bool:
     normalized = (text or '').lower()
     return 'bed bug' in normalized or 'bedbug' in normalized or 'bed bugs' in normalized
@@ -42,8 +75,9 @@ def _is_cockroach_amc(service: str, plan: str) -> bool:
     svc = (service or '').lower()
     plan_l = (plan or '').lower()
     return ('cockroach' in svc or 'ants' in svc) and 'amc' in plan_l
-from .telegram import notify_new_inquiry
 
+
+from .telegram import notify_new_inquiry
 
 logger = logging.getLogger(__name__)
 
@@ -1337,6 +1371,10 @@ class DashboardService:
             
             yesterday = today - timedelta(days=1)
             month_start = today.replace(day=1)
+            next_month_start = (month_start + timedelta(days=32)).replace(day=1)
+            month_end = next_month_start - timedelta(days=1)
+            last_month_end = month_start - timedelta(days=1)
+            last_month_start = last_month_end.replace(day=1)
             
             # Helper to aggregate revenue safely from CharField 'price'
             def get_revenue(filters):
@@ -1344,59 +1382,54 @@ class DashboardService:
                     total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField()))
                 )['total']
 
-            # Use completed_at if available, fallback to updated_at for legacy/manual marks
-            today_revenue = get_revenue(revenue_filter_base & Q(completed_at__date=today))
-            if today_revenue == 0: # Fallback check
-                today_revenue = get_revenue(revenue_filter_base & Q(updated_at__date=today, completed_at__isnull=True))
+            # Revenue is grouped by service/booking date — not CRM entry or completion date
+            today_revenue = get_revenue(
+                revenue_filter_base & revenue_service_date_q(on_date=today)
+            )
+            yesterday_revenue = get_revenue(
+                revenue_filter_base & revenue_service_date_q(on_date=yesterday)
+            )
+            month_revenue = get_revenue(
+                revenue_filter_base
+                & revenue_service_date_q(from_date=month_start, to_date=month_end)
+            )
 
-            yesterday_revenue = get_revenue(revenue_filter_base & Q(completed_at__date=yesterday))
-            if yesterday_revenue == 0:
-                yesterday_revenue = get_revenue(revenue_filter_base & Q(updated_at__date=yesterday, completed_at__isnull=True))
-
-            # Monthly Revenue for the target chart (Current Month)
-            month_revenue = get_revenue(revenue_filter_base & Q(completed_at__date__gte=month_start))
-            if month_revenue == 0:
-                month_revenue = get_revenue(revenue_filter_base & Q(updated_at__date__gte=month_start, completed_at__isnull=True))
-
-            # For the filtered range revenue
+            # For the filtered range revenue (dashboard date picker)
             range_revenue = 0
             if from_date or to_date:
-                range_filter = Q(revenue_filter_base)
-                if from_date:
-                    range_filter &= Q(completed_at__date__gte=from_date)
-                if to_date:
-                    range_filter &= Q(completed_at__date__lte=to_date)
-                
-                range_revenue = get_revenue(range_filter)
-            else:
-                range_revenue = month_revenue # Default to monthly if no range
-
-            logger.info(f"Dashboard Revenue Stats - Today: {today_revenue}, Yesterday: {yesterday_revenue}, Month: {month_revenue}, Range: {range_revenue}")
-
-            revenue_target = 500000
-            last_month_end = month_start - timedelta(days=1)
-            last_month_start = last_month_end.replace(day=1)
-            last_month_revenue = get_revenue(
-                revenue_filter_base
-                & Q(completed_at__date__gte=last_month_start, completed_at__date__lte=last_month_end)
-            )
-            if last_month_revenue == 0:
-                last_month_revenue = get_revenue(
+                range_revenue = get_revenue(
                     revenue_filter_base
-                    & Q(
-                        updated_at__date__gte=last_month_start,
-                        updated_at__date__lte=last_month_end,
-                        completed_at__isnull=True,
+                    & revenue_service_date_q(
+                        from_date=from_date,
+                        to_date=to_date,
                     )
                 )
+            else:
+                range_revenue = month_revenue
 
-            month_jobs_filter = revenue_filter_base & Q(completed_at__date__gte=month_start)
+            logger.info(
+                'Dashboard Revenue Stats (by service date) - Today: %s, Yesterday: %s, '
+                'Month: %s, Range: %s',
+                today_revenue,
+                yesterday_revenue,
+                month_revenue,
+                range_revenue,
+            )
+
+            revenue_target = 500000
+            last_month_revenue = get_revenue(
+                revenue_filter_base
+                & revenue_service_date_q(
+                    from_date=last_month_start,
+                    to_date=last_month_end,
+                )
+            )
+
+            month_jobs_filter = revenue_filter_base & revenue_service_date_q(
+                from_date=month_start,
+                to_date=month_end,
+            )
             jobs_done_month = JobCard.objects.filter(month_jobs_filter).count()
-            if jobs_done_month == 0:
-                jobs_done_month = JobCard.objects.filter(
-                    revenue_filter_base
-                    & Q(updated_at__date__gte=month_start, completed_at__isnull=True)
-                ).count()
 
             avg_ticket_month = round(month_revenue / jobs_done_month, 2) if jobs_done_month else 0
             month_achievement_pct = (
