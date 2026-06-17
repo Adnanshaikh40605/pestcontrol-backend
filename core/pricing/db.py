@@ -13,7 +13,7 @@ from .lonavala import (
     LONAVALA_SERVICE_TYPES,
     LONAVALA_VILLA_LOCATIONS,
 )
-from .mumbai import MUMBAI_PRICING, MUMBAI_PROPERTY_LOCATIONS, MUMBAI_SERVICE_TYPES
+from .mumbai import MUMBAI_PRICING, MUMBAI_PROPERTY_LOCATIONS, MUMBAI_SERVICE_TYPES, COMMERCIAL_AREA_KEY
 
 # Include common CRM master-data spellings (e.g. "Lonavla" vs "Lonavala").
 LONAVALA_CITY_NAMES = frozenset({'lonavala', 'lonavla'})
@@ -57,6 +57,27 @@ HARDCODED_FOGGING: dict[str, list[str]] = {
     'mumbai': [],
     'lonavala': LONAVALA_MOSQUITO_FOGGING_LOCATIONS,
 }
+
+COMMERCIAL_PROPERTY_TYPES = frozenset({'office', 'other', 'hotel', 'society'})
+
+
+def _append_commercial_area_option(
+    options: list[str],
+    *,
+    commercial_type: str,
+    selected_services: list[str],
+) -> list[str]:
+    """Add Commercial area for office/hotel/society/other bookings."""
+    if commercial_type not in COMMERCIAL_PROPERTY_TYPES:
+        return options
+    residential_svcs = [
+        s for s in selected_services if s not in ('Rodent', 'Hotel / Commercial')
+    ]
+    if not residential_svcs:
+        return options
+    if COMMERCIAL_AREA_KEY not in options:
+        options.append(COMMERCIAL_AREA_KEY)
+    return options
 
 
 def normalize_city_name(city: str | None) -> str:
@@ -225,7 +246,11 @@ def get_area_options(
                 elif service == 'Hotel / Commercial':
                     service_qs = service_qs.filter(property_category='commercial')
             options.extend(service_qs.values_list('area_key', flat=True).distinct())
-        return list(dict.fromkeys(options))
+        return list(dict.fromkeys(_append_commercial_area_option(
+            options,
+            commercial_type=commercial_type,
+            selected_services=services,
+        )))
 
     residential_locs = HARDCODED_RESIDENTIAL.get(resolved, MUMBAI_PROPERTY_LOCATIONS)
     villa_locs = HARDCODED_VILLA.get(resolved, [])
@@ -254,7 +279,11 @@ def get_area_options(
         if 'Hotel / Commercial' in services:
             options.append('Commercial Space')
 
-    return list(dict.fromkeys(options))
+    return list(dict.fromkeys(_append_commercial_area_option(
+        options,
+        commercial_type=commercial_type,
+        selected_services=services,
+    )))
 
 
 def build_pricing_config_payload(

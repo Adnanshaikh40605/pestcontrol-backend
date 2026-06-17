@@ -1,5 +1,7 @@
 """Mumbai / default region pricing — unchanged from legacy CRM Create Booking."""
 
+COMMERCIAL_AREA_KEY = 'Commercial'
+
 MUMBAI_PRICING: dict[str, dict[str, dict[str, int]]] = {
     'Cockroach / Ants': {
         'AMC 3 Services': {
@@ -8,6 +10,7 @@ MUMBAI_PRICING: dict[str, dict[str, dict[str, int]]] = {
             '2 BHK': 2500,
             '3 BHK': 3000,
             '4 BHK': 3500,
+            COMMERCIAL_AREA_KEY: 0,
         },
         'One Time Service': {
             '1 RK': 1000,
@@ -15,6 +18,7 @@ MUMBAI_PRICING: dict[str, dict[str, dict[str, int]]] = {
             '2 BHK': 1500,
             '3 BHK': 1800,
             '4 BHK': 2000,
+            COMMERCIAL_AREA_KEY: 0,
         },
     },
     'Bed Bugs': {
@@ -24,6 +28,7 @@ MUMBAI_PRICING: dict[str, dict[str, dict[str, int]]] = {
             '2 BHK': 3000,
             '3 BHK': 3500,
             '4 BHK': 4000,
+            COMMERCIAL_AREA_KEY: 0,
         },
     },
     'Termite': {
@@ -33,12 +38,14 @@ MUMBAI_PRICING: dict[str, dict[str, dict[str, int]]] = {
             '2 BHK': 3000,
             '3 BHK': 3500,
             '4 BHK': 4000,
+            COMMERCIAL_AREA_KEY: 0,
         },
     },
     'Rodent': {
         'One Time Service': {
             'Windows': 1000,
             'Society Area': 0,
+            COMMERCIAL_AREA_KEY: 0,
         },
     },
     'Mosquito': {
@@ -48,6 +55,7 @@ MUMBAI_PRICING: dict[str, dict[str, dict[str, int]]] = {
             '2 BHK': 1500,
             '3 BHK': 1800,
             '4 BHK': 2000,
+            COMMERCIAL_AREA_KEY: 0,
         },
     },
     'Hotel / Commercial': {

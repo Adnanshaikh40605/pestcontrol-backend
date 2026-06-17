@@ -1,8 +1,8 @@
 from django.test import TestCase
 
-from core.pricing import build_pricing_config_payload, get_pricing_data, pricing_region_for_city
+from core.pricing import build_pricing_config_payload, get_area_options, get_pricing_data, pricing_region_for_city
 from core.pricing.lonavala import LONAVALA_PRICING
-from core.pricing.mumbai import MUMBAI_PRICING
+from core.pricing.mumbai import COMMERCIAL_AREA_KEY, MUMBAI_PRICING
 from core.service_rates import compute_service_rate_info
 
 
@@ -137,3 +137,42 @@ class PricingMasterDbTests(TestCase):
             payload['pricing']['Cockroach / Ants']['One Time Service']['2 BHK'],
             1500,
         )
+
+
+class CommercialAreaOptionTests(TestCase):
+    def test_mumbai_pricing_includes_commercial_area(self):
+        rates = MUMBAI_PRICING['Cockroach / Ants']['One Time Service']
+        self.assertIn(COMMERCIAL_AREA_KEY, rates)
+        self.assertEqual(rates[COMMERCIAL_AREA_KEY], 0)
+
+    def test_get_area_options_other_commercial_includes_commercial(self):
+        options = get_area_options(
+            city='Mumbai',
+            commercial_type='other',
+            selected_services=['Cockroach / Ants'],
+        )
+        self.assertIn('1 BHK', options)
+        self.assertIn(COMMERCIAL_AREA_KEY, options)
+
+    def test_get_area_options_home_excludes_commercial(self):
+        options = get_area_options(
+            city='Mumbai',
+            commercial_type='home',
+            selected_services=['Cockroach / Ants'],
+        )
+        self.assertNotIn(COMMERCIAL_AREA_KEY, options)
+
+    def test_seeded_commercial_area_rate(self):
+        from core.models import PricingRate, PricingRegion
+        from core.pricing.seed import ensure_commercial_area_rates
+
+        ensure_commercial_area_rates()
+        mumbai = PricingRegion.objects.get(slug='mumbai')
+        rate = PricingRate.objects.get(
+            region=mumbai,
+            service_package='Cockroach / Ants',
+            plan_type='One Time Service',
+            area_key=COMMERCIAL_AREA_KEY,
+        )
+        self.assertEqual(int(rate.amount), 0)
+        self.assertEqual(rate.property_category, 'commercial')

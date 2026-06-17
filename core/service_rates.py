@@ -89,7 +89,9 @@ def _normalize_bhk(premise_size: str | None, *extra_sources: str | None) -> str 
         if match:
             key = f"{match.group(1)} bhk"
             return BHK_ALIASES.get(key, f"{match.group(1)} BHK")
-        if text in ('windows', 'society area', 'commercial space'):
+        if text in ('windows', 'society area', 'commercial space', 'commercial'):
+            if text == 'commercial':
+                return 'Commercial'
             return text.title() if text != 'society area' else 'Society Area'
     return None
 

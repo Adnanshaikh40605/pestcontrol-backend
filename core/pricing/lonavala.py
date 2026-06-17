@@ -4,6 +4,8 @@ Residential BHK + Villa/Bungalow sq.ft slabs. Mumbai pricing is unaffected.
 """
 
 # General Pest Control (maps to CRM package "Cockroach / Ants")
+_COMMERCIAL_AREA = 'Commercial'
+
 _GENERAL_PEST_RESIDENTIAL_ONE_TIME = {
     '1 RK': 1000,
     '1 BHK': 1200,
@@ -16,6 +18,7 @@ _GENERAL_PEST_RESIDENTIAL_ONE_TIME = {
     '8 BHK': 3600,
     '9 BHK': 3900,
     '10 BHK': 4200,
+    _COMMERCIAL_AREA: 0,
 }
 _GENERAL_PEST_RESIDENTIAL_AMC = {
     '1 RK': 2500,
@@ -29,6 +32,7 @@ _GENERAL_PEST_RESIDENTIAL_AMC = {
     '8 BHK': 10000,
     '9 BHK': 11000,
     '10 BHK': 12000,
+    _COMMERCIAL_AREA: 0,
 }
 
 # Villa / Bungalow / Farm House — General Pest
@@ -59,6 +63,7 @@ LONAVALA_PRICING: dict[str, dict[str, dict[str, int]]] = {
             '3 BHK': 5000,
             '4 BHK': 6000,
             '5 BHK': 7000,
+            _COMMERCIAL_AREA: 0,
         },
     },
     'Termite': {
@@ -68,6 +73,7 @@ LONAVALA_PRICING: dict[str, dict[str, dict[str, int]]] = {
             '3 BHK': 5500,
             '4 BHK': 6500,
             '5 BHK': 7500,
+            _COMMERCIAL_AREA: 0,
         },
     },
     'Mosquito': {
@@ -78,6 +84,7 @@ LONAVALA_PRICING: dict[str, dict[str, dict[str, int]]] = {
             '3 BHK': 2000,
             '4 BHK': 2500,
             '5 BHK': 3000,
+            _COMMERCIAL_AREA: 0,
             # Mosquito Fogging (villa / large area)
             'Up to 1,000 Sq.Ft.': 1000,
             '1,001-2,000 Sq.Ft.': 1500,

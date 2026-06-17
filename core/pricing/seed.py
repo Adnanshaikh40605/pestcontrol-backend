@@ -38,7 +38,7 @@ RODENT_AREAS = {
 
 
 def infer_property_category(service_package: str, area_key: str) -> str:
-    if area_key == 'Commercial Space':
+    if area_key in ('Commercial Space', 'Commercial'):
         return PricingPropertyCategory.COMMERCIAL
     if area_key in ('Windows', 'Society Area'):
         return PricingPropertyCategory.RODENT
@@ -126,3 +126,35 @@ def seed_pricing_master() -> dict[str, dict[str, int]]:
         'mumbai': {'created': mumbai_created, 'skipped': mumbai_skipped},
         'lonavala': {'created': lonavala_created, 'skipped': lonavala_skipped},
     }
+
+
+def ensure_commercial_area_rates() -> int:
+    """Insert Commercial area rows (amount 0) for office/hotel/society/other bookings."""
+    from .mumbai import COMMERCIAL_AREA_KEY
+
+    created = 0
+    for slug, pricing_table in (('mumbai', MUMBAI_PRICING), ('lonavala', LONAVALA_PRICING)):
+        region = PricingRegion.objects.filter(slug=slug, is_active=True).first()
+        if not region:
+            continue
+        for service_package, plans in pricing_table.items():
+            if service_package == 'Hotel / Commercial':
+                continue
+            for plan_type, areas in plans.items():
+                amount = areas.get(COMMERCIAL_AREA_KEY)
+                if amount is None:
+                    continue
+                _, was_created = PricingRate.objects.get_or_create(
+                    region=region,
+                    service_package=service_package,
+                    plan_type=plan_type,
+                    area_key=COMMERCIAL_AREA_KEY,
+                    defaults={
+                        'amount': Decimal(str(amount)),
+                        'property_category': PricingPropertyCategory.COMMERCIAL,
+                        'is_active': True,
+                    },
+                )
+                if was_created:
+                    created += 1
+    return created
