@@ -277,3 +277,52 @@ class PaymentCollectionSkipTests(TestCase):
         self.assertEqual(response.status_code, 400, response.data)
         pending_main.refresh_from_db()
         self.assertEqual(pending_main.status, JobCard.JobStatus.PENDING)
+
+
+class PendingPaymentReportTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='staff3', password='pass1234')
+        self.client_record = Client.objects.create(full_name='Pending Client', mobile='9876543213')
+        self.main_done = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=datetime(2026, 3, 15, 10, 0, tzinfo=dt_timezone.utc),
+            price='2000',
+            total_amount=Decimal('2000.00'),
+            paid_amount=Decimal('1000.00'),
+            pending_amount=Decimal('1000.00'),
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            payment_status=JobCard.PaymentStatus.PARTIALLY_PAID,
+        )
+        self.follow_up_done = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=datetime(2026, 4, 15, 10, 0, tzinfo=dt_timezone.utc),
+            price='0',
+            total_amount=Decimal('0.00'),
+            paid_amount=Decimal('500.00'),
+            pending_amount=Decimal('500.00'),
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            is_followup_visit=True,
+            included_in_amc=True,
+            booking_category=JobCard.BookingCategory.AMC_FOLLOWUP,
+            payment_status=JobCard.PaymentStatus.PARTIALLY_PAID,
+        )
+        self.api = APIClient()
+        self.api.force_authenticate(user=self.user)
+
+    def test_pending_list_excludes_amc_follow_up(self):
+        response = self.api.get('/api/v1/pending-payments/')
+        self.assertEqual(response.status_code, 200, response.data)
+        ids = [row['id'] for row in response.data['results']]
+        self.assertIn(self.main_done.id, ids)
+        self.assertNotIn(self.follow_up_done.id, ids)
+
+    def test_stats_respect_outstanding_bookings_only(self):
+        response = self.api.get('/api/v1/pending-payments/stats/')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['total_pending_bookings'], 1)
+        self.assertEqual(Decimal(str(response.data['total_outstanding_amount'])), Decimal('1000.00'))
+        self.assertEqual(Decimal(str(response.data['total_collected_amount'])), Decimal('1000.00'))

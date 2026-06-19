@@ -1,0 +1,29 @@
+name: pest99_tracking_app
+description: Pest Control 99 — Field Staff GPS Tracking App
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  go_router: ^17.2.3
+  google_fonts: ^8.1.0
+  dio: ^5.9.0
+  provider: ^6.1.2
+  shared_preferences: ^2.3.3
+  flutter_secure_storage: ^9.2.4
+  geolocator: ^13.0.2
+  permission_handler: ^11.3.1
+  intl: ^0.20.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

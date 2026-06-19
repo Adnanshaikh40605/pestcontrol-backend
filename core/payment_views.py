@@ -18,6 +18,70 @@ from .services import JobCardService
 logger = logging.getLogger(__name__)
 
 
+def billable_outstanding_queryset(request=None):
+    """
+    Done main bookings with an outstanding balance.
+    Excludes AMC follow-ups, complaint/revisit calls, and included AMC visits.
+    """
+    qs = (
+        JobCard.objects.filter(
+            pending_amount__gt=0,
+            status=JobCard.JobStatus.DONE,
+        )
+        .exclude(
+            Q(included_in_amc=True)
+            | Q(is_followup_visit=True)
+            | Q(is_complaint_call=True)
+            | Q(booking_category=JobCard.BookingCategory.AMC_FOLLOWUP)
+            | Q(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
+            | Q(booking_type=JobCard.BookingType.AMC_FOLLOWUP)
+            | Q(booking_type=JobCard.BookingType.COMPLAINT_CALL)
+        )
+        .select_related('client', 'master_city', 'created_by', 'done_by')
+        .prefetch_related('payment_records')
+    )
+
+    if request is None:
+        return qs
+
+    params = request.query_params
+    payment_status = params.get('payment_status', '').strip()
+    if payment_status == 'Fully Paid':
+        qs = qs.filter(pending_amount=0)
+    elif payment_status == 'Partially Paid':
+        qs = qs.filter(payment_status=JobCard.PaymentStatus.PARTIALLY_PAID)
+    elif payment_status == 'Pending':
+        qs = qs.filter(
+            Q(payment_status=JobCard.PaymentStatus.PENDING)
+            | Q(payment_status=JobCard.PaymentStatus.UNPAID)
+        )
+
+    master_city = params.get('master_city') or params.get('service_city')
+    if master_city:
+        qs = qs.filter(master_city_id=master_city)
+
+    created_by = params.get('created_by')
+    if created_by:
+        qs = qs.filter(created_by_id=created_by)
+
+    date_from = params.get('date_from') or params.get('booking_date_from')
+    date_to = params.get('date_to') or params.get('booking_date_to')
+    if date_from:
+        qs = qs.filter(schedule_datetime__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(schedule_datetime__date__lte=date_to)
+
+    search = params.get('search', '').strip()
+    if search:
+        qs = qs.filter(
+            Q(code__icontains=search)
+            | Q(client__full_name__icontains=search)
+            | Q(client__mobile__icontains=search)
+        )
+
+    return qs
+
+
 class PendingPaymentViewSet(viewsets.ReadOnlyModelViewSet):
     """
     List and manage bookings with outstanding balances.
@@ -30,53 +94,15 @@ class PendingPaymentViewSet(viewsets.ReadOnlyModelViewSet):
     ordering = ['-created_at']
 
     def get_queryset(self):
-        qs = (
-            JobCard.objects.filter(pending_amount__gt=0, status=JobCard.JobStatus.DONE)
-            .select_related(
-                'client', 'master_city', 'created_by', 'done_by',
-            )
-            .prefetch_related('payment_records')
-        )
-
-        params = self.request.query_params
-        payment_status = params.get('payment_status', '').strip()
-        if payment_status == 'Fully Paid':
-            qs = qs.filter(pending_amount=0)
-        elif payment_status == 'Partially Paid':
-            qs = qs.filter(payment_status=JobCard.PaymentStatus.PARTIALLY_PAID)
-        elif payment_status == 'Pending':
-            qs = qs.filter(
-                Q(payment_status=JobCard.PaymentStatus.PENDING)
-                | Q(payment_status=JobCard.PaymentStatus.UNPAID)
-            )
-
-        master_city = params.get('master_city') or params.get('service_city')
-        if master_city:
-            qs = qs.filter(master_city_id=master_city)
-
-        created_by = params.get('created_by')
-        if created_by:
-            qs = qs.filter(created_by_id=created_by)
-
-        date_from = params.get('date_from') or params.get('booking_date_from')
-        date_to = params.get('date_to') or params.get('booking_date_to')
-        if date_from:
-            qs = qs.filter(created_at__date__gte=date_from)
-        if date_to:
-            qs = qs.filter(created_at__date__lte=date_to)
-
-        return qs
+        return billable_outstanding_queryset(self.request)
 
     @extend_schema(summary='Pending payment dashboard stats')
     @decorators.action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):
-        base_qs = JobCard.objects.filter(
-            pending_amount__gt=0,
-            status=JobCard.JobStatus.DONE,
-        )
-        aggregates = base_qs.aggregate(
+        filtered_qs = billable_outstanding_queryset(request)
+        aggregates = filtered_qs.aggregate(
             total_outstanding=Sum('pending_amount'),
-            total_collected=Sum('paid_amount'),
+            paid_on_outstanding=Sum('paid_amount'),
         )
         today = timezone.localdate()
         start = timezone.make_aware(datetime.combine(today, time.min))
@@ -86,11 +112,16 @@ class PendingPaymentViewSet(viewsets.ReadOnlyModelViewSet):
             .aggregate(total=Sum('amount'))
             .get('total')
         )
+        lifetime_collected = (
+            BookingPayment.objects.aggregate(total=Sum('amount')).get('total')
+        )
 
         return Response({
             'total_outstanding_amount': aggregates['total_outstanding'] or 0,
-            'total_collected_amount': aggregates['total_collected'] or 0,
-            'total_pending_bookings': base_qs.count(),
+            # Paid portion on currently outstanding bookings (filtered).
+            'total_collected_amount': aggregates['paid_on_outstanding'] or 0,
+            'lifetime_collected_amount': lifetime_collected or 0,
+            'total_pending_bookings': filtered_qs.count(),
             'todays_collections': todays_collections or 0,
         })
 

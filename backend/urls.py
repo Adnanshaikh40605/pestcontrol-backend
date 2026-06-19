@@ -86,6 +86,7 @@ urlpatterns = [
     # API endpoints
     path('api/', include('core.urls')),
     path('api/partner/', include('partner.urls')),
+    path('api/staff-tracking/', include('staff_tracking.urls')),
 
     # Blog CMS APIs
     path('api/', include('blog.urls', namespace='blog')),

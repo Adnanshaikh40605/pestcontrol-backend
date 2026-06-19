@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     'drf_spectacular',  # OpenAPI 3.0 documentation
     'core',
     'partner',
+    'staff_tracking',
     'blog',
 ]
 
@@ -262,6 +263,7 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'partner.authentication.PartnerJWTAuthentication',
+        'staff_tracking.authentication.StaffTrackingAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
@@ -285,6 +287,8 @@ REST_FRAMEWORK = {
         # Partner app: per technician (see partner.throttling.PartnerRateThrottle)
         'partner': '3000/hour',
         'partner_auth': '60/min',
+        'staff_tracking': '6000/hour',
+        'staff_tracking_auth': '60/min',
     }
 }
 

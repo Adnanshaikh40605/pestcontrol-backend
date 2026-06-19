@@ -639,7 +639,7 @@ class JobCardSerializer(serializers.ModelSerializer):
         instance = super().update(instance, validated_data)
 
         new_price = parse_jobcard_price(instance.price)
-        if new_price > 0:
+        if new_price > 0 and instance.status == JobCard.JobStatus.DONE:
             paid = quantize_money(instance.paid_amount)
             if paid <= 0:
                 instance.total_amount = new_price
