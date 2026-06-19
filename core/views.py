@@ -2404,43 +2404,19 @@ class JobCardViewSet(BaseModelViewSet):
         """Get simplified reference report with reference_name and reference_count."""
         try:
             from django.db.models import Count
-            
-            # Define all possible reference sources
-            all_references = [
-                'Google', 'SMS', 'Calling Data', 'website', 'Play Store', 'previous client',
-                'Facebook', 'YouTube', 'LinkedIn', 'Instagram', 'WhatsApp',
-                'Justdial', 'poster', 'other', 'friend reference', 
-                'no parking board', 'holding'
-            ]
-            
-            # Get actual counts from database
+
+            from core.reference_sources import build_reference_report_rows
+
             reference_counts = JobCard.objects.values('reference').annotate(
                 count=Count('id')
             ).order_by('-count')
-            
-            # Create a dictionary for quick lookup
-            counts_dict = {}
+
+            counts_dict: dict[str, int] = {}
             for item in reference_counts:
-                reference_name = item['reference'] or 'other'
-                counts_dict[reference_name] = item['count']
-            
-            # Build the response with all references, including those with 0 count
-            result = []
-            for reference in all_references:
-                result.append({
-                    'reference_name': reference,
-                    'reference_count': counts_dict.get(reference, 0)
-                })
-            
-            # Add any additional references found in database that aren't in our predefined list
-            for reference_name, count in counts_dict.items():
-                if reference_name not in all_references:
-                    result.append({
-                        'reference_name': reference_name,
-                        'reference_count': count
-                    })
-            
-            return response.Response(result)
+                reference_name = item['reference'] or 'Other'
+                counts_dict[reference_name] = counts_dict.get(reference_name, 0) + item['count']
+
+            return response.Response(build_reference_report_rows(counts_dict))
             
         except Exception as e:
             logger.error(f"Error generating reference report: {e}")
