@@ -655,32 +655,51 @@ class JobCardSerializer(serializers.ModelSerializer):
             and old_status != JobCard.JobStatus.DONE
         )
         if completing:
-            collection_type = (payment_collection_type or '').strip().lower() or 'full'
-            if (
-                not payment_collection_type
-                and requested_payment_status == JobCard.PaymentStatus.PAID
-                and completion_paid_amount is None
-                and completion_pending_amount is None
-            ):
-                collection_type = 'full'
+            from .payment_utils import requires_payment_on_completion
 
-            request = self.context.get('request')
-            user = request.user if request else None
-            try:
-                JobCardService.apply_completion_payment(
-                    instance,
-                    user=user,
-                    payment_mode=payment_mode or JobCard.PaymentMode.CASH,
-                    collection_type=collection_type,
-                    paid_amount=completion_paid_amount,
-                    pending_amount=completion_pending_amount,
-                    remarks=payment_remarks,
+            if requires_payment_on_completion(instance):
+                collection_type = (payment_collection_type or '').strip().lower() or 'full'
+                if (
+                    not payment_collection_type
+                    and requested_payment_status == JobCard.PaymentStatus.PAID
+                    and completion_paid_amount is None
+                    and completion_pending_amount is None
+                ):
+                    collection_type = 'full'
+
+                has_payment_payload = bool(
+                    (payment_collection_type or '').strip()
+                    or completion_paid_amount is not None
+                    or completion_pending_amount is not None
+                    or (
+                        requested_payment_status == JobCard.PaymentStatus.PAID
+                        and payment_mode
+                    )
                 )
-            except DjangoValidationError as exc:
-                if hasattr(exc, 'message_dict'):
-                    raise serializers.ValidationError(exc.message_dict)
-                raise serializers.ValidationError(str(exc))
-            instance.refresh_from_db()
+                if not has_payment_payload:
+                    raise serializers.ValidationError({
+                        'payment_collection_type': (
+                            'Payment collection is required when completing this booking.'
+                        ),
+                    })
+
+                request = self.context.get('request')
+                user = request.user if request else None
+                try:
+                    JobCardService.apply_completion_payment(
+                        instance,
+                        user=user,
+                        payment_mode=payment_mode or JobCard.PaymentMode.CASH,
+                        collection_type=collection_type,
+                        paid_amount=completion_paid_amount,
+                        pending_amount=completion_pending_amount,
+                        remarks=payment_remarks,
+                    )
+                except DjangoValidationError as exc:
+                    if hasattr(exc, 'message_dict'):
+                        raise serializers.ValidationError(exc.message_dict)
+                    raise serializers.ValidationError(str(exc))
+                instance.refresh_from_db()
 
         return instance
 

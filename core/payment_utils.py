@@ -119,3 +119,49 @@ def resolve_completion_amounts(
 
     validate_payment_amounts(total, paid, pending)
     return paid, pending
+
+
+def requires_payment_on_completion(jobcard) -> bool:
+    """
+    True only for the first/main paid booking in a flow (new booking, AMC cycle 1).
+    Follow-ups, complaint/revisit calls, and included AMC visits are completed
+    without collecting payment again.
+    """
+    from .models import JobCard
+
+    if jobcard.is_complaint_call:
+        return False
+    if jobcard.booking_category == JobCard.BookingCategory.COMPLAINT_CALL:
+        return False
+    if jobcard.booking_type == JobCard.BookingType.COMPLAINT_CALL:
+        return False
+
+    if jobcard.included_in_amc:
+        return False
+    if jobcard.is_followup_visit:
+        return False
+    if jobcard.booking_category == JobCard.BookingCategory.AMC_FOLLOWUP:
+        return False
+    if jobcard.booking_type == JobCard.BookingType.AMC_FOLLOWUP:
+        return False
+
+    if jobcard.is_service_call:
+        return False
+    if jobcard.booking_category == JobCard.BookingCategory.SERVICE_CALL:
+        return False
+    if jobcard.booking_type == JobCard.BookingType.SERVICE_CALL:
+        return False
+
+    if jobcard.parent_job_id and (jobcard.service_cycle or 1) > 1:
+        return False
+
+    total = parse_jobcard_price(jobcard.total_amount or jobcard.price)
+    if total <= 0:
+        return False
+
+    paid = quantize_money(jobcard.paid_amount)
+    pending = quantize_money(jobcard.pending_amount)
+    if paid >= total and pending <= 0:
+        return False
+
+    return True
