@@ -17,6 +17,9 @@ class TrackingSettings(BaseModel):
     shift_start_time = models.TimeField(default=time(9, 0))
     shift_end_time = models.TimeField(default=time(18, 0))
     grace_minutes = models.PositiveIntegerField(default=15)
+    visit_checkin_radius_m = models.PositiveIntegerField(default=100)
+    missed_visit_grace_minutes = models.PositiveIntegerField(default=30)
+    travel_rate_per_km = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('8.00'))
 
     class Meta:
         verbose_name = 'Tracking Settings'
@@ -89,6 +92,14 @@ class AttendanceSession(BaseModel):
         ACTIVE = 'active', 'Active'
         COMPLETED = 'completed', 'Completed'
 
+    class AttendanceResult(models.TextChoices):
+        PRESENT = 'present', 'Present'
+        LATE = 'late', 'Late'
+        HALF_DAY = 'half_day', 'Half Day'
+        EARLY_DEPARTURE = 'early_departure', 'Early Departure'
+        ABSENT = 'absent', 'Absent'
+        ON_LEAVE = 'on_leave', 'On Leave'
+
     profile = models.ForeignKey(
         TrackingProfile,
         on_delete=models.CASCADE,
@@ -116,6 +127,21 @@ class AttendanceSession(BaseModel):
     total_distance_km = models.DecimalField(
         max_digits=8, decimal_places=2, default=Decimal('0.00'),
     )
+    shift = models.ForeignKey(
+        'Shift',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='attendance_sessions',
+    )
+    attendance_result = models.CharField(
+        max_length=20,
+        choices=AttendanceResult.choices,
+        blank=True,
+        db_index=True,
+    )
+    working_minutes = models.PositiveIntegerField(null=True, blank=True)
+    is_late = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         verbose_name = 'Attendance Session'
@@ -171,3 +197,22 @@ class LocationPing(BaseModel):
 
     def __str__(self):
         return f'Ping {self.profile_id} @ {self.recorded_at}'
+
+
+# Operations models (visits, tasks, leave, expenses, geo-fences)
+from .operations_models import (  # noqa: E402, F401
+    AttendanceBreak,
+    ExpenseCategory,
+    ExpenseClaim,
+    ExpenseReceipt,
+    FieldVisit,
+    GeofenceZone,
+    LeaveApplication,
+    LeaveBalance,
+    LeaveType,
+    OrgHoliday,
+    Shift,
+    StaffTask,
+    TaskComment,
+    VisitPhoto,
+)

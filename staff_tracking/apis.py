@@ -17,7 +17,7 @@ from partner.utils import PartnerTokenError, generate_partner_tokens, refresh_pa
 
 from .identity import resolve_profile_from_request
 from .models import AttendanceSession, LocationPing, TrackingConsent, TrackingProfile, TrackingSettings
-from .permissions import IsCRMTrackingAdmin, IsCRMTrackingViewer, IsTrackedStaff
+from .permissions import IsCRMTrackingAdmin, IsCRMTrackingViewer, IsTrackedStaff, IsTrackingLiveViewer
 from .serializers import (
     AttendanceSessionSerializer,
     GPSPointSerializer,
@@ -77,6 +77,7 @@ class LoginAPIView(TrackingPublicAPIView):
 
         mobile = normalize_mobile(serializer.validated_data['mobile'])
         password = serializer.validated_data['password']
+        app_mode = serializer.validated_data.get('app_mode', 'technician')
 
         # 1) Partner (primary field staff)
         partner = Partner.objects.filter(mobile=mobile).first()
@@ -84,18 +85,50 @@ class LoginAPIView(TrackingPublicAPIView):
             if not partner.is_active:
                 return Response({'error': 'Account deactivated.'}, status=status.HTTP_403_FORBIDDEN)
             if partner.check_password(password):
+                if app_mode == 'technician_admin':
+                    if partner.role != Partner.Role.TECHNICIAN_ADMIN:
+                        return Response(
+                            {'error': 'This account is not authorized for Technician Admin access.'},
+                            status=status.HTTP_403_FORBIDDEN,
+                        )
+                elif app_mode == 'technician' and partner.role == Partner.Role.TECHNICIAN_ADMIN:
+                    from .identity import resolve_profile_from_partner
+                    if resolve_profile_from_partner(partner) is None:
+                        return Response(
+                            {'error': 'No field profile linked. Use Technician Admin mode to monitor staff.'},
+                            status=status.HTTP_403_FORBIDDEN,
+                        )
+
                 tokens = generate_partner_tokens(partner)
                 return Response({
                     **tokens,
                     'auth_type': 'partner',
                     'partner': PartnerSerializer(partner).data,
                     'is_app_approved': partner.is_app_approved,
+                    'app_mode': app_mode,
                 })
 
-        # 2) CRM User (field staff with technician row)
+        # 2) CRM User (field staff with technician row, or admin)
         User = get_user_model()
         user = User.objects.filter(username=mobile).first()
         if user and user.check_password(password) and user.is_active:
+            from core.roles import ROLE_ADMIN, ROLE_SUPER_ADMIN, get_user_role
+            user_role = get_user_role(user)
+
+            if app_mode == 'technician_admin':
+                if user_role not in {ROLE_SUPER_ADMIN, ROLE_ADMIN}:
+                    return Response(
+                        {'error': 'This account is not authorized for Technician Admin access.'},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            elif app_mode == 'technician':
+                from .identity import resolve_profile_from_user
+                if resolve_profile_from_user(user) is None:
+                    return Response(
+                        {'error': 'No technician profile linked to this account.'},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
             token_serializer = CustomTokenObtainPairSerializer(
                 data={'username': mobile, 'password': password},
                 context={'request': request},
@@ -111,6 +144,7 @@ class LoginAPIView(TrackingPublicAPIView):
                     'role': data.get('role'),
                     'first_name': data.get('first_name'),
                     'last_name': data.get('last_name'),
+                    'app_mode': app_mode,
                 })
 
         return Response({'error': 'Invalid mobile or password.'}, status=status.HTTP_401_UNAUTHORIZED)
@@ -324,8 +358,10 @@ class CRMBaseAPIView(APIView):
     permission_classes = [IsCRMTrackingViewer]
 
 
-class LiveStaffAPIView(CRMBaseAPIView):
+class LiveStaffAPIView(TrackingAPIView):
     """GET /api/staff-tracking/live/ — all staff with last known location."""
+
+    permission_classes = [IsTrackingLiveViewer]
 
     def get(self, request):
         profiles = (

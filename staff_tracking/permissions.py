@@ -4,6 +4,17 @@ from core.permissions import IsCRMOperationalUser
 from core.roles import ROLE_ADMIN, ROLE_SUPER_ADMIN, get_user_role
 
 
+def is_mobile_tracking_admin(request) -> bool:
+    """Partner technician_admin or CRM admin/super_admin."""
+    partner = getattr(request, 'partner', None)
+    if partner and partner.is_active and partner.role == 'technician_admin':
+        return True
+    user = getattr(request, 'user', None)
+    if user and user.is_authenticated and get_user_role(user) in {ROLE_SUPER_ADMIN, ROLE_ADMIN}:
+        return True
+    return False
+
+
 class IsCRMTrackingViewer(BasePermission):
     """CRM users who can view staff tracking dashboards."""
 
@@ -35,3 +46,12 @@ class IsPartnerOrCRMTrackingViewer(BasePermission):
         if IsTrackedStaff().has_permission(request, view):
             return True
         return IsCRMTrackingViewer().has_permission(request, view)
+
+
+class IsTrackingLiveViewer(BasePermission):
+    """CRM staff or mobile Technician Admin — live map / all technicians."""
+
+    def has_permission(self, request, view):
+        if IsCRMTrackingViewer().has_permission(request, view):
+            return True
+        return is_mobile_tracking_admin(request)

@@ -11,6 +11,10 @@ from .models import (
 class TrackingLoginSerializer(serializers.Serializer):
     mobile = serializers.CharField(max_length=15)
     password = serializers.CharField(write_only=True)
+    app_mode = serializers.ChoiceField(
+        choices=['technician', 'technician_admin'],
+        default='technician',
+    )
 
 
 class GPSPointSerializer(serializers.Serializer):
@@ -39,6 +43,9 @@ class TrackingSettingsSerializer(serializers.ModelSerializer):
             'shift_start_time',
             'shift_end_time',
             'grace_minutes',
+            'visit_checkin_radius_m',
+            'missed_visit_grace_minutes',
+            'travel_rate_per_km',
         ]
 
 
@@ -64,7 +71,6 @@ class TrackingProfileSerializer(serializers.ModelSerializer):
 class AttendanceSessionSerializer(serializers.ModelSerializer):
     staff_name = serializers.CharField(source='profile.display_name', read_only=True)
     technician_id = serializers.IntegerField(source='profile.technician_id', read_only=True)
-    is_late = serializers.SerializerMethodField()
 
     class Meta:
         model = AttendanceSession
@@ -82,11 +88,9 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
             'check_out_longitude',
             'total_distance_km',
             'is_late',
+            'working_minutes',
+            'attendance_result',
         ]
-
-    def get_is_late(self, obj):
-        from .services import is_late_checkin
-        return is_late_checkin(obj.check_in_at)
 
 
 class LocationPingSerializer(serializers.ModelSerializer):

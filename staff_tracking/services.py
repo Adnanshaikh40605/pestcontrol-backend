@@ -74,6 +74,7 @@ def check_in(
         check_in_latitude=latitude,
         check_in_longitude=longitude,
         check_in_accuracy_m=accuracy_m,
+        is_late=is_late_checkin(now),
     )
 
     profile.technician.last_active = now
@@ -102,6 +103,9 @@ def check_out(
     session.status = AttendanceSession.Status.COMPLETED
     session.total_distance_km = compute_session_distance(session)
     session.save()
+
+    from .operations_services import finalize_attendance
+    finalize_attendance(session)
 
     profile.technician.last_active = now
     profile.technician.save(update_fields=['last_active', 'updated_at'])
