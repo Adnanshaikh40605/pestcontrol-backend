@@ -24,7 +24,12 @@ from .models import (
     WebsiteLeadRemark,
     RemarkType,
 )
-from .payment_utils import payment_status_label, parse_jobcard_price, quantize_money
+from .payment_utils import (
+    payment_status_label,
+    parse_jobcard_price,
+    quantize_money,
+    sync_jobcard_amounts_from_price,
+)
 from .services import JobCardService
 from .service_rates import compute_service_rate_info
 from .remark_serializers import LatestRemarkSummarySerializer
@@ -600,12 +605,16 @@ class JobCardSerializer(serializers.ModelSerializer):
             if not data.get('bhk_size') and normalized:
                 data['bhk_size'] = normalized[0]['area']
 
+            items_total = sum(parse_jobcard_price(i['amount']) for i in normalized)
             price_raw = data.get('price')
             if price_raw is None and self.instance:
                 price_raw = self.instance.price
             manual_total = parse_jobcard_price(price_raw)
-            if manual_total > 0 and normalized:
-                items_total = sum(parse_jobcard_price(i['amount']) for i in normalized)
+            items_were_updated = 'service_items' in data
+
+            if items_total > 0 and items_were_updated:
+                data['price'] = str(float(items_total))
+            elif manual_total > 0 and normalized:
                 if abs(manual_total - items_total) > parse_jobcard_price('0.01'):
                     if len(normalized) == 1:
                         normalized[0]['amount'] = float(manual_total)
@@ -623,6 +632,9 @@ class JobCardSerializer(serializers.ModelSerializer):
                                 item['amount'] = float(share)
                                 running += share
                     data['service_items'] = normalized
+                items_total = sum(parse_jobcard_price(i['amount']) for i in normalized)
+                if items_total > 0:
+                    data['price'] = str(float(items_total))
         
         return data
 
@@ -638,17 +650,8 @@ class JobCardSerializer(serializers.ModelSerializer):
 
         instance = super().update(instance, validated_data)
 
-        new_price = parse_jobcard_price(instance.price)
-        if new_price > 0 and instance.status == JobCard.JobStatus.DONE:
-            paid = quantize_money(instance.paid_amount)
-            if paid <= 0:
-                instance.total_amount = new_price
-                instance.pending_amount = new_price
-                instance.save(update_fields=['total_amount', 'pending_amount'])
-            elif new_price > paid:
-                instance.total_amount = new_price
-                instance.pending_amount = quantize_money(new_price - paid)
-                instance.save(update_fields=['total_amount', 'pending_amount'])
+        sync_jobcard_amounts_from_price(instance)
+        instance.refresh_from_db()
 
         completing = (
             new_status == JobCard.JobStatus.DONE
@@ -677,6 +680,8 @@ class JobCardSerializer(serializers.ModelSerializer):
                     )
                 )
                 if not has_payment_payload:
+                    instance.status = old_status
+                    instance.save(update_fields=['status', 'updated_at'])
                     raise serializers.ValidationError({
                         'payment_collection_type': (
                             'Payment collection is required when completing this booking.'
@@ -696,6 +701,8 @@ class JobCardSerializer(serializers.ModelSerializer):
                         remarks=payment_remarks,
                     )
                 except DjangoValidationError as exc:
+                    instance.status = old_status
+                    instance.save(update_fields=['status', 'updated_at'])
                     if hasattr(exc, 'message_dict'):
                         raise serializers.ValidationError(exc.message_dict)
                     raise serializers.ValidationError(str(exc))

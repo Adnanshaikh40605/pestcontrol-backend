@@ -884,9 +884,11 @@ class JobCardService:
         remarks: str = '',
     ) -> JobCard:
         """Record payment split when a booking is marked Done."""
-        total = parse_jobcard_price(jobcard.price)
-        if jobcard.total_amount and jobcard.total_amount > 0:
-            total = quantize_money(jobcard.total_amount)
+        from .payment_utils import effective_service_total, sync_jobcard_amounts_from_price
+
+        sync_jobcard_amounts_from_price(jobcard)
+        jobcard.refresh_from_db(fields=['total_amount', 'paid_amount', 'pending_amount', 'payment_status', 'price', 'service_items', 'updated_at'])
+        total = effective_service_total(jobcard)
 
         paid, pending = resolve_completion_amounts(
             total,

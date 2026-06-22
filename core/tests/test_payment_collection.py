@@ -9,9 +9,11 @@ from rest_framework.test import APIClient
 from core.models import BookingPayment, Client, JobCard
 from core.payment_utils import (
     derive_payment_status,
+    effective_service_total,
     parse_jobcard_price,
     requires_payment_on_completion,
     resolve_completion_amounts,
+    sync_jobcard_amounts_from_price,
     validate_payment_amounts,
 )
 from core.services import JobCardService
@@ -68,6 +70,42 @@ class PaymentUtilsTests(TestCase):
             JobCard.PaymentStatus.PENDING,
         )
 
+    def test_effective_service_total_prefers_updated_items_when_unpaid(self):
+        job = JobCard(
+            price='5000',
+            total_amount=Decimal('5000.00'),
+            paid_amount=Decimal('0.00'),
+            service_items=[{
+                'service': 'Cockroach / Ants',
+                'plan': 'One Time Service',
+                'area': '2 BHK',
+                'amount': 2500,
+            }],
+        )
+        self.assertEqual(effective_service_total(job), Decimal('2500.00'))
+
+    def test_sync_jobcard_amounts_from_price_updates_stale_total(self):
+        job = JobCard.objects.create(
+            client=Client.objects.create(full_name='Sync Client', mobile='9876500001'),
+            service_type='Cockroach / Ants',
+            schedule_datetime=datetime(2026, 6, 11, 10, 0, tzinfo=dt_timezone.utc),
+            price='2500',
+            total_amount=Decimal('5000.00'),
+            pending_amount=Decimal('5000.00'),
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            service_items=[{
+                'service': 'Cockroach / Ants',
+                'plan': 'One Time Service',
+                'area': '2 BHK',
+                'amount': 2500,
+            }],
+        )
+        sync_jobcard_amounts_from_price(job)
+        job.refresh_from_db()
+        self.assertEqual(job.total_amount, Decimal('2500.00'))
+        self.assertEqual(job.pending_amount, Decimal('2500.00'))
+
 
 class PaymentCollectionAPITests(TestCase):
     def setUp(self):
@@ -84,6 +122,56 @@ class PaymentCollectionAPITests(TestCase):
         )
         self.api = APIClient()
         self.api.force_authenticate(user=self.user)
+
+    def test_price_change_amc_to_one_time_before_completion(self):
+        self.job.price = '5000'
+        self.job.total_amount = Decimal('5000.00')
+        self.job.pending_amount = Decimal('5000.00')
+        self.job.service_category = JobCard.ServiceCategory.AMC
+        self.job.service_items = [{
+            'service': 'Cockroach / Ants',
+            'plan': 'AMC 3 Services',
+            'area': '2 BHK',
+            'amount': 5000,
+        }]
+        self.job.save()
+
+        response = self.api.patch(
+            f'/api/v1/jobcards/{self.job.id}/',
+            {
+                'service_category': JobCard.ServiceCategory.ONE_TIME,
+                'service_items': [{
+                    'service': 'Cockroach / Ants',
+                    'plan': 'One Time Service',
+                    'area': '2 BHK',
+                    'amount': 2500,
+                }],
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.job.refresh_from_db()
+        self.assertEqual(parse_jobcard_price(self.job.price), Decimal('2500.00'))
+        self.assertEqual(self.job.total_amount, Decimal('2500.00'))
+        self.assertEqual(self.job.pending_amount, Decimal('2500.00'))
+        self.assertEqual(
+            Decimal(str(response.data['total_amount'])),
+            Decimal('2500.00'),
+        )
+
+        response = self.api.patch(
+            f'/api/v1/jobcards/{self.job.id}/',
+            {
+                'status': 'Done',
+                'payment_mode': 'Cash',
+                'payment_collection_type': 'full',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.paid_amount, Decimal('2500.00'))
+        self.assertEqual(self.job.pending_amount, Decimal('0.00'))
 
     def test_complete_booking_half_payment(self):
         response = self.api.patch(

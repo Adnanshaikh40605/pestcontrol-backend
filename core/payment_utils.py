@@ -69,6 +69,72 @@ def derive_payment_status(paid: Decimal, pending: Decimal, total: Decimal) -> st
     return JobCard.PaymentStatus.PARTIALLY_PAID
 
 
+def _service_items_total(jobcard) -> Decimal:
+    items = jobcard.service_items or []
+    if not isinstance(items, list) or not items:
+        return Decimal('0.00')
+    total = Decimal('0.00')
+    for item in items:
+        if isinstance(item, dict):
+            total += parse_jobcard_price(item.get('amount'))
+    return quantize_money(total)
+
+
+def effective_service_total(jobcard) -> Decimal:
+    """
+    Service amount due for payment UI and completion.
+    Prefers current price / line items over stale total_amount when unpaid.
+    """
+    price_total = parse_jobcard_price(jobcard.price)
+    items_total = _service_items_total(jobcard)
+    stored_total = quantize_money(jobcard.total_amount or 0)
+    paid = quantize_money(jobcard.paid_amount)
+
+    if paid <= 0:
+        if items_total > 0:
+            return items_total
+        if price_total > 0:
+            return price_total
+        return stored_total
+
+    if price_total > 0 and price_total >= paid:
+        return price_total
+    if items_total > 0 and items_total >= paid:
+        return items_total
+    if stored_total >= paid:
+        return stored_total
+    return price_total if price_total > 0 else items_total
+
+
+def sync_jobcard_amounts_from_price(jobcard, *, save: bool = True) -> list[str]:
+    """
+    Keep total_amount / pending_amount aligned with the current quoted service price.
+    Called when staff edits a booking before completion payment is recorded.
+    """
+    total = effective_service_total(jobcard)
+    if total <= 0:
+        return []
+
+    paid = quantize_money(jobcard.paid_amount)
+    pending = quantize_money(total - paid) if paid > 0 else total
+    status = derive_payment_status(paid, pending, total)
+
+    update_fields = []
+    if quantize_money(jobcard.total_amount or 0) != total:
+        jobcard.total_amount = total
+        update_fields.append('total_amount')
+    if quantize_money(jobcard.pending_amount or 0) != pending:
+        jobcard.pending_amount = pending
+        update_fields.append('pending_amount')
+    if jobcard.payment_status != status:
+        jobcard.payment_status = status
+        update_fields.append('payment_status')
+
+    if update_fields and save:
+        jobcard.save(update_fields=update_fields + ['updated_at'])
+    return update_fields
+
+
 def payment_status_label(status: str, pending: Decimal) -> str:
     """Human-readable payment status for CRM."""
     from .models import JobCard
@@ -155,7 +221,7 @@ def requires_payment_on_completion(jobcard) -> bool:
     if jobcard.parent_job_id and (jobcard.service_cycle or 1) > 1:
         return False
 
-    total = parse_jobcard_price(jobcard.total_amount or jobcard.price)
+    total = effective_service_total(jobcard)
     if total <= 0:
         return False
 
