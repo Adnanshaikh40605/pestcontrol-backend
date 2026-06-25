@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from core.models import CRMInquiry, Client, JobCard
+from core.models import City, Client, Country, CRMInquiry, JobCard, Location, State
 from core.services import CRMInquiryService, JobCardService
 
 
@@ -16,6 +16,15 @@ class JobCardCreationTests(TestCase):
         self.schedule = datetime(2026, 6, 15, 10, 0, tzinfo=dt_timezone.utc)
         self.api = APIClient()
         self.api.force_authenticate(user=self.user)
+        country, _ = Country.objects.get_or_create(name='India')
+        state, _ = State.objects.get_or_create(country=country, name='Maharashtra Test')
+        city, _ = City.objects.get_or_create(state=state, name='Mumbai Test')
+        norm = Location.normalize_text('API Test Area')
+        self.location, _ = Location.objects.get_or_create(
+            city=city,
+            normalized_name=norm,
+            defaults={'name': 'API Test Area'},
+        )
 
     def test_create_amc_booking_sets_next_service_without_pk_error(self):
         job = JobCardService.create_jobcard(
@@ -52,6 +61,7 @@ class JobCardCreationTests(TestCase):
                 'price': '3000',
                 'reference': 'Poster',
                 'status': 'Pending',
+                'master_location': self.location.id,
             },
             format='json',
         )

@@ -340,6 +340,11 @@ class JobCardSerializer(serializers.ModelSerializer):
     is_accepted = serializers.BooleanField(read_only=True)
     is_service_call = serializers.BooleanField(read_only=True)
     booking_priority = serializers.SerializerMethodField()
+    service_timeline = serializers.SerializerMethodField()
+
+    def get_service_timeline(self, obj):
+        from core.booking_schedule_engine import BookingScheduleEngine
+        return BookingScheduleEngine.service_timeline_for(obj)
 
     def get_booking_priority(self, obj):
         return getattr(obj, 'booking_priority', 0)
@@ -378,7 +383,9 @@ class JobCardSerializer(serializers.ModelSerializer):
             'assigned_to', 'technician', 'technician_name', 'technician_mobile', 
             'partner', 'partner_name', 'partner_status', 'sent_to_app_at', 'sent_to_app',
             'job_start_selfie', 'job_start_selfie_url',
-            'next_service_date', 'service_cycle', 'max_cycle', 'parent_job', 'notes', 'is_paused', 'reference', 
+            'next_service_date', 'service_cycle', 'max_cycle', 'parent_job',
+            'source_service', 'visit_type', 'is_auto_generated', 'service_timeline',
+            'notes', 'is_paused', 'reference', 
             'extra_notes', 'cancellation_reason', 'removal_remarks', 
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'is_complaint_call', 'complaint_parent_booking', 'complaint_status', 'complaint_type', 'priority', 'complaint_note',
@@ -391,6 +398,9 @@ class JobCardSerializer(serializers.ModelSerializer):
             'payment_collection_type', 'completion_paid_amount', 'completion_pending_amount', 'payment_remarks',
         ]
         read_only_fields = ['id', 'code', 'created_by', 'on_process_by', 'done_by', 'created_at', 'updated_at']
+        extra_kwargs = {
+            'client': {'required': False},
+        }
 
     price_display = serializers.SerializerMethodField()
     payment_status_display = serializers.SerializerMethodField()
@@ -453,6 +463,11 @@ class JobCardSerializer(serializers.ModelSerializer):
 
         # Check if this is a creation (no instance yet)
         is_create = self.instance is None
+
+        if is_create and not data.get('client') and not data.get('client_data'):
+            raise serializers.ValidationError(
+                'Either client or client_data must be provided for booking creation.'
+            )
         
         # If client_data is provided, validate it
         if is_create and 'client_data' in data and data['client_data']:

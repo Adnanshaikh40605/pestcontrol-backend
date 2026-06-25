@@ -36,6 +36,7 @@ from django.db.models.functions import Cast, Coalesce
 from .jobcard_schedule import (
     order_queryset_by_reminder_date,
     order_queryset_by_schedule_datetime,
+    order_queryset_by_completed_at,
 )
 from .inquiry_filters import InquiryListCountsMixin
 from .services import ClientService, InquiryService, JobCardService, RenewalService, DashboardService, TechnicianService, CRMInquiryService
@@ -1724,7 +1725,8 @@ class JobCardViewSet(BaseModelViewSet):
     filterset_fields = ['status', 'payment_status', 'client__city', 'client__mobile', 'job_type', 'commercial_type', 'service_category', 'contract_duration', 'is_paused', 'assigned_to']
     search_fields = ['code', 'client__full_name', 'client__mobile', 'service_type', 'assigned_to', 'master_location__name', 'commercial_type']
     ordering_fields = [
-        'id', 'code', 'created_at', 'updated_at', 'schedule_datetime', 'status', 'payment_status', 
+        'id', 'code', 'created_at', 'updated_at', 'schedule_datetime', 'completed_at',
+        'status', 'payment_status', 
         'client__full_name', 'client__city', 'job_type', 'service_category', 'contract_duration'
     ]
     ordering = ['-created_at']  # Default: latest job cards first
@@ -1765,6 +1767,8 @@ class JobCardViewSet(BaseModelViewSet):
         try:
             if booking_type == 'reminders':
                 return order_queryset_by_reminder_date(qs, ascending=True)
+            if booking_type == 'done':
+                return order_queryset_by_completed_at(qs, ascending=False)
             return order_queryset_by_schedule_datetime(qs, ascending=True)
         except Exception as exc:
             logger.exception(
@@ -1774,6 +1778,8 @@ class JobCardViewSet(BaseModelViewSet):
             )
             if booking_type == 'reminders':
                 return qs.order_by('reminder_date', 'reminder_time', 'id')
+            if booking_type == 'done':
+                return qs.order_by(F('completed_at').desc(nulls_last=True), '-id')
             return qs.order_by('schedule_datetime', 'id')
 
     def perform_update(self, serializer):
@@ -2081,7 +2087,16 @@ class JobCardViewSet(BaseModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            jobcard = JobCardService.create_jobcard(request.data, user=request.user)
+            # Validate input through serializer (reference, master_location, service_items, etc.)
+            serializer = self.get_serializer(data=request.data)
+            if not serializer.is_valid():
+                logger.warning(f"Job card validation failed: {serializer.errors}")
+                return response.Response(
+                    {'error': 'Validation failed', 'details': serializer.errors},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            jobcard = JobCardService.create_jobcard(serializer.validated_data, user=request.user)
             
             # Automatically generate renewals for the job card if conditions are met
             try:
@@ -3726,7 +3741,11 @@ class QuotationViewSet(BaseModelViewSet):
             client, created = Client.objects.get_or_create(
                 mobile=quotation.mobile,
                 defaults={
-                    'full_name': quotation.customer_name,
+                    'full_name': (
+                        quotation.contact_person
+                        or quotation.company_name
+                        or quotation.customer_name
+                    ),
                     'email': quotation.email,
                     'address': quotation.address,
                     'city': quotation.city,

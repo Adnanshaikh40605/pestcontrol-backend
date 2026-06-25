@@ -485,10 +485,18 @@ class JobCard(BaseModel):
         AMC = 'AMC', 'AMC (Annual Maintenance Contract)'
 
     class PropertyType(models.TextChoices):
-        HOME_FLAT = 'Home / Flat', 'Home / Flat'
-        BUNGALOW = 'Bungalow', 'Bungalow'
+        SOCIETY = 'Society', 'Society'
         HOTEL = 'Hotel', 'Hotel'
         OFFICE = 'Office', 'Office'
+        BUNGALOW = 'Bungalow', 'Bungalow'
+        VILLA = 'Villa', 'Villa'
+        SCHOOL = 'School', 'School'
+        WAREHOUSE = 'Warehouse', 'Warehouse'
+        FACTORY = 'Factory', 'Factory'
+        SHOP = 'Shop', 'Shop'
+        RESTAURANT = 'Restaurant', 'Restaurant'
+        # Legacy values (existing records)
+        HOME_FLAT = 'Home / Flat', 'Home / Flat'
         COMMERCIAL = 'Commercial Space', 'Commercial Space'
 
     class BHKSize(models.TextChoices):
@@ -790,6 +798,28 @@ class JobCard(BaseModel):
         verbose_name="Parent Job",
         help_text="The previous job in the service sequence"
     )
+    source_service = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Source Service",
+        help_text="Service line this visit belongs to (multi-service bookings)",
+    )
+    visit_type = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Visit Type",
+        help_text="Badge label for technicians (e.g. RODENT AMC, TERMITE CHECK-UP)",
+    )
+    is_auto_generated = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="Auto Generated",
+        help_text="True when this visit was created by the scheduling engine",
+    )
     notes = models.TextField(
         blank=True, 
         null=True,
@@ -963,9 +993,9 @@ class JobCard(BaseModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=['parent_job', 'service_cycle'],
-                name='unique_amc_cycle_per_parent',
-                condition=models.Q(parent_job__isnull=False)
+                fields=['parent_job', 'source_service', 'service_cycle'],
+                name='unique_service_visit_per_parent',
+                condition=models.Q(parent_job__isnull=False),
             ),
         ]
         verbose_name = 'Job Card'

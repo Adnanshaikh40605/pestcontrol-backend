@@ -618,22 +618,28 @@ class JobCardService:
             
             # DUPLICATE SAFETY CHECK (Idempotency)
             # Prevent double-submits from frontend creating identical jobs within a short timeframe
-            # Or same date/service/client combination
             if jobcard_data.get('schedule_datetime'):
-                import dateutil.parser
+                from core.jobcard_schedule import effective_schedule_datetime
                 try:
-                    schedule_date = dateutil.parser.parse(str(jobcard_data['schedule_datetime'])).date()
+                    effective_dt = effective_schedule_datetime(
+                        jobcard_data['schedule_datetime'],
+                        jobcard_data.get('time_slot'),
+                    )
+                    jobcard_data['schedule_datetime'] = effective_dt
+                    schedule_date = effective_dt.date()
                     duplicate_check = JobCard.objects.filter(
                         client=client,
                         service_type=jobcard_data.get('service_type'),
-                        schedule_datetime__date=schedule_date
+                        schedule_datetime__date=schedule_date,
                     ).order_by('-created_at').first()
-                    
+
                     if duplicate_check:
-                        # Check if it was created very recently (within 5 minutes) to avoid double clicks
                         time_diff = timezone.now() - duplicate_check.created_at
                         if time_diff.total_seconds() < 300:
-                            logger.warning(f"DUPLICATE CREATION BLOCKED for client {client.id}, service {jobcard_data.get('service_type')}")
+                            logger.warning(
+                                f"DUPLICATE CREATION BLOCKED for client {client.id}, "
+                                f"service {jobcard_data.get('service_type')}"
+                            )
                             return duplicate_check
                 except Exception as e:
                     logger.warning(f"Error checking for duplicate: {e}")
@@ -668,6 +674,19 @@ class JobCardService:
                 jobcard.save(update_fields=['total_amount'])
             
             logger.info(f"Successfully created NEW jobcard {jobcard.code} (ID: {jobcard.id}) for client {client.full_name} (ID: {client.id})")
+
+            # Pre-generate AMC / termite visits (PRD: all future visits at create time)
+            if not jobcard.is_followup_visit and not jobcard.is_complaint_call:
+                from core.booking_schedule_engine import BookingScheduleEngine
+                try:
+                    BookingScheduleEngine.generate_all_visits(jobcard)
+                except Exception as exc:
+                    logger.exception(
+                        'Auto visit generation failed for %s: %s',
+                        jobcard.code,
+                        exc,
+                    )
+
             return jobcard
             
         except ValidationError:
@@ -707,7 +726,10 @@ class JobCardService:
         Returns (next_date, max_cycle).
         """
         from datetime import timedelta, datetime, date
-        from dateutil.relativedelta import relativedelta
+        from core.booking_schedule_engine import (
+            build_visit_plans,
+            calculate_next_visit_date,
+        )
         
         service_type = jobcard.service_type.lower() if jobcard.service_type else ""
         service_category = jobcard.service_category
@@ -728,33 +750,32 @@ class JobCardService:
                 return None, 1
         else:
             return None, 1
+
+        if service_items:
+            best_next = None
+            best_max = 1
+            for item in service_items:
+                svc = str(item.get('service') or '')
+                plan = str(item.get('plan') or '')
+                next_date, max_cycle = calculate_next_visit_date(svc, plan, schedule_date)
+                if max_cycle > best_max:
+                    best_max = max_cycle
+                if next_date and (best_next is None or next_date < best_next):
+                    best_next = next_date
+            if best_next:
+                return best_next, best_max
+            return None, best_max
             
         next_date = None
         max_cycle = 1
 
-        if service_items:
-            for item in service_items:
-                svc = str(item.get('service') or '')
-                plan = str(item.get('plan') or '')
-                if _is_cockroach_amc(svc, plan):
-                    max_cycle = 3
-                    next_date = schedule_date + relativedelta(months=4)
-                    return next_date, max_cycle
-            for item in service_items:
-                svc = str(item.get('service') or '')
-                if _is_bed_bug_label(svc):
-                    max_cycle = 2
-                    next_date = schedule_date + timedelta(days=15)
-                    return next_date, max_cycle
-            return None, 1
-        
-        # Cockroach / general AMC: 3 services total, 4-month gap
+        # Cockroach / general AMC: legacy fallback
         if service_category == JobCard.ServiceCategory.AMC and (
             "cockroach" in service_type or "ants" in service_type
         ):
-            max_cycle = 3
-            next_date = schedule_date + relativedelta(months=4)
-        # BedBug: 2 services total, 15-day gap
+            plans = build_visit_plans(jobcard.service_type or '', 'AMC 3 Services', schedule_date)
+            if len(plans) > 1:
+                return plans[1].visit_date, plans[0].total_visits
         elif _is_bed_bug_label(service_type):
             max_cycle = 2
             next_date = schedule_date + timedelta(days=15)
@@ -778,6 +799,18 @@ class JobCardService:
         
         if jobcard.status == JobCard.JobStatus.DONE and jobcard.next_service_date:
             if jobcard.service_cycle < jobcard.max_cycle:
+                root = jobcard.parent_job or jobcard
+                source = jobcard.source_service or ''
+                pre_generated_exists = JobCard.objects.filter(
+                    parent_job=root,
+                    source_service=source,
+                    service_cycle=(jobcard.service_cycle or 1) + 1,
+                ).exists()
+                if pre_generated_exists or jobcard.is_auto_generated:
+                    from core.booking_schedule_engine import BookingScheduleEngine
+                    BookingScheduleEngine.update_after_completion(jobcard)
+                    return None
+
                 # Check if next job already exists to avoid duplicates
                 existing_next = JobCard.objects.filter(
                     parent_job=jobcard,
@@ -853,7 +886,12 @@ class JobCardService:
                 JobCardService.ensure_next_service_schedule(next_job)
                 
                 logger.info(f"✅ Successfully auto-created follow-up job {next_job.code} for job {jobcard.code}")
+                from core.booking_schedule_engine import BookingScheduleEngine
+                BookingScheduleEngine.update_after_completion(jobcard)
                 return next_job
+        elif jobcard.status == JobCard.JobStatus.DONE:
+            from core.booking_schedule_engine import BookingScheduleEngine
+            BookingScheduleEngine.update_after_completion(jobcard)
         return None
     
 

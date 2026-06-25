@@ -188,6 +188,14 @@ def order_queryset_by_reminder_date(queryset, *, ascending: bool = True):
     )
 
 
+def order_queryset_by_completed_at(queryset, *, ascending: bool = False):
+    """Sort completed bookings by actual completion time (latest first by default)."""
+    sort_field = F('completed_at')
+    if ascending:
+        return queryset.order_by(sort_field.asc(nulls_last=True), 'id')
+    return queryset.order_by(sort_field.desc(nulls_last=True), '-id')
+
+
 def order_queryset_by_schedule_datetime(queryset, *, ascending: bool = True):
     """
     Sort bookings: today, tomorrow, future, then overdue past dates.
