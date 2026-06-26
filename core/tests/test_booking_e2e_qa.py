@@ -19,12 +19,19 @@ IST = pytz.timezone('Asia/Kolkata')
 
 # Mirrors pest crm/src/constants/pricing.ts SERVICE_TYPES
 SERVICE_PLAN_MATRIX = {
-    'Cockroach / Ants': ['One Time Service', 'AMC 3 Services', 'AMC 4 Services', 'AMC 6 Services'],
+    'Cockroach / Ants': ['One Time Service', 'AMC 3 Services', 'AMC 4 Services', 'AMC 6 Services', 'AMC 12 Services'],
     'Bed Bugs': ['One Time Service'],
     'Termite': ['One Time Treatment'],
     'Rodent': ['One Time Service', 'AMC 3 Services', 'AMC 4 Services', 'AMC 6 Services', 'AMC 12 Services'],
-    'Mosquito': ['One Time Service', 'AMC 3 Services', 'AMC 4 Services', 'AMC 6 Services', 'AMC 12 Services'],
-    'Hotel / Commercial': ['One Time Service'],
+    'Mosquito': [
+        'One Time Service',
+        'AMC 3 Services',
+        'AMC 4 Services',
+        'AMC 6 Services',
+        'AMC 12 Services',
+        'AMC 24 Services',
+        'AMC 48 Services',
+    ],
 }
 
 EXPECTED_VISIT_COUNTS = {
@@ -34,8 +41,11 @@ EXPECTED_VISIT_COUNTS = {
     ('Cockroach / Ants', 'AMC 3 Services'): 3,
     ('Cockroach / Ants', 'AMC 4 Services'): 4,
     ('Cockroach / Ants', 'AMC 6 Services'): 6,
+    ('Cockroach / Ants', 'AMC 12 Services'): 12,
     ('Rodent', 'AMC 12 Services'): 12,
     ('Mosquito', 'AMC 3 Services'): 3,
+    ('Mosquito', 'AMC 24 Services'): 24,
+    ('Mosquito', 'AMC 48 Services'): 48,
 }
 
 COMMERCIAL_PROPERTY_TYPES = [

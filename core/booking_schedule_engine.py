@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Optional
 
 from dateutil.relativedelta import relativedelta
@@ -17,12 +17,18 @@ from django.db.models import Q
 
 logger = logging.getLogger(__name__)
 
-# Months between visits for AMC packages (PRD section 4).
+# Months between visits for standard AMC packages.
 AMC_INTERVAL_MONTHS: dict[int, int] = {
     3: 4,
     4: 3,
     6: 2,
     12: 1,
+}
+
+# High-frequency mosquito packages (days between visits).
+MOSQUITO_INTERVAL_DAYS: dict[int, int] = {
+    24: 15,
+    48: 7,
 }
 
 TERMITE_TOTAL_VISITS = 5
@@ -69,6 +75,25 @@ def interval_months_for_package(visit_count: int) -> int:
     return AMC_INTERVAL_MONTHS.get(visit_count, 4)
 
 
+def amc_interval_spec(service: str, visit_count: int) -> tuple[str, int]:
+    """
+    Return ('months', n) or ('days', n) spacing for an AMC package.
+    Mosquito 24/48 use day-based intervals; all other packages use months.
+    """
+    svc = (service or '').lower()
+    if 'mosquito' in svc and visit_count in MOSQUITO_INTERVAL_DAYS:
+        return 'days', MOSQUITO_INTERVAL_DAYS[visit_count]
+    return 'months', interval_months_for_package(visit_count)
+
+
+def visit_date_for_cycle(start_date: date, cycle_index: int, service: str, visit_count: int) -> date:
+    """cycle_index 0 = first visit on start_date."""
+    unit, step = amc_interval_spec(service, visit_count)
+    if unit == 'days':
+        return start_date + timedelta(days=step * cycle_index)
+    return start_date + relativedelta(months=step * cycle_index)
+
+
 def visit_type_label(service: str, plan: str, cycle: int = 1) -> str:
     svc = (service or '').lower()
     if is_termite_service(service):
@@ -113,11 +138,10 @@ def build_visit_plans(service: str, plan: str, start_date: date) -> list[VisitPl
             )
         ]
 
-    interval = interval_months_for_package(visit_count)
     return [
         VisitPlan(
             cycle=i + 1,
-            visit_date=start_date + relativedelta(months=interval * i),
+            visit_date=visit_date_for_cycle(start_date, i, service, visit_count),
             visit_type=visit_type_label(service, plan, i + 1),
             total_visits=visit_count,
         )

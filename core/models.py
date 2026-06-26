@@ -1609,6 +1609,8 @@ class Quotation(BaseModel):
     company_name = models.CharField(max_length=255, blank=True, null=True)
     
     quotation_type = models.CharField(max_length=50, choices=QuotationType.choices)
+    property_type = models.CharField(max_length=100, blank=True, default='')
+    template_service_type = models.CharField(max_length=100, blank=True, default='')
     status = models.CharField(max_length=20, choices=QuotationStatus.choices, default=QuotationStatus.DRAFT)
     
     # Financial Details
