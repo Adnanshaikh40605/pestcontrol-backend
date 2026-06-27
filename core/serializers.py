@@ -1072,6 +1072,40 @@ class QuotationHistorySerializer(serializers.ModelSerializer):
         fields = ['id', 'action', 'details', 'performed_by', 'performed_by_name', 'created_at']
 
 
+def _sync_quotation_financials(quotation, items_data):
+    """Line items are the source of truth; ignore visit_count mistaken as contract price."""
+    from decimal import Decimal
+
+    items_subtotal = sum(Decimal(str(item.get('total') or 0)) for item in items_data)
+    discount = Decimal(str(quotation.discount or 0))
+    stored_contract = Decimal(str(quotation.contract_amount or 0))
+    visit_count = int(quotation.visit_count or 0)
+
+    contract_looks_like_visit_count = (
+        quotation.is_amc
+        and stored_contract > 0
+        and stored_contract <= 48
+        and visit_count > 0
+        and stored_contract == Decimal(visit_count)
+        and items_subtotal > stored_contract
+    )
+    effective_contract = Decimal('0') if contract_looks_like_visit_count else stored_contract
+
+    total_amount = items_subtotal
+    if quotation.is_amc and effective_contract > total_amount:
+        total_amount = effective_contract
+    elif total_amount <= 0 and effective_contract > 0:
+        total_amount = effective_contract
+
+    grand_total = max(Decimal('0'), total_amount - discount)
+    contract_amount = max(effective_contract, grand_total) if quotation.is_amc else Decimal('0')
+
+    quotation.total_amount = quantize_money(total_amount)
+    quotation.grand_total = quantize_money(grand_total)
+    quotation.contract_amount = quantize_money(contract_amount)
+    quotation.save(update_fields=['total_amount', 'grand_total', 'contract_amount', 'updated_at'])
+
+
 class QuotationSerializer(serializers.ModelSerializer):
     items = QuotationItemSerializer(many=True)
     scopes = QuotationScopeSerializer(many=True, required=False)
@@ -1116,6 +1150,8 @@ class QuotationSerializer(serializers.ModelSerializer):
             
         for term_data in payment_terms_data:
             QuotationPaymentTerm.objects.create(quotation=quotation, **term_data)
+
+        _sync_quotation_financials(quotation, items_data)
             
         # Log creation in history
         QuotationHistory.objects.create(
@@ -1142,6 +1178,7 @@ class QuotationSerializer(serializers.ModelSerializer):
             instance.items.all().delete()
             for item_data in items_data:
                 QuotationItem.objects.create(quotation=instance, **item_data)
+            _sync_quotation_financials(instance, items_data)
                 
         # Update scopes if provided
         if scopes_data is not None:

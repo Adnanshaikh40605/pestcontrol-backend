@@ -147,3 +147,27 @@ class QuotationPropertyServiceTest(APITestCase):
             titles,
             ['Scope of Work', 'Area Covered', 'Pest Covered', 'Benefits', 'Warranty'],
         )
+
+    def test_amc_contract_amount_visit_count_does_not_override_line_items(self):
+        """Staff sometimes enter visit count (3) in contract amount — totals must use line items."""
+        payload = self._payload(
+            is_amc=True,
+            visit_count=3,
+            contract_amount='3.00',
+            total_amount='3.00',
+            grand_total='3.00',
+            items=[
+                {
+                    'service_name': 'General Pest Control',
+                    'frequency': 'AMC 3 Services',
+                    'quantity': 1,
+                    'rate': '3500.00',
+                    'total': '3500.00',
+                },
+            ],
+        )
+        response = self.api.post('/api/v1/quotations/', payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        quotation = Quotation.objects.get(pk=response.data['id'])
+        self.assertEqual(quotation.grand_total, Decimal('3500.00'))
+        self.assertEqual(quotation.contract_amount, Decimal('3500.00'))
