@@ -42,6 +42,15 @@ class LonavalaRateCardTests(TestCase):
     def test_termite_5_bhk(self):
         self.assertEqual(LONAVALA_PRICING['Termite']['One Time Service']['5 BHK'], 7500)
 
+    def test_termite_one_time_treatment_alias_matches_service(self):
+        """Booking UI plan label must resolve to the same rates as One Time Service."""
+        for region in (MUMBAI_PRICING, LONAVALA_PRICING):
+            svc = region['Termite']
+            self.assertEqual(
+                svc['One Time Treatment']['1 BHK'],
+                svc['One Time Service']['1 BHK'],
+            )
+
     def test_mosquito_fogging(self):
         rates = LONAVALA_PRICING['Mosquito']['One Time Service']
         self.assertEqual(rates['5,001-10,000 Sq.Ft.'], 4000)

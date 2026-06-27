@@ -40,6 +40,15 @@ MUMBAI_PRICING: dict[str, dict[str, dict[str, int]]] = {
             '4 BHK': 4000,
             COMMERCIAL_AREA_KEY: 0,
         },
+        # Alias — booking UI stores "One Time Treatment" on service_items.plan
+        'One Time Treatment': {
+            '1 RK': 2000,
+            '1 BHK': 2500,
+            '2 BHK': 3000,
+            '3 BHK': 3500,
+            '4 BHK': 4000,
+            COMMERCIAL_AREA_KEY: 0,
+        },
     },
     'Rodent': {
         'One Time Service': {

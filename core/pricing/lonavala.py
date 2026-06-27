@@ -75,6 +75,14 @@ LONAVALA_PRICING: dict[str, dict[str, dict[str, int]]] = {
             '5 BHK': 7500,
             _COMMERCIAL_AREA: 0,
         },
+        'One Time Treatment': {
+            '1 BHK': 3500,
+            '2 BHK': 4500,
+            '3 BHK': 5500,
+            '4 BHK': 6500,
+            '5 BHK': 7500,
+            _COMMERCIAL_AREA: 0,
+        },
     },
     'Mosquito': {
         'One Time Service': {
