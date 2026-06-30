@@ -76,7 +76,7 @@ class QuotationMultiServiceTest(APITestCase):
 
         detail = self.api.get(f'/api/v1/quotations/{q.id}/')
         self.assertEqual(detail.status_code, status.HTTP_200_OK)
-        names = sorted(i['service_name'] for i in detail.data['items'])
+        names = [i['service_name'] for i in detail.data['items']]
         self.assertEqual(names, ['Bed Bug Treatment', 'Mosquito Control'])
 
     def test_three_services_persist(self):
@@ -127,4 +127,9 @@ class QuotationMultiServiceTest(APITestCase):
         }
         res = self.api.post('/api/v1/quotations/', payload, format='json')
         self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
-        self.assertEqual(Quotation.objects.get(pk=res.data['id']).items.count(), 3)
+        detail = self.api.get(f'/api/v1/quotations/{res.data["id"]}/')
+        names = [i['service_name'] for i in detail.data['items']]
+        self.assertEqual(
+            names,
+            ['General Pest Control', 'Rodent Control', 'Termite Treatment'],
+        )

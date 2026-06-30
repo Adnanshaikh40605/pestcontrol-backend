@@ -1671,6 +1671,9 @@ class QuotationItem(BaseModel):
     total = models.DecimalField(max_digits=12, decimal_places=2)
     description = models.TextField(blank=True, null=True)
 
+    class Meta:
+        ordering = ['created_at', 'id']
+
     def __str__(self) -> str:
         return f"{self.service_name} for {self.quotation.quotation_no}"
 
@@ -1679,6 +1682,9 @@ class QuotationScope(BaseModel):
     quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name='scopes')
     title = models.CharField(max_length=255)
     content = models.TextField()
+
+    class Meta:
+        ordering = ['created_at', 'id']
 
     def __str__(self) -> str:
         return f"Scope: {self.title} for {self.quotation.quotation_no}"
@@ -1689,8 +1695,8 @@ class QuotationPaymentTerm(BaseModel):
     term = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
 
-    def __str__(self) -> str:
-        return f"Payment Term: {self.term} for {self.quotation.quotation_no}"
+    class Meta:
+        ordering = ['created_at', 'id']
 
 
 class QuotationHistory(BaseModel):
