@@ -854,6 +854,8 @@ class JobCardService:
                     'parent_job': jobcard,
                     'commercial_type': jobcard.commercial_type,
                     'property_type': jobcard.property_type,
+                    'job_type': jobcard.job_type,
+                    'society_billing_type': jobcard.society_billing_type,
                     'bhk_size': jobcard.bhk_size,
                     'contract_duration': jobcard.contract_duration,
                     'price': "0",  # Follow-up visits are free

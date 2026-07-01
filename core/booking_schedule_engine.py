@@ -231,6 +231,8 @@ class BookingScheduleEngine:
                     is_auto_generated=True,
                     commercial_type=main_job.commercial_type,
                     property_type=main_job.property_type,
+                    job_type=main_job.job_type,
+                    society_billing_type=main_job.society_billing_type,
                     bhk_size=item.get('area') or main_job.bhk_size,
                     contract_duration=main_job.contract_duration,
                     price='0',

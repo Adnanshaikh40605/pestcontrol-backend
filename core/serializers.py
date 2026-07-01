@@ -375,7 +375,7 @@ class JobCardSerializer(serializers.ModelSerializer):
         model = JobCard
         fields = [
             'id', 'code', 'client', 'client_name', 'client_mobile', 'client_state', 'client_notes', 'client_data',
-            'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'status', 'service_type', 'service_items', 'schedule_datetime', 
+            'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'society_billing_type', 'status', 'service_type', 'service_items', 'schedule_datetime',
             'time_slot', 'state', 'city',
             'master_country', 'master_country_name', 'master_state', 'master_state_name', 'master_city', 'master_city_name', 'master_location', 'master_location_name', 'full_address',
             'price', 'price_display', 'client_address',
@@ -444,7 +444,7 @@ class JobCardSerializer(serializers.ModelSerializer):
     def validate(self, data):
         """Custom validation for JobCard creation with client data."""
         empty_to_null = (
-            'bhk_size', 'property_type', 'contract_duration', 'payment_mode',
+            'bhk_size', 'property_type', 'contract_duration', 'society_billing_type', 'payment_mode',
             'reminder_date', 'reminder_time', 'reminder_note', 'next_service_date',
             'assigned_to', 'notes', 'extra_notes', 'cancellation_reason', 'removal_remarks',
         )
@@ -469,6 +469,43 @@ class JobCardSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 'Either client or client_data must be provided for booking creation.'
             )
+
+        commercial_type = data.get('commercial_type')
+        if commercial_type is None and self.instance:
+            commercial_type = self.instance.commercial_type
+        property_type = data.get('property_type')
+        if property_type is None and self.instance:
+            property_type = self.instance.property_type
+        job_type = data.get('job_type')
+        if job_type is None and self.instance:
+            job_type = self.instance.job_type
+        is_society = (
+            commercial_type == JobCard.CommercialType.SOCIETY
+            or property_type == JobCard.PropertyType.SOCIETY
+            or job_type == JobCard.JobType.SOCIETY
+        )
+        if is_society:
+            billing = data.get('society_billing_type')
+            if billing is None and self.instance:
+                billing = self.instance.society_billing_type
+            if not billing:
+                data['society_billing_type'] = JobCard.SocietyBillingType.PAID
+            elif billing not in (
+                JobCard.SocietyBillingType.FREE,
+                JobCard.SocietyBillingType.PAID,
+            ):
+                raise serializers.ValidationError({
+                    'society_billing_type': 'Must be Free or Paid for society bookings.',
+                })
+            if not data.get('contract_duration'):
+                if self.instance and self.instance.contract_duration:
+                    data['contract_duration'] = self.instance.contract_duration
+                elif is_create:
+                    data['contract_duration'] = JobCard.ContractDuration.TWELVE_MONTHS
+            if is_create and not data.get('job_type'):
+                data['job_type'] = JobCard.JobType.SOCIETY
+        else:
+            data['society_billing_type'] = None
         
         # If client_data is provided, validate it
         if is_create and 'client_data' in data and data['client_data']:

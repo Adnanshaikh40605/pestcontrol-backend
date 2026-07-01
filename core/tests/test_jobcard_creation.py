@@ -189,6 +189,96 @@ class JobCardCreationTests(TestCase):
         distribute_amount_across_service_items(items, Decimal('180000'))
         self.assertEqual(sum(i['amount'] for i in items), 180000.0)
 
+    def test_create_society_booking_persists_billing_type(self):
+        mobiles = {'Free': '9111111111', 'Paid': '9222222222'}
+        for billing in ('Free', 'Paid'):
+            with self.subTest(billing=billing):
+                response = self.api.post(
+                    '/api/v1/jobcards/',
+                    {
+                        'client_data': {
+                            'full_name': 'Society Client',
+                            'mobile': mobiles[billing],
+                        },
+                        'service_type': 'Cockroach / Ants',
+                        'service_category': 'AMC',
+                        'commercial_type': 'society',
+                        'property_type': 'Society',
+                        'job_type': 'Society',
+                        'society_billing_type': billing,
+                        'schedule_datetime': self.schedule.isoformat(),
+                        'price': '0',
+                        'reference': 'Poster',
+                        'status': 'Pending',
+                        'master_location': self.location.id,
+                    },
+                    format='json',
+                )
+                self.assertEqual(response.status_code, 201, response.data)
+                self.assertEqual(response.data['society_billing_type'], billing)
+                self.assertEqual(response.data['contract_duration'], '12')
+                self.assertEqual(response.data['job_type'], 'Society')
+
+    def test_society_booking_switch_to_home_clears_billing_type(self):
+        create = self.api.post(
+            '/api/v1/jobcards/',
+            {
+                'client_data': {
+                    'full_name': 'Society Switch',
+                    'mobile': '9333333333',
+                },
+                'service_type': 'Cockroach / Ants',
+                'service_category': 'AMC',
+                'commercial_type': 'society',
+                'property_type': 'Society',
+                'job_type': 'Society',
+                'society_billing_type': 'Free',
+                'schedule_datetime': self.schedule.isoformat(),
+                'price': '0',
+                'reference': 'Poster',
+                'status': 'Pending',
+                'master_location': self.location.id,
+            },
+            format='json',
+        )
+        self.assertEqual(create.status_code, 201, create.data)
+        job_id = create.data['id']
+        response = self.api.patch(
+            f'/api/v1/jobcards/{job_id}/',
+            {
+                'commercial_type': 'home',
+                'property_type': 'Home / Flat',
+                'job_type': 'Customer',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertIsNone(response.data['society_billing_type'])
+
+    def test_non_society_booking_clears_billing_type(self):
+        response = self.api.post(
+            '/api/v1/jobcards/',
+            {
+                'client_data': {
+                    'full_name': 'Home Client',
+                    'mobile': '9000012345',
+                },
+                'service_type': 'Cockroach / Ants',
+                'service_category': 'One-Time Service',
+                'commercial_type': 'home',
+                'property_type': 'Home / Flat',
+                'society_billing_type': 'Free',
+                'schedule_datetime': self.schedule.isoformat(),
+                'price': '1500',
+                'reference': 'Poster',
+                'status': 'Pending',
+                'master_location': self.location.id,
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertIsNone(response.data['society_billing_type'])
+
 
 class CRMInquiryConversionTests(TestCase):
     def setUp(self):

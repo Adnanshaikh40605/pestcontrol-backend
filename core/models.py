@@ -480,6 +480,10 @@ class JobCard(BaseModel):
         SIX_MONTHS = '6', '6 Months'
         THREE_MONTHS = '3', '3 Months'
 
+    class SocietyBillingType(models.TextChoices):
+        FREE = 'Free', 'Free'
+        PAID = 'Paid', 'Paid'
+
     class ServiceCategory(models.TextChoices):
         ONE_TIME = 'One-Time Service', 'One-Time Service'
         AMC = 'AMC', 'AMC (Annual Maintenance Contract)'
@@ -628,6 +632,15 @@ class JobCard(BaseModel):
         db_index=True,
         verbose_name="Contract Duration",
         help_text="Duration of the service contract in months"
+    )
+    society_billing_type = models.CharField(
+        max_length=10,
+        choices=SocietyBillingType.choices,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Society Billing Type",
+        help_text="Free or Paid — applies to society bookings only",
     )
     status = models.CharField(
         max_length=20, 
@@ -1044,6 +1057,14 @@ class JobCard(BaseModel):
             return self.JobStatus.UPCOMING
         return self.JobStatus.PENDING
 
+    def is_society_booking(self) -> bool:
+        """True when this booking is for a housing society."""
+        return (
+            self.commercial_type == self.CommercialType.SOCIETY
+            or self.property_type == self.PropertyType.SOCIETY
+            or self.job_type == self.JobType.SOCIETY
+        )
+
     def clean(self):
         """Custom validation for the model with comprehensive business rules."""
         super().clean()
@@ -1065,6 +1086,12 @@ class JobCard(BaseModel):
         # Business rule: Contract duration validation for Society jobs
         if self.job_type == self.JobType.SOCIETY and not self.contract_duration:
             raise ValidationError({'contract_duration': 'Contract duration is required for Society jobs.'})
+
+        if self.is_society_booking():
+            if not self.society_billing_type:
+                self.society_billing_type = self.SocietyBillingType.PAID
+        else:
+            self.society_billing_type = None
         
         # Business rule: Next service date validation
         if self.next_service_date and self.schedule_datetime and self.next_service_date <= self.schedule_datetime.date():
