@@ -25,6 +25,7 @@ from .models import (
     RemarkType,
 )
 from .payment_utils import (
+    distribute_amount_across_service_items,
     payment_status_label,
     parse_jobcard_price,
     quantize_money,
@@ -631,21 +632,7 @@ class JobCardSerializer(serializers.ModelSerializer):
                 data['price'] = str(float(items_total))
             elif manual_total > 0 and normalized:
                 if abs(manual_total - items_total) > parse_jobcard_price('0.01'):
-                    if len(normalized) == 1:
-                        normalized[0]['amount'] = float(manual_total)
-                    else:
-                        running = parse_jobcard_price('0')
-                        for idx, item in enumerate(normalized):
-                            if idx == len(normalized) - 1:
-                                item['amount'] = float(manual_total - running)
-                            else:
-                                share = quantize_money(
-                                    parse_jobcard_price(item['amount'])
-                                    * manual_total
-                                    / items_total
-                                )
-                                item['amount'] = float(share)
-                                running += share
+                    distribute_amount_across_service_items(normalized, manual_total)
                     data['service_items'] = normalized
                 items_total = sum(parse_jobcard_price(i['amount']) for i in normalized)
                 if items_total > 0:

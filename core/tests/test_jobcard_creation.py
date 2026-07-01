@@ -134,6 +134,61 @@ class JobCardCreationTests(TestCase):
         self.assertEqual(job.total_amount, Decimal('1000.00'))
         self.assertEqual(job.pending_amount, Decimal('1000.00'))
 
+    def test_create_multi_service_zero_line_amounts_with_manual_price(self):
+        """CRM AMC bookings often send 0 on each line with a contract total price."""
+        response = self.api.post(
+            '/api/v1/jobcards/',
+            {
+                'client_data': {
+                    'full_name': 'Hotel Wild Waters',
+                    'mobile': '9988776655',
+                },
+                'service_type': 'Cockroach / Ants, Rodent, Mosquito',
+                'service_category': 'AMC',
+                'schedule_datetime': self.schedule.isoformat(),
+                'price': '180000',
+                'reference': 'Poster',
+                'status': 'Pending',
+                'master_location': self.location.id,
+                'service_items': [
+                    {
+                        'service': 'Cockroach / Ants',
+                        'plan': 'AMC 12 Services',
+                        'area': 'Hotel',
+                        'amount': 0,
+                    },
+                    {
+                        'service': 'Rodent',
+                        'plan': 'AMC 12 Services',
+                        'area': 'Hotel',
+                        'amount': 0,
+                    },
+                    {
+                        'service': 'Mosquito',
+                        'plan': 'AMC 12 Services',
+                        'area': 'Hotel',
+                        'amount': 0,
+                    },
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        amounts = [item['amount'] for item in response.data['service_items']]
+        self.assertEqual(sum(amounts), 180000.0)
+        self.assertEqual(response.data['price'], '180000.0')
+
+    def test_distribute_amount_equal_split_when_all_zero(self):
+        from core.payment_utils import distribute_amount_across_service_items
+
+        items = [
+            {'service': 'A', 'plan': 'AMC', 'area': '2 BHK', 'amount': 0},
+            {'service': 'B', 'plan': 'AMC', 'area': '2 BHK', 'amount': 0},
+            {'service': 'C', 'plan': 'AMC', 'area': '2 BHK', 'amount': 0},
+        ]
+        distribute_amount_across_service_items(items, Decimal('180000'))
+        self.assertEqual(sum(i['amount'] for i in items), 180000.0)
+
 
 class CRMInquiryConversionTests(TestCase):
     def setUp(self):

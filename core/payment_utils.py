@@ -187,6 +187,43 @@ def resolve_completion_amounts(
     return paid, pending
 
 
+def distribute_amount_across_service_items(
+    items: list,
+    manual_total: Decimal,
+) -> None:
+    """
+    Update each item['amount'] in place so they sum to manual_total.
+    Proportional split when line amounts exist; equal split when all are zero.
+    """
+    if not items:
+        return
+
+    manual_total = quantize_money(manual_total)
+    if manual_total <= 0:
+        return
+
+    if len(items) == 1:
+        items[0]['amount'] = float(manual_total)
+        return
+
+    items_total = sum(parse_jobcard_price(item.get('amount')) for item in items)
+
+    running = parse_jobcard_price('0')
+    for idx, item in enumerate(items):
+        if idx == len(items) - 1:
+            item['amount'] = float(manual_total - running)
+            continue
+
+        if items_total <= 0:
+            share = quantize_money(manual_total / len(items))
+        else:
+            share = quantize_money(
+                parse_jobcard_price(item.get('amount')) * manual_total / items_total
+            )
+        item['amount'] = float(share)
+        running += share
+
+
 def requires_payment_on_completion(jobcard) -> bool:
     """
     True only for the first/main paid booking in a flow (new booking, AMC cycle 1).
