@@ -282,7 +282,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'anon': '100/hour',
         'user': '1000/hour',
-        'login': '5/min',
+        'login': '30/min' if DEBUG else '5/min',
         'blog_view_track': '60/hour',
         # Partner app: per technician (see partner.throttling.PartnerRateThrottle)
         'partner': '3000/hour',
