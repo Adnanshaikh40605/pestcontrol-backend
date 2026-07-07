@@ -121,6 +121,13 @@ class LargePagination(PageNumberPagination):
     max_page_size = 2000
 
 
+class StandardListPagination(PageNumberPagination):
+    """Default list pagination for CRM tables (quotations, etc.)."""
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class BaseModelViewSet(viewsets.ModelViewSet):
     """Base viewset with common functionality."""
     permission_classes = [IsCRMOperationalUser]
@@ -3696,6 +3703,7 @@ class ReminderViewSet(viewsets.ModelViewSet):
 class QuotationViewSet(BaseModelViewSet):
     queryset = Quotation.objects.all()
     serializer_class = QuotationSerializer
+    pagination_class = StandardListPagination
     search_fields = ['quotation_no', 'customer_name', 'mobile', 'company_name']
     filterset_fields = ['status', 'quotation_type', 'is_amc']
 
