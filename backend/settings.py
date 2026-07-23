@@ -38,7 +38,15 @@ CSRF_TRUSTED_ORIGINS = [
     "https://pestcontrol-crm-frontend.vercel.app",
     "https://www.pestcontrol99.com",
     "https://pestcontrol99.com",
+    "https://dohadminpanel.vercel.app",
 ]
+# Merge extra CSRF origins from Railway/env (comma-separated)
+_extra_csrf = config('CSRF_TRUSTED_ORIGINS', default='')
+if _extra_csrf:
+    for origin in _extra_csrf.split(','):
+        origin = origin.strip().rstrip('/')
+        if origin and origin not in CSRF_TRUSTED_ORIGINS and '*' not in origin:
+            CSRF_TRUSTED_ORIGINS.append(origin)
 # adnan
 # Telegram integration settings
 TELEGRAM_NOTIFICATIONS_ENABLED = config('TELEGRAM_NOTIFICATIONS_ENABLED', default=False, cast=bool)
@@ -345,7 +353,17 @@ CORS_ALLOWED_ORIGINS = [
     "https://pestcontrol-crm-frontend.vercel.app",
     "https://www.pestcontrol99.com",
     "https://pestcontrol99.com",
+    "https://dohadminpanel.vercel.app",
 ]
+# Merge extra CORS origins from Railway/env (comma-separated). This makes
+# Railway's CORS_ALLOWED_ORIGINS variable actually apply in production.
+_extra_cors = config('CORS_ALLOWED_ORIGINS', default='')
+if _extra_cors:
+    for origin in _extra_cors.split(','):
+        origin = origin.strip().rstrip('/')
+        if origin.startswith('http') and origin not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(origin)
+
 CORS_ALLOW_METHODS = ['DELETE', 'GET', 'OPTIONS', 'PATCH', 'POST', 'PUT']
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -363,8 +381,8 @@ CORS_ALLOW_HEADERS = [
 
 # Additional CORS patterns for subdomains and variations
 CORS_ALLOWED_ORIGIN_REGEXES = [
-    r"^https://\w+\.pestcontrol99\.com$",
-    r"^https://\w+\.vercel\.app$",
+    r"^https://[\w-]+\.pestcontrol99\.com$",
+    r"^https://[\w-]+\.vercel\.app$",
     r"^http://localhost:\d+$",
     r"^http://127\.0\.0\.1:\d+$",
 ]

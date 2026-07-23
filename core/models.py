@@ -1912,3 +1912,60 @@ class PricingRateAuditLog(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.action} {self.service_package} ({self.region_slug})"
+
+
+class BookingReportClient(BaseModel):
+    """
+    Snapshot of booking clients from BookingClientReport export
+    (last ~6 months name + mobile list for CRM / external integrations).
+    """
+    name = models.CharField(max_length=255, db_index=True)
+    mobile = models.CharField(max_length=20, db_index=True)
+
+    class Meta:
+        ordering = ['name', 'id']
+        indexes = [
+            models.Index(fields=['name']),
+            models.Index(fields=['mobile']),
+            models.Index(fields=['name', 'mobile']),
+        ]
+        verbose_name = 'Booking Report Client'
+        verbose_name_plural = 'Booking Report Clients'
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.mobile})"
+
+
+class BookingReportClientRemark(BaseModel):
+    """Append-only remarks for each booking-report client (name + mobile row)."""
+
+    client = models.ForeignKey(
+        BookingReportClient,
+        on_delete=models.CASCADE,
+        related_name='remarks',
+    )
+    remark = models.TextField()
+    created_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='booking_report_client_remarks',
+    )
+    remark_type = models.CharField(
+        max_length=20,
+        choices=RemarkType.choices,
+        default=RemarkType.NOTE,
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['client', '-created_at']),
+        ]
+        verbose_name = 'Booking Report Client Remark'
+        verbose_name_plural = 'Booking Report Client Remarks'
+
+    def __str__(self) -> str:
+        return f"BookingReportClient #{self.client_id} remark @ {self.created_at}"

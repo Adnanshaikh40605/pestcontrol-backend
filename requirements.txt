@@ -36,6 +36,7 @@ bleach>=6.1.0,<7.0  # HTML sanitization for blog content
 celery>=5.3.4,<6.0  # Task queue
 python-dateutil>=2.8.2,<3.0  # Date utilities for relativedelta
 pytz>=2024.1  # Timezone utilities
+openpyxl>=3.1.0,<4.0  # Excel import (BookingClientReport)
 # Redis removed - using local memory cache instead
 
 # Partner app push (FCM)

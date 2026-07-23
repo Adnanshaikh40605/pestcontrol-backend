@@ -43,7 +43,11 @@ from .pricing_master_views import (
     PricingRegionViewSet,
 )
 from .payment_views import PendingPaymentViewSet
-
+from .booking_report_views import (
+    BookingReportClientViewSet,
+    BookingReportClientRemarkListCreateView,
+    BookingReportClientRemarkDetailView,
+)
 # Create router for v1 API
 router = DefaultRouter()
 router.register(r'clients', ClientViewSet, basename='client')
@@ -69,6 +73,11 @@ router.register(r'pricing-regions', PricingRegionViewSet, basename='pricing-regi
 router.register(r'pricing-rates', PricingRateViewSet, basename='pricing-rate')
 router.register(r'pricing-audit-logs', PricingRateAuditLogViewSet, basename='pricing-audit-log')
 router.register(r'pending-payments', PendingPaymentViewSet, basename='pending-payment')
+router.register(
+    r'booking-report-clients',
+    BookingReportClientViewSet,
+    basename='booking-report-client',
+)
 
 urlpatterns = [
     path(
@@ -90,6 +99,16 @@ urlpatterns = [
         'website-leads/remarks/<int:pk>/',
         WebsiteLeadRemarkDetailView.as_view(),
         name='website-lead-remark-detail',
+    ),
+    path(
+        'booking-report-clients/<int:client_id>/remarks/',
+        BookingReportClientRemarkListCreateView.as_view(),
+        name='booking-report-client-remarks',
+    ),
+    path(
+        'booking-report-clients/remarks/<int:pk>/',
+        BookingReportClientRemarkDetailView.as_view(),
+        name='booking-report-client-remark-detail',
     ),
     path('users/theme/', UserThemeView.as_view(), name='user-theme'),
     path('media-file/', MediaFileView.as_view(), name='media-file'),
