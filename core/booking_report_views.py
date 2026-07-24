@@ -2,6 +2,8 @@
 Booking report clients list + remark APIs.
 
 GET  /api/booking-report-clients/
+GET  /api/booking-report-clients/?city=Mumbai
+GET  /api/booking-report-clients/?city=Pune
 GET  /api/booking-report-clients/{id}/
 GET  /api/booking-report-clients/{id}/remarks/
 POST /api/booking-report-clients/{id}/remarks/
@@ -33,16 +35,29 @@ class BookingReportClientFilter(django_filters.FilterSet):
     name = django_filters.CharFilter(field_name='name', lookup_expr='icontains')
     mobile = django_filters.CharFilter(method='filter_mobile')
     number = django_filters.CharFilter(method='filter_mobile')
+    city = django_filters.CharFilter(method='filter_city')
 
     class Meta:
         model = BookingReportClient
-        fields = ['name', 'mobile', 'number']
+        fields = ['name', 'mobile', 'number', 'city']
 
     def filter_mobile(self, queryset, name, value):
         digits = ''.join(ch for ch in str(value) if ch.isdigit())
         if not digits:
             return queryset.none()
         return queryset.filter(mobile__icontains=digits)
+
+    def filter_city(self, queryset, name, value):
+        raw = str(value or '').strip()
+        if not raw:
+            return queryset
+        # Exact city match after normalizing common aliases
+        city_l = raw.lower()
+        if city_l in {'mumbai', 'bom', 'bombay'}:
+            return queryset.filter(city__iexact='Mumbai')
+        if city_l in {'pune', 'poona'}:
+            return queryset.filter(city__iexact='Pune')
+        return queryset.filter(city__iexact=raw)
 
 
 class BookingReportClientViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -56,8 +71,8 @@ class BookingReportClientViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixi
     pagination_class = BookingReportClientPagination
     filter_backends = [django_filters.DjangoFilterBackend, filters.OrderingFilter]
     filterset_class = BookingReportClientFilter
-    ordering_fields = ['name', 'mobile', 'id', 'created_at', 'remarks_count']
-    ordering = ['name', 'id']
+    ordering_fields = ['name', 'mobile', 'city', 'id', 'created_at', 'remarks_count']
+    ordering = ['city', 'name', 'id']
     throttle_classes = [UserRateThrottle, AnonRateThrottle]
 
     def get_queryset(self):

@@ -1916,24 +1916,28 @@ class PricingRateAuditLog(BaseModel):
 
 class BookingReportClient(BaseModel):
     """
-    Snapshot of booking clients from BookingClientReport export
-    (last ~6 months name + mobile list for CRM / external integrations).
+    Snapshot of booking clients from city Excel exports
+    (Mumbai / Pune name + mobile lists for CRM / external integrations).
     """
     name = models.CharField(max_length=255, db_index=True)
     mobile = models.CharField(max_length=20, db_index=True)
+    city = models.CharField(max_length=50, db_index=True, blank=True, default='')
 
     class Meta:
         ordering = ['name', 'id']
         indexes = [
             models.Index(fields=['name']),
             models.Index(fields=['mobile']),
+            models.Index(fields=['city']),
+            models.Index(fields=['city', 'name']),
             models.Index(fields=['name', 'mobile']),
         ]
         verbose_name = 'Booking Report Client'
         verbose_name_plural = 'Booking Report Clients'
 
     def __str__(self) -> str:
-        return f"{self.name} ({self.mobile})"
+        city = f" · {self.city}" if self.city else ''
+        return f"{self.name} ({self.mobile}){city}"
 
 
 class BookingReportClientRemark(BaseModel):

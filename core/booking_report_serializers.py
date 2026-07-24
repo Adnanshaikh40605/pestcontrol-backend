@@ -42,6 +42,7 @@ class BookingReportClientSerializer(serializers.ModelSerializer):
             'id',
             'name',
             'mobile',
+            'city',
             'remarks_count',
             'latest_remark',
             'created_at',
