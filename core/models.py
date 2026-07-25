@@ -1973,3 +1973,56 @@ class BookingReportClientRemark(BaseModel):
 
     def __str__(self) -> str:
         return f"BookingReportClient #{self.client_id} remark @ {self.created_at}"
+
+
+class ECardVisit(BaseModel):
+    """Lightweight visit log for https://www.pestcontrol99.com/e-card/"""
+
+    class DeviceType(models.TextChoices):
+        MOBILE = 'Mobile', 'Mobile'
+        DESKTOP = 'Desktop', 'Desktop'
+        TABLET = 'Tablet', 'Tablet'
+
+    class TrafficSource(models.TextChoices):
+        GOOGLE_SEARCH = 'Google Search', 'Google Search'
+        FACEBOOK = 'Facebook', 'Facebook'
+        INSTAGRAM = 'Instagram', 'Instagram'
+        WHATSAPP = 'WhatsApp', 'WhatsApp'
+        YOUTUBE = 'YouTube', 'YouTube'
+        LINKEDIN = 'LinkedIn', 'LinkedIn'
+        EMAIL = 'Email', 'Email'
+        DIRECT = 'Direct Link', 'Direct Link'
+        REFERRAL = 'Another Website (Referral)', 'Another Website (Referral)'
+
+    city = models.CharField(max_length=100, blank=True, default='Unknown', db_index=True)
+    device_type = models.CharField(
+        max_length=20,
+        choices=DeviceType.choices,
+        default=DeviceType.DESKTOP,
+        db_index=True,
+    )
+    traffic_source = models.CharField(
+        max_length=40,
+        choices=TrafficSource.choices,
+        default=TrafficSource.DIRECT,
+        db_index=True,
+    )
+    visited_at = models.DateTimeField(default=timezone.now, db_index=True)
+    # Internal only — not exposed on CRM list API
+    ip_address = models.GenericIPAddressField(null=True, blank=True, db_index=True)
+    user_agent = models.CharField(max_length=512, blank=True, default='')
+    referrer = models.CharField(max_length=500, blank=True, default='')
+
+    class Meta:
+        ordering = ['-visited_at', '-id']
+        indexes = [
+            models.Index(fields=['-visited_at']),
+            models.Index(fields=['traffic_source', '-visited_at']),
+            models.Index(fields=['device_type', '-visited_at']),
+            models.Index(fields=['city', '-visited_at']),
+        ]
+        verbose_name = 'E-Card Visit'
+        verbose_name_plural = 'E-Card Visits'
+
+    def __str__(self) -> str:
+        return f"E-Card {self.city} · {self.device_type} · {self.traffic_source} @ {self.visited_at}"

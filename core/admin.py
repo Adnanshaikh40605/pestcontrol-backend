@@ -1,6 +1,15 @@
 from django.contrib import admin
-from .models import Client, Inquiry, JobCard, Renewal, CRMInquiry, InquiryRemark, WebsiteLeadRemark
+from .models import Client, Inquiry, JobCard, Renewal, CRMInquiry, InquiryRemark, WebsiteLeadRemark, ECardVisit
 from .partner_app_version import PartnerAppVersionConfig
+
+
+@admin.register(ECardVisit)
+class ECardVisitAdmin(admin.ModelAdmin):
+    list_display = ('visited_at', 'city', 'device_type', 'traffic_source', 'ip_address')
+    list_filter = ('device_type', 'traffic_source', 'visited_at')
+    search_fields = ('city', 'ip_address', 'referrer')
+    readonly_fields = ('created_at', 'updated_at', 'visited_at')
+    ordering = ('-visited_at',)
 
 
 @admin.register(PartnerAppVersionConfig)

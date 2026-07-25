@@ -48,6 +48,7 @@ from .booking_report_views import (
     BookingReportClientRemarkListCreateView,
     BookingReportClientRemarkDetailView,
 )
+from .ecard_views import ECardTrackView, ECardTrackingListView
 # Create router for v1 API
 router = DefaultRouter()
 router.register(r'clients', ClientViewSet, basename='client')
@@ -80,6 +81,8 @@ router.register(
 )
 
 urlpatterns = [
+    path('e-card/track/', ECardTrackView.as_view(), name='e-card-track'),
+    path('e-card/tracking/', ECardTrackingListView.as_view(), name='e-card-tracking'),
     path(
         'crm-inquiries/<int:inquiry_id>/remarks/',
         CRMInquiryRemarkListCreateView.as_view(),
