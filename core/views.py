@@ -3737,16 +3737,87 @@ class QuotationViewSet(BaseModelViewSet):
 
     @action(detail=True, methods=['post'])
     def convert_to_booking(self, request, pk=None):
-        """Convert an approved quotation into a booking (JobCard)."""
+        """Convert an approved quotation into a booking (JobCard) with Upcoming Services."""
+        from datetime import timedelta
+
+        from core.booking_schedule_engine import (
+            BookingScheduleEngine,
+            build_visit_plans,
+            is_amc_plan,
+            parse_contract_months,
+            resolve_recurring_spec,
+        )
+
         quotation = self.get_object()
-        
-        if quotation.status != 'Approved' and quotation.status != 'Sent':
-             # For flexibility, we allow 'Sent' too, but ideally 'Approved'
-             pass
+
+        def _plan_from_item(item) -> str:
+            for candidate in (
+                (getattr(item, 'description', None) or '').strip(),
+                (getattr(item, 'frequency', None) or '').strip(),
+            ):
+                if not candidate:
+                    continue
+                if resolve_recurring_spec(candidate) or 'one time' in candidate.lower():
+                    return candidate
+            return (
+                (getattr(item, 'frequency', None) or '').strip()
+                or (getattr(item, 'description', None) or '').strip()
+                or 'One Time Service'
+            )
+
+        def _society_fields(q):
+            """Map quotation property/type → JobCard society / commercial fields."""
+            blob = f"{q.property_type or ''} {q.quotation_type or ''}".strip().lower()
+            if 'society' in blob:
+                return {
+                    'commercial_type': JobCard.CommercialType.SOCIETY,
+                    'property_type': 'Society',
+                    'job_type': JobCard.JobType.SOCIETY,
+                    'society_billing_type': JobCard.SocietyBillingType.PAID,
+                    'contract_duration': JobCard.ContractDuration.TWELVE_MONTHS,
+                }
+            if 'hotel' in blob or 'resort' in blob:
+                return {
+                    'commercial_type': JobCard.CommercialType.HOTEL,
+                    'property_type': q.property_type or 'Hotel',
+                    'job_type': JobCard.JobType.CUSTOMER,
+                    'society_billing_type': None,
+                    'contract_duration': None,
+                }
+            if 'office' in blob:
+                return {
+                    'commercial_type': JobCard.CommercialType.OFFICE,
+                    'property_type': q.property_type or 'Office',
+                    'job_type': JobCard.JobType.CUSTOMER,
+                    'society_billing_type': None,
+                    'contract_duration': None,
+                }
+            if 'villa' in blob or 'bungalow' in blob:
+                return {
+                    'commercial_type': JobCard.CommercialType.VILLA,
+                    'property_type': q.property_type or 'Villa',
+                    'job_type': JobCard.JobType.CUSTOMER,
+                    'society_billing_type': None,
+                    'contract_duration': None,
+                }
+            if 'home' in blob or 'residential' in blob or 'flat' in blob:
+                return {
+                    'commercial_type': JobCard.CommercialType.HOME,
+                    'property_type': q.property_type or 'Home / Flat',
+                    'job_type': JobCard.JobType.CUSTOMER,
+                    'society_billing_type': None,
+                    'contract_duration': None,
+                }
+            return {
+                'commercial_type': JobCard.CommercialType.OTHER,
+                'property_type': q.property_type or 'Other',
+                'job_type': JobCard.JobType.CUSTOMER,
+                'society_billing_type': None,
+                'contract_duration': None,
+            }
 
         try:
-            # 1. Create or Get Client
-            client, created = Client.objects.get_or_create(
+            client, _created = Client.objects.get_or_create(
                 mobile=quotation.mobile,
                 defaults={
                     'full_name': (
@@ -3758,73 +3829,150 @@ class QuotationViewSet(BaseModelViewSet):
                     'address': quotation.address,
                     'city': quotation.city,
                     'state': quotation.state,
-                }
+                },
             )
 
-            # 2. Create Main Job Card
+            items = list(quotation.items.all())
+            service_items = []
+            for item in items:
+                plan = _plan_from_item(item)
+                service_items.append(
+                    {
+                        'service': item.service_name,
+                        'plan': plan,
+                        'frequency': item.frequency or plan,
+                        'area': '',
+                        'amount': float(item.total or 0),
+                    }
+                )
+
+            # Detect recurring from item plans OR quotation AMC flags
+            recurring_plans = [
+                si['plan'] for si in service_items if is_amc_plan(si['plan'])
+            ]
+            is_recurring = bool(recurring_plans) or bool(quotation.is_amc and (quotation.visit_count or 1) > 1)
+
+            # If toggle says AMC but items only say "One Time", upgrade using visit_count
+            if quotation.is_amc and (quotation.visit_count or 1) > 1 and not recurring_plans:
+                for si in service_items:
+                    if not is_amc_plan(si['plan']):
+                        si['plan'] = f'AMC {quotation.visit_count} Services'
+                        si['frequency'] = si['plan']
+                recurring_plans = [si['plan'] for si in service_items if is_amc_plan(si['plan'])]
+                is_recurring = bool(recurring_plans)
+
+            society_kw = _society_fields(quotation)
+            # Derive contract months from first recurring plan when N-services
+            contract_months = parse_contract_months(society_kw.get('contract_duration'))
+            if recurring_plans:
+                first_spec = resolve_recurring_spec(
+                    recurring_plans[0],
+                    contract_months=contract_months,
+                    preferred_visit_count=quotation.visit_count if quotation.visit_count > 1 else None,
+                )
+                if first_spec and first_spec.visit_count in (3, 6, 12):
+                    society_kw['contract_duration'] = str(first_spec.visit_count) if first_spec.visit_count in (3, 6, 12) else society_kw.get('contract_duration')
+                    # For 3/6/12 service packages, contract_duration matches package size for society renewals
+                    if first_spec.label.startswith('AMC') and first_spec.visit_count in (3, 6, 12):
+                        society_kw['contract_duration'] = str(first_spec.visit_count)
+
+            schedule_raw = request.data.get('schedule_datetime') if isinstance(request.data, dict) else None
+            if schedule_raw:
+                from django.utils.dateparse import parse_datetime
+
+                schedule_dt = parse_datetime(str(schedule_raw))
+                if schedule_dt and timezone.is_naive(schedule_dt):
+                    schedule_dt = timezone.make_aware(schedule_dt, timezone.get_current_timezone())
+            else:
+                schedule_dt = timezone.now() + timedelta(days=1)
+                schedule_dt = schedule_dt.replace(hour=10, minute=0, second=0, microsecond=0)
+
+            max_cycle = 1
+            if service_items:
+                plans = build_visit_plans(
+                    service_items[0]['service'],
+                    service_items[0]['plan'],
+                    schedule_dt.date(),
+                    contract_months=parse_contract_months(society_kw.get('contract_duration')),
+                    preferred_visit_count=quotation.visit_count if quotation.visit_count > 1 else None,
+                )
+                max_cycle = plans[-1].total_visits if plans else 1
+            elif quotation.visit_count:
+                max_cycle = max(1, int(quotation.visit_count))
+
             main_job = JobCard.objects.create(
                 client=client,
-                service_type=", ".join([item.service_name for item in quotation.items.all()]),
+                service_type=', '.join([item.service_name for item in items]) or 'Pest Control',
+                service_items=service_items,
                 price=str(quotation.grand_total),
-                service_category=JobCard.ServiceCategory.AMC if quotation.is_amc else JobCard.ServiceCategory.ONE_TIME,
+                total_amount=quotation.grand_total,
+                service_category=(
+                    JobCard.ServiceCategory.AMC if is_recurring else JobCard.ServiceCategory.ONE_TIME
+                ),
                 client_address=quotation.address,
                 city=quotation.city,
                 state=quotation.state,
                 status=JobCard.JobStatus.PENDING,
                 created_by=request.user,
-                is_amc_main_booking=quotation.is_amc,
-                max_cycle=quotation.visit_count if quotation.is_amc else 1,
+                is_amc_main_booking=is_recurring,
+                max_cycle=max_cycle,
                 service_cycle=1,
-                extra_notes=f"Converted from Quotation {quotation.quotation_no}. {quotation.notes or ''}"
+                schedule_datetime=schedule_dt,
+                time_slot='10am–12pm',
+                commercial_type=society_kw['commercial_type'],
+                property_type=society_kw['property_type'],
+                job_type=society_kw['job_type'],
+                society_billing_type=society_kw['society_billing_type'],
+                contract_duration=society_kw['contract_duration'],
+                master_country=quotation.master_country,
+                master_state=quotation.master_state,
+                master_city=quotation.master_city,
+                master_location=quotation.master_location,
+                extra_notes=(
+                    f"Converted from Quotation {quotation.quotation_no}. "
+                    f"{quotation.notes or ''}"
+                ).strip(),
+                creation_source=JobCard.CreationSource.API,
             )
 
-            # 3. If AMC, create follow-up visits (placeholder bookings)
-            if quotation.is_amc and quotation.visit_count > 1:
-                for i in range(2, quotation.visit_count + 1):
-                    JobCard.objects.create(
-                        client=client,
-                        service_type=main_job.service_type,
-                        price="0", # Follow-ups have no revenue
-                        service_category=JobCard.ServiceCategory.AMC,
-                        client_address=quotation.address,
-                        city=quotation.city,
-                        state=quotation.state,
-                        status=JobCard.JobStatus.UPCOMING,
-                        booking_type=JobCard.BookingType.AMC_FOLLOWUP,
-                        booking_category=JobCard.BookingCategory.AMC_FOLLOWUP,
-                        created_by=request.user,
-                        is_followup_visit=True,
-                        included_in_amc=True,
-                        is_service_call=True,
-                        parent_job=main_job,
-                        service_cycle=i,
-                        max_cycle=quotation.visit_count,
-                        creation_source=JobCard.CreationSource.API,
-                    )
+            created_visits = BookingScheduleEngine.generate_all_visits(main_job)
 
-            # 4. Update Quotation Status
             quotation.status = Quotation.QuotationStatus.CONVERTED
-            quotation.save()
+            quotation.save(update_fields=['status', 'updated_at'])
 
-            # 5. Log History
             QuotationHistory.objects.create(
                 quotation=quotation,
-                action="Converted to Booking",
-                details=f"Quotation converted to JobCard {main_job.code} by {request.user.username}",
-                performed_by=request.user
+                action='Converted to Booking',
+                details=(
+                    f"Quotation converted to JobCard {main_job.code} by {request.user.username}. "
+                    f"Generated {len(created_visits)} upcoming visit(s)."
+                ),
+                performed_by=request.user,
             )
 
-            log_activity(request.user, "Converted Quotation to Booking", booking_id=main_job.code)
+            log_activity(
+                request.user,
+                'Converted Quotation to Booking',
+                booking_id=main_job.code,
+            )
 
-            return response.Response({
-                'message': 'Successfully converted to booking',
-                'booking_id': main_job.id,
-                'booking_code': main_job.code
-            })
+            return response.Response(
+                {
+                    'message': 'Successfully converted to booking',
+                    'booking_id': main_job.id,
+                    'booking_code': main_job.code,
+                    'upcoming_visits_created': len(created_visits),
+                    'commercial_type': main_job.commercial_type,
+                    'max_cycle': main_job.max_cycle,
+                }
+            )
 
         except Exception as e:
-            logger.error(f"Error converting quotation: {e}")
-            return response.Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f'Error converting quotation: {e}')
+            return response.Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 def log_activity(user, action, booking_id=None, details=None):

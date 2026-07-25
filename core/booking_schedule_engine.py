@@ -31,8 +31,25 @@ MOSQUITO_INTERVAL_DAYS: dict[int, int] = {
     48: 7,
 }
 
+# Society / quotation calendar frequencies → (unit, step).
+# Visit count is derived from contract length (default 12 months).
+CALENDAR_FREQUENCY_INTERVALS: dict[str, tuple[str, int]] = {
+    'weekly': ('days', 7),
+    'monthly': ('months', 1),
+    'quarterly': ('months', 3),
+    'half yearly': ('months', 6),
+    'half-yearly': ('months', 6),
+    'halfyearly': ('months', 6),
+    'yearly': ('months', 12),
+    'annually': ('months', 12),
+    'annual': ('months', 12),
+}
+
 TERMITE_TOTAL_VISITS = 5
 TERMITE_CHECKUP_INTERVAL_MONTHS = 6
+DEFAULT_CONTRACT_MONTHS = 12
+# Hard cap so Weekly over long contracts cannot explode the DB.
+MAX_GENERATED_VISITS = 52
 
 
 @dataclass(frozen=True)
@@ -43,22 +60,111 @@ class VisitPlan:
     total_visits: int
 
 
-def parse_amc_visit_count(plan: str) -> Optional[int]:
-    if not plan:
+@dataclass(frozen=True)
+class RecurringSpec:
+    """Resolved multi-visit schedule for a plan / frequency label."""
+
+    visit_count: int
+    unit: str  # 'days' | 'months'
+    step: int
+    label: str
+
+
+def _normalize_plan_text(plan: str) -> str:
+    return re.sub(r'\s+', ' ', (plan or '').strip().lower())
+
+
+def parse_contract_months(contract_duration: Optional[str | int], default: int = DEFAULT_CONTRACT_MONTHS) -> int:
+    try:
+        months = int(str(contract_duration or '').strip() or default)
+    except (TypeError, ValueError):
+        months = default
+    return max(1, min(months, 36))
+
+
+def resolve_recurring_spec(
+    plan: str,
+    *,
+    service: str = '',
+    contract_months: Optional[int] = None,
+    preferred_visit_count: Optional[int] = None,
+) -> Optional[RecurringSpec]:
+    """
+    Parse AMC N Services / Society calendar frequencies into a recurring schedule.
+
+    Supported plans (examples):
+      - AMC 12 Services, 12 Services, AMC 6 Services, 3 Services, AMC
+      - Weekly, Monthly, Quarterly, Half Yearly, Yearly
+    """
+    plan_l = _normalize_plan_text(plan)
+    if not plan_l or 'one time' in plan_l:
         return None
-    plan_l = plan.lower()
-    if 'one time' in plan_l:
-        return None
+
+    months = parse_contract_months(contract_months)
+
+    # Explicit N-service packages (AMC 12 Services / 12 Services / etc.)
     match = re.search(r'(\d+)\s*service', plan_l)
     if match:
-        return int(match.group(1))
-    if 'amc' in plan_l:
-        return 3
+        visit_count = int(match.group(1))
+        svc = (service or '').lower()
+        if 'mosquito' in svc and visit_count in MOSQUITO_INTERVAL_DAYS:
+            unit, step = 'days', MOSQUITO_INTERVAL_DAYS[visit_count]
+        else:
+            unit, step = 'months', AMC_INTERVAL_MONTHS.get(visit_count, 4)
+        return RecurringSpec(
+            visit_count=min(visit_count, MAX_GENERATED_VISITS),
+            unit=unit,
+            step=step,
+            label=f'AMC {visit_count} Services',
+        )
+
+    # Bare "AMC" → use preferred visit_count or default 12 for society contracts
+    if plan_l == 'amc' or plan_l.startswith('amc '):
+        visit_count = preferred_visit_count or months or 12
+        if visit_count <= 1:
+            visit_count = 12
+        visit_count = min(max(visit_count, 2), MAX_GENERATED_VISITS)
+        unit, step = 'months', AMC_INTERVAL_MONTHS.get(visit_count, max(1, months // visit_count))
+        return RecurringSpec(
+            visit_count=visit_count,
+            unit=unit,
+            step=step,
+            label=f'AMC {visit_count} Services',
+        )
+
+    # Calendar frequencies (Society quotation FREQ dropdown)
+    for key, (unit, step) in CALENDAR_FREQUENCY_INTERVALS.items():
+        if plan_l == key or plan_l.startswith(key + ' '):
+            if unit == 'days':
+                # ~4.345 weeks per month
+                visit_count = max(1, int(round(months * 30.4375 / step)))
+            else:
+                visit_count = max(1, months // step)
+            # Yearly over a 12‑month contract still needs a next-year follow-up
+            # so Upcoming Services has something to show.
+            if key in {'yearly', 'annual', 'annually'} and visit_count < 2:
+                visit_count = 2
+            visit_count = min(max(visit_count, 1), MAX_GENERATED_VISITS)
+            if preferred_visit_count and preferred_visit_count > 1:
+                visit_count = min(preferred_visit_count, MAX_GENERATED_VISITS)
+            return RecurringSpec(
+                visit_count=visit_count,
+                unit=unit,
+                step=step,
+                label=key.title() if key != 'half yearly' else 'Half Yearly',
+            )
+
     return None
 
 
+def parse_amc_visit_count(plan: str) -> Optional[int]:
+    """Backward-compatible: visit count for AMC / recurring plans, else None."""
+    spec = resolve_recurring_spec(plan)
+    return spec.visit_count if spec else None
+
+
 def is_amc_plan(plan: str) -> bool:
-    return parse_amc_visit_count(plan) is not None
+    return resolve_recurring_spec(plan) is not None
 
 
 def is_termite_service(service: str) -> bool:
@@ -86,9 +192,18 @@ def amc_interval_spec(service: str, visit_count: int) -> tuple[str, int]:
     return 'months', interval_months_for_package(visit_count)
 
 
-def visit_date_for_cycle(start_date: date, cycle_index: int, service: str, visit_count: int) -> date:
+def visit_date_for_cycle(
+    start_date: date,
+    cycle_index: int,
+    service: str,
+    visit_count: int,
+    *,
+    unit: Optional[str] = None,
+    step: Optional[int] = None,
+) -> date:
     """cycle_index 0 = first visit on start_date."""
-    unit, step = amc_interval_spec(service, visit_count)
+    if unit is None or step is None:
+        unit, step = amc_interval_spec(service, visit_count)
     if unit == 'days':
         return start_date + timedelta(days=step * cycle_index)
     return start_date + relativedelta(months=step * cycle_index)
@@ -96,22 +211,30 @@ def visit_date_for_cycle(start_date: date, cycle_index: int, service: str, visit
 
 def visit_type_label(service: str, plan: str, cycle: int = 1) -> str:
     svc = (service or '').lower()
+    recurring = is_amc_plan(plan)
     if is_termite_service(service):
         return 'TERMITE CHECK-UP' if cycle > 1 else 'TERMITE TREATMENT'
     if 'rodent' in svc:
-        return 'RODENT AMC' if is_amc_plan(plan) else 'RODENT SERVICE'
+        return 'RODENT AMC' if recurring else 'RODENT SERVICE'
     if 'mosquito' in svc:
-        return 'MOSQUITO AMC' if is_amc_plan(plan) else 'MOSQUITO SERVICE'
-    if 'cockroach' in svc or 'ants' in svc:
-        return 'COCKROACH AMC' if is_amc_plan(plan) else 'COCKROACH SERVICE'
+        return 'MOSQUITO AMC' if recurring else 'MOSQUITO SERVICE'
+    if 'cockroach' in svc or 'ants' in svc or 'general pest' in svc:
+        return 'COCKROACH AMC' if recurring else 'COCKROACH SERVICE'
     if is_bed_bug_service(service):
-        return 'BED BUG AMC' if is_amc_plan(plan) else 'BED BUG SERVICE'
-    if is_amc_plan(plan):
+        return 'BED BUG AMC' if recurring else 'BED BUG SERVICE'
+    if recurring:
         return 'AMC VISIT'
     return 'SERVICE VISIT'
 
 
-def build_visit_plans(service: str, plan: str, start_date: date) -> list[VisitPlan]:
+def build_visit_plans(
+    service: str,
+    plan: str,
+    start_date: date,
+    *,
+    contract_months: Optional[int] = None,
+    preferred_visit_count: Optional[int] = None,
+) -> list[VisitPlan]:
     """Return all visit plans for a service line (cycle 1 = first visit on start_date)."""
     service = service or ''
     plan = plan or ''
@@ -127,8 +250,13 @@ def build_visit_plans(service: str, plan: str, start_date: date) -> list[VisitPl
             for i in range(TERMITE_TOTAL_VISITS)
         ]
 
-    visit_count = parse_amc_visit_count(plan)
-    if not visit_count:
+    spec = resolve_recurring_spec(
+        plan,
+        service=service,
+        contract_months=contract_months,
+        preferred_visit_count=preferred_visit_count,
+    )
+    if not spec:
         return [
             VisitPlan(
                 cycle=1,
@@ -141,11 +269,18 @@ def build_visit_plans(service: str, plan: str, start_date: date) -> list[VisitPl
     return [
         VisitPlan(
             cycle=i + 1,
-            visit_date=visit_date_for_cycle(start_date, i, service, visit_count),
+            visit_date=visit_date_for_cycle(
+                start_date,
+                i,
+                service,
+                spec.visit_count,
+                unit=spec.unit,
+                step=spec.step,
+            ),
             visit_type=visit_type_label(service, plan, i + 1),
-            total_visits=visit_count,
+            total_visits=spec.visit_count,
         )
-        for i in range(visit_count)
+        for i in range(spec.visit_count)
     ]
 
 
@@ -170,6 +305,8 @@ class BookingScheduleEngine:
             return []
 
         start_date = main_job.schedule_datetime.date()
+        contract_months = parse_contract_months(getattr(main_job, 'contract_duration', None))
+        preferred_visits = getattr(main_job, 'max_cycle', None) or None
         items = list(main_job.service_items or [])
         if not items and main_job.service_type:
             items = [
@@ -187,11 +324,17 @@ class BookingScheduleEngine:
 
         for item in items:
             service = str(item.get('service') or '').strip()
-            plan = str(item.get('plan') or '').strip()
+            plan = str(item.get('plan') or item.get('frequency') or '').strip()
             if not service:
                 continue
 
-            plans = build_visit_plans(service, plan, start_date)
+            plans = build_visit_plans(
+                service,
+                plan,
+                start_date,
+                contract_months=contract_months,
+                preferred_visit_count=preferred_visits if preferred_visits and preferred_visits > 1 else None,
+            )
             if not plans:
                 continue
 
@@ -285,8 +428,14 @@ class BookingScheduleEngine:
 
         if items:
             first_service = str(items[0].get('service') or '')
-            first_plan = str(items[0].get('plan') or '')
-            first_plans = build_visit_plans(first_service, first_plan, start_date)
+            first_plan = str(items[0].get('plan') or items[0].get('frequency') or '')
+            first_plans = build_visit_plans(
+                first_service,
+                first_plan,
+                start_date,
+                contract_months=contract_months,
+                preferred_visit_count=preferred_visits if preferred_visits and preferred_visits > 1 else None,
+            )
             if first_plans and not main_job.visit_type:
                 main_job.visit_type = first_plans[0].visit_type
                 update_fields.append('visit_type')
@@ -297,6 +446,14 @@ class BookingScheduleEngine:
         if earliest_next and not main_job.next_service_date:
             main_job.next_service_date = earliest_next
             update_fields.append('next_service_date')
+
+        # Recurring society / AMC main bookings should be flagged for tab sync
+        if root_max_cycle > 1 and not main_job.is_amc_main_booking:
+            main_job.is_amc_main_booking = True
+            update_fields.append('is_amc_main_booking')
+        if root_max_cycle > 1 and main_job.service_category != JobCard.ServiceCategory.AMC:
+            main_job.service_category = JobCard.ServiceCategory.AMC
+            update_fields.append('service_category')
 
         if update_fields:
             main_job.save(update_fields=list(dict.fromkeys(update_fields)))
