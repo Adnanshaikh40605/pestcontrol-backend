@@ -1918,16 +1918,16 @@ class BookingReportClient(BaseModel):
     """
     Snapshot of booking clients from city Excel exports
     (Mumbai / Pune name + mobile lists for CRM / external integrations).
+    One row per mobile number (duplicates are merged on import / migration).
     """
     name = models.CharField(max_length=255, db_index=True)
-    mobile = models.CharField(max_length=20, db_index=True)
+    mobile = models.CharField(max_length=20, unique=True, db_index=True)
     city = models.CharField(max_length=50, db_index=True, blank=True, default='')
 
     class Meta:
         ordering = ['name', 'id']
         indexes = [
             models.Index(fields=['name']),
-            models.Index(fields=['mobile']),
             models.Index(fields=['city']),
             models.Index(fields=['city', 'name']),
             models.Index(fields=['name', 'mobile']),

@@ -19,6 +19,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Count
 
+from core.booking_report_dedupe import normalize_mobile
 from core.models import BookingReportClient
 
 
@@ -86,12 +87,19 @@ class Command(BaseCommand):
         fallback_city = (options.get('city') or '').strip()
         created = 0
         skipped = 0
+        skipped_dup = 0
         batch: list[BookingReportClient] = []
+        # One row per mobile across this import (and existing DB unless --replace).
+        seen_mobiles: set[str] = set()
 
         with transaction.atomic():
             if options['replace']:
                 deleted, _ = BookingReportClient.objects.all().delete()
                 self.stdout.write(self.style.WARNING(f'Deleted existing rows: {deleted}'))
+            else:
+                seen_mobiles.update(
+                    BookingReportClient.objects.values_list('mobile', flat=True)
+                )
 
             for path in paths:
                 self.stdout.write(f'Importing {path.name}…')
@@ -132,8 +140,7 @@ class Command(BaseCommand):
                         city_raw = row[cols['city']]
 
                     name = str(name_raw).strip() if name_raw is not None else ''
-                    mobile = str(mobile_raw).strip() if mobile_raw is not None else ''
-                    mobile = ''.join(ch for ch in mobile if ch.isdigit())
+                    mobile = normalize_mobile(mobile_raw)
 
                     if dataset_city:
                         city = dataset_city
@@ -153,6 +160,10 @@ class Command(BaseCommand):
                     if not mobile:
                         skipped += 1
                         continue
+                    if mobile in seen_mobiles:
+                        skipped_dup += 1
+                        continue
+                    seen_mobiles.add(mobile)
 
                     batch.append(
                         BookingReportClient(
@@ -162,7 +173,9 @@ class Command(BaseCommand):
                         )
                     )
                     if len(batch) >= batch_size:
-                        BookingReportClient.objects.bulk_create(batch, batch_size=batch_size)
+                        BookingReportClient.objects.bulk_create(
+                            batch, batch_size=batch_size, ignore_conflicts=True
+                        )
                         created += len(batch)
                         batch.clear()
                         self.stdout.write(f'Imported {created}…')
@@ -170,7 +183,9 @@ class Command(BaseCommand):
                 wb.close()
 
             if batch:
-                BookingReportClient.objects.bulk_create(batch, batch_size=batch_size)
+                BookingReportClient.objects.bulk_create(
+                    batch, batch_size=batch_size, ignore_conflicts=True
+                )
                 created += len(batch)
 
         total = BookingReportClient.objects.count()
@@ -180,6 +195,7 @@ class Command(BaseCommand):
         }
         self.stdout.write(
             self.style.SUCCESS(
-                f'Done. created={created} skipped={skipped} table_total={total} by_city={by_city}'
+                f'Done. created={created} skipped={skipped} skipped_dup={skipped_dup} '
+                f'table_total={total} by_city={by_city}'
             )
         )
