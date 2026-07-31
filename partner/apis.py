@@ -373,13 +373,25 @@ class AvailableBookingsAPIView(PartnerAPIView):
     )
     def get(self, request):
         partner = request.partner
+        from partner.presence import is_partner_suspended, presence_payload
+
+        if is_partner_suspended(partner):
+            payload = presence_payload(partner)
+            return Response({
+                "count": 0,
+                "results": [],
+                "is_suspended": True,
+                "suspend_reason": payload.get('suspend_reason') or '',
+                "message": "Your account is suspended. Contact CRM admin.",
+            })
+
         jobs = JobCard.objects.filter(
             broadcast_pending_filter()
             | Q(partner=partner, partner_status=JobCard.PartnerStatus.PENDING)
         ).select_related('client', 'master_city', 'master_location').order_by('schedule_datetime')
 
         serializer = PartnerBookingListSerializer(jobs, many=True, context={'request': request})
-        return Response({"count": jobs.count(), "results": serializer.data})
+        return Response({"count": jobs.count(), "results": serializer.data, "is_suspended": False})
 
 
 class AcceptedBookingsAPIView(PartnerAPIView):
@@ -453,7 +465,19 @@ class BookingDetailAPIView(PartnerAPIView):
                 'client', 'master_city', 'master_location', 'master_state', 'technician'
             ).get(id=id, partner=partner)
         except JobCard.DoesNotExist:
-            return Response({"error": "Booking not found or not assigned to you."}, status=404)
+            # Allow viewing broadcast pool jobs (sent to app, not yet assigned)
+            try:
+                job = JobCard.objects.select_related(
+                    'client', 'master_city', 'master_location', 'master_state', 'technician'
+                ).get(
+                    id=id,
+                    partner__isnull=True,
+                    partner_status=JobCard.PartnerStatus.PENDING,
+                    sent_to_app_at__isnull=False,
+                    status=JobCard.JobStatus.PENDING,
+                )
+            except JobCard.DoesNotExist:
+                return Response({"error": "Booking not found or not assigned to you."}, status=404)
 
         serializer = PartnerBookingDetailSerializer(job, context={'request': request})
         return Response(serializer.data)
@@ -725,6 +749,9 @@ class CompleteBookingAPIView(PartnerAPIView):
             "partner_status": job.partner_status,
             "payment_mode": job.payment_mode,
             "payment_status": job.payment_status,
+            "payment_model": job.payment_model,
+            "visit_payout_amount": str(job.visit_payout_amount) if job.visit_payout_amount is not None else None,
+            "payout_status": job.payout_status,
             "next_service_date": next_service_date,
         })
 
@@ -875,13 +902,21 @@ class EarningsHistoryAPIView(PartnerAPIView):
     )
     def get(self, request):
         partner = request.partner
-        earnings = PartnerEarning.objects.filter(partner=partner).select_related('job').order_by('-created_at')
+        earnings = (
+            PartnerEarning.objects.filter(partner=partner)
+            .select_related('job', 'settlement_line__settlement')
+            .order_by('-created_at')
+        )
         serializer = PartnerEarningSerializer(earnings, many=True)
 
         total = earnings.aggregate(Sum('amount'))['amount__sum'] or 0
+        approved_total = (
+            earnings.filter(is_approved=True).aggregate(Sum('amount'))['amount__sum'] or 0
+        )
 
         return Response({
             "total_earnings": str(total),
+            "approved_earnings": str(approved_total),
             "results": serializer.data,
         })
 

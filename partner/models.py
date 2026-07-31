@@ -79,7 +79,14 @@ class Partner(models.Model):
 class PartnerEarning(models.Model):
     """
     Tracks earnings for each partner per completed job.
+    Extended for revenue-model v2 (type, approval, participation link).
     """
+
+    class EarningType(models.TextChoices):
+        REVENUE_SHARE = 'revenue_share', 'Revenue Share'
+        INCENTIVE = 'incentive', 'Incentive'
+        DEDUCTION = 'deduction', 'Deduction'
+
     partner = models.ForeignKey(
         Partner,
         on_delete=models.CASCADE,
@@ -98,12 +105,38 @@ class PartnerEarning(models.Model):
         default=0,
         verbose_name="Earning Amount"
     )
+    earning_type = models.CharField(
+        max_length=30,
+        choices=EarningType.choices,
+        default=EarningType.REVENUE_SHARE,
+        db_index=True,
+        verbose_name="Earning Type",
+    )
+    participation = models.ForeignKey(
+        'core.JobCardTechnicianParticipation',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='partner_earnings',
+        verbose_name="Participation",
+    )
+    is_approved = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="Is Approved",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Partner Earning"
         verbose_name_plural = "Partner Earnings"
         ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['job', 'partner', 'earning_type'],
+                name='unique_partner_earning_per_job_type',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.partner.full_name} - ₹{self.amount} for Job #{self.job_id}"
@@ -303,3 +336,42 @@ class PartnerReferral(models.Model):
 
     def __str__(self):
         return f'{self.client_name} ({self.mobile}) via {self.partner.full_name}'
+
+
+class PartnerLeaveRequest(models.Model):
+    """Leave request submitted from the partner mobile app."""
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    partner = models.ForeignKey(
+        Partner,
+        on_delete=models.CASCADE,
+        related_name='leave_requests',
+    )
+    start_date = models.DateField(db_index=True)
+    end_date = models.DateField(db_index=True)
+    reason = models.TextField(blank=True, default='')
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    admin_note = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Partner Leave Request'
+        verbose_name_plural = 'Partner Leave Requests'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['partner', 'status']),
+        ]
+
+    def __str__(self):
+        return f'Leave #{self.pk} {self.partner_id} {self.start_date}→{self.end_date} ({self.status})'

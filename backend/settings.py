@@ -61,6 +61,9 @@ FIREBASE_PRIVATE_KEY_ID = config('FIREBASE_PRIVATE_KEY_ID', default='')
 FIREBASE_CLIENT_EMAIL = config('FIREBASE_CLIENT_EMAIL', default='')
 GOOGLE_APPLICATION_CREDENTIALS = config('GOOGLE_APPLICATION_CREDENTIALS', default='')
 
+# Technician & Revenue Model v2 (40/60). Off by default until cutover.
+REVENUE_MODEL_V2 = config('REVENUE_MODEL_V2', default=False, cast=bool)
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -78,6 +81,7 @@ INSTALLED_APPS = [
     'drf_spectacular',  # OpenAPI 3.0 documentation
     'core',
     'partner',
+    'customer',
     'staff_tracking',
     'blog',
 ]
@@ -271,6 +275,7 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'partner.authentication.PartnerJWTAuthentication',
+        'customer.authentication.CustomerJWTAuthentication',
         'staff_tracking.authentication.StaffTrackingAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
@@ -295,6 +300,8 @@ REST_FRAMEWORK = {
         # Partner app: per technician (see partner.throttling.PartnerRateThrottle)
         'partner': '3000/hour',
         'partner_auth': '60/min',
+        'customer': '2000/hour',
+        'customer_auth': '60/min',
         'staff_tracking': '6000/hour',
         'staff_tracking_auth': '60/min',
     }

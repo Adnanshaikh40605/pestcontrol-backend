@@ -176,7 +176,7 @@ class JobCardCreationTests(TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         amounts = [item['amount'] for item in response.data['service_items']]
         self.assertEqual(sum(amounts), 180000.0)
-        self.assertEqual(response.data['price'], '180000.0')
+        self.assertEqual(response.data['price'], '180000')
 
     def test_distribute_amount_equal_split_when_all_zero(self):
         from core.payment_utils import distribute_amount_across_service_items

@@ -17,13 +17,13 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiPara
 from drf_spectacular.types import OpenApiTypes
 
 from .models import (
-    Client, Inquiry, JobCard, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder,
+    Client, Inquiry, JobCard, JobCardTechnicianParticipation, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder,
     Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm,
     QuotationHistory, InquiryRemark, WebsiteLeadRemark, RemarkType,
 )
 from django.db.models import Count, Prefetch
 from .serializers import (
-    ClientSerializer, InquirySerializer, JobCardSerializer, 
+    ClientSerializer, InquirySerializer, JobCardSerializer, JobCardTechnicianParticipationSerializer,
     RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, 
     FeedbackSerializer, TechnicianPerformanceSerializer,
     StaffSerializer, ActivityLogSerializer, ReminderSerializer,
@@ -102,6 +102,22 @@ def health_check(request):
         payload['database_error'] = db_error
     status_code = 200 if db_ok else 503
     return JsonResponse(payload, status=status_code)
+
+
+@extend_schema(
+    summary='Feature flags',
+    description='CRM-readable feature flags (e.g. revenue model v2).',
+    responses={200: OpenApiTypes.OBJECT},
+    tags=['Health'],
+)
+@decorators.api_view(['GET'])
+@decorators.permission_classes([permissions.IsAuthenticated])
+def feature_flags(request):
+    from django.conf import settings as django_settings
+
+    return response.Response({
+        'REVENUE_MODEL_V2': bool(getattr(django_settings, 'REVENUE_MODEL_V2', False)),
+    })
 
 
 # CORS test endpoint removed for production security
@@ -1955,22 +1971,269 @@ class JobCardViewSet(BaseModelViewSet):
                     {'error': 'Technician not found'},
                     status=status.HTTP_404_NOT_FOUND
                 )
-            
+
+            # Block desk-assign once a partner has already claimed / started the job.
+            if instance.partner_id and instance.partner_status in (
+                JobCard.PartnerStatus.ACCEPTED,
+                JobCard.PartnerStatus.IN_SERVICE,
+                JobCard.PartnerStatus.COMPLETED,
+            ):
+                return response.Response(
+                    {
+                        'error': (
+                            'Booking is already with a partner technician in the app. '
+                            'Remove/reassign from the partner workflow first.'
+                        ),
+                        'code': 'partner_in_progress',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # If still sitting in the open app pool, pull it back so partners cannot accept mid-assign.
+            pulled_from_app = bool(
+                instance.sent_to_app_at
+                and instance.partner_id is None
+                and instance.partner_status == JobCard.PartnerStatus.PENDING
+            )
+
             instance.technician = technician
             instance.assigned_to = technician.name
             instance.status = JobCard.JobStatus.ON_PROCESS
             instance.removal_remarks = ''
-            instance.save()
+            update_fields = [
+                'technician',
+                'assigned_to',
+                'status',
+                'removal_remarks',
+                'updated_at',
+            ]
+            if pulled_from_app:
+                instance.partner = None
+                instance.partner_status = JobCard.PartnerStatus.REJECTED
+                instance.sent_to_app_at = None
+                instance.is_accepted = False
+                instance.accepted_at = None
+                update_fields.extend(
+                    [
+                        'partner',
+                        'partner_status',
+                        'sent_to_app_at',
+                        'is_accepted',
+                        'accepted_at',
+                    ]
+                )
+            instance.save(update_fields=update_fields)
             
             serializer = self.get_serializer(instance)
-            return response.Response(serializer.data)
+            data = serializer.data
+            if pulled_from_app:
+                return response.Response(
+                    {
+                        **data,
+                        'pulled_from_app': True,
+                        'message': 'Assigned in CRM and removed from the partner app queue.',
+                    }
+                )
+            return response.Response(data)
             
         except Exception as e:
             logger.error(f"Error in JobCardViewSet.assign: {e}", exc_info=True)
             return response.Response(
                 {'error': 'Failed to assign technician', 'details': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(detail=True, methods=['get', 'post'], url_path='participants')
+    def participants(self, request, pk=None):
+        """List or add crew participants for contractual / multi-tech visits."""
+        job = self.get_object()
+        if request.method == 'GET':
+            qs = job.technician_participations.select_related('technician', 'partner').all()
+            return response.Response(
+                JobCardTechnicianParticipationSerializer(qs, many=True).data
+            )
+
+        technician_id = request.data.get('technician_id') or request.data.get('technician')
+        if not technician_id:
+            return response.Response(
+                {'error': 'technician_id is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            technician = Technician.objects.get(id=technician_id)
+        except Technician.DoesNotExist:
+            return response.Response(
+                {'error': 'Technician not found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if job.payout_status in (
+            JobCard.PayoutStatus.APPROVED,
+            JobCard.PayoutStatus.PAID,
+        ):
+            return response.Response(
+                {'error': 'Crew is locked after payout approval'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        partner = getattr(technician, 'partner_account', None)
+        role = request.data.get('role') or JobCardTechnicianParticipation.Role.CREW
+        if role not in dict(JobCardTechnicianParticipation.Role.choices):
+            role = JobCardTechnicianParticipation.Role.CREW
+        is_salaried = technician.technician_type == Technician.TechnicianType.SALARIED
+        row, created = JobCardTechnicianParticipation.objects.get_or_create(
+            jobcard=job,
+            technician=technician,
+            defaults={
+                'partner': partner if partner and partner.is_active else None,
+                'role': role,
+                'is_payout_eligible': not is_salaried,
+            },
+        )
+        if not created:
+            return response.Response(
+                {'error': 'Technician already on this job crew'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return response.Response(
+            JobCardTechnicianParticipationSerializer(row).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(
+        detail=True,
+        methods=['patch', 'delete'],
+        url_path=r'participants/(?P<participant_id>[^/.]+)',
+    )
+    def participant_detail(self, request, pk=None, participant_id=None):
+        job = self.get_object()
+        try:
+            row = job.technician_participations.select_related('technician', 'partner').get(
+                id=participant_id
+            )
+        except JobCardTechnicianParticipation.DoesNotExist:
+            return response.Response(
+                {'error': 'Participant not found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if job.payout_status in (
+            JobCard.PayoutStatus.APPROVED,
+            JobCard.PayoutStatus.PAID,
+        ):
+            return response.Response(
+                {'error': 'Crew is locked after payout approval'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if request.method == 'DELETE':
+            row.delete()
+            return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+        for field in ('role', 'attendance_status', 'is_payout_eligible'):
+            if field in request.data:
+                setattr(row, field, request.data[field])
+        row.save()
+        return response.Response(JobCardTechnicianParticipationSerializer(row).data)
+
+    @action(detail=True, methods=['post'], url_path='payout-recalculate')
+    def payout_recalculate(self, request, pk=None):
+        """Admin recalculate for pending/held revenue-model jobs."""
+        from core.payout_engine import calculate_and_apply_payout, is_revenue_model_enabled
+
+        job = self.get_object()
+        if not is_revenue_model_enabled():
+            return response.Response(
+                {'error': 'REVENUE_MODEL_V2 is disabled'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
+            return response.Response(
+                {'error': 'Legacy bookings cannot be recalculated'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if job.payout_status not in (
+            JobCard.PayoutStatus.NOT_APPLICABLE,
+            JobCard.PayoutStatus.PENDING,
+            JobCard.PayoutStatus.HELD,
+        ):
+            return response.Response(
+                {'error': f'Cannot recalculate when payout_status={job.payout_status}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        result = calculate_and_apply_payout(job, force=True)
+        job.refresh_from_db()
+        return response.Response({
+            'skipped': result.skipped,
+            'reason': result.reason,
+            'economics': result.economics,
+            'visit_revenue': str(result.visit_revenue),
+            'technician_pool': str(result.technician_pool),
+            'company_share': str(result.company_share),
+            'payout_status': job.payout_status,
+            'visit_payout_amount': str(job.visit_payout_amount),
+            'participants': JobCardTechnicianParticipationSerializer(
+                job.technician_participations.select_related('technician', 'partner'),
+                many=True,
+            ).data,
+        })
+
+    @action(detail=True, methods=['post'], url_path='payout-hold')
+    def payout_hold(self, request, pk=None):
+        from core.payout_engine import is_revenue_model_enabled
+
+        job = self.get_object()
+        if not is_revenue_model_enabled():
+            return response.Response(
+                {'error': 'REVENUE_MODEL_V2 is disabled'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
+            return response.Response(
+                {'error': 'Legacy bookings cannot be held for revenue payout'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if job.payout_status in (JobCard.PayoutStatus.PAID, JobCard.PayoutStatus.CANCELLED):
+            return response.Response(
+                {'error': f'Cannot hold when payout_status={job.payout_status}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        job.payout_status = JobCard.PayoutStatus.HELD
+        job.save(update_fields=['payout_status', 'updated_at'])
+        from core.revenue_audit import log_revenue_event
+        log_revenue_event(
+            action='payout_hold',
+            booking_id=job.code or str(job.id),
+            user=request.user if request.user.is_authenticated else None,
+        )
+        return response.Response(self.get_serializer(job).data)
+
+    @action(detail=True, methods=['post'], url_path='payout-approve')
+    def payout_approve(self, request, pk=None):
+        from core.payout_engine import is_revenue_model_enabled
+        from partner.models import PartnerEarning
+
+        job = self.get_object()
+        if not is_revenue_model_enabled():
+            return response.Response(
+                {'error': 'REVENUE_MODEL_V2 is disabled'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if job.payout_status not in (
+            JobCard.PayoutStatus.PENDING,
+            JobCard.PayoutStatus.HELD,
+        ):
+            return response.Response(
+                {'error': f'Cannot approve when payout_status={job.payout_status}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        job.payout_status = JobCard.PayoutStatus.APPROVED
+        job.save(update_fields=['payout_status', 'updated_at'])
+        PartnerEarning.objects.filter(job=job).update(is_approved=True)
+        from core.revenue_audit import log_revenue_event
+        log_revenue_event(
+            action='payout_approve',
+            booking_id=job.code or str(job.id),
+            user=request.user if request.user.is_authenticated else None,
+        )
+        return response.Response(self.get_serializer(job).data)
 
     @action(detail=True, methods=['post'], url_path='send-to-app')
     def send_to_app(self, request, pk=None):

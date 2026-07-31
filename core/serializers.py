@@ -1,10 +1,12 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
+import logging
 from .models import (
     BookingPayment,
     Client,
     Inquiry,
     JobCard,
+    JobCardTechnicianParticipation,
     Renewal,
     Technician,
     CRMInquiry,
@@ -107,6 +109,9 @@ class ClientSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
+logger = logging.getLogger(__name__)
+
+
 class TechnicianSerializer(serializers.ModelSerializer):
     active_jobs = serializers.IntegerField(read_only=True)
     active_job_details = serializers.SerializerMethodField()
@@ -122,9 +127,12 @@ class TechnicianSerializer(serializers.ModelSerializer):
             'id', 'name', 'mobile', 'phone', 'age', 'alternative_mobile',
             'is_active', 'service_area', 'city', 'last_active', 'active_jobs', 'active_job_details',
             'has_partner_app', 'partner_app_approved', 'partner_id', 'partner_name',
+            'technician_type', 'branch', 'aadhaar', 'pan', 'photo', 'agreement_file',
+            'security_deposit_amount', 'security_deposit_status', 'skills', 'star_rating',
+            'presence_status', 'suspended_at', 'suspend_reason', 'reactivated_at',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'suspended_at', 'reactivated_at']
 
     def get_has_partner_app(self, obj):
         partner = getattr(obj, 'partner_account', None)
@@ -394,11 +402,19 @@ class JobCardSerializer(serializers.ModelSerializer):
             'is_amc_main_booking', 'is_followup_visit', 'included_in_amc',
             'booking_type', 'booking_category',
             'booking_priority',
+            'package_tier', 'payment_model', 'technician_share_percent', 'company_share_percent',
+            'planned_visit_count', 'discount_amount',
+            'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
+            'visit_payout_amount', 'payout_status',
             'created_by', 'created_by_name', 'on_process_by', 'on_process_by_name', 'done_by', 'done_by_name',
             'created_at', 'updated_at',
             'payment_collection_type', 'completion_paid_amount', 'completion_pending_amount', 'payment_remarks',
         ]
-        read_only_fields = ['id', 'code', 'created_by', 'on_process_by', 'done_by', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'code', 'created_by', 'on_process_by', 'done_by', 'created_at', 'updated_at',
+            'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
+            'visit_payout_amount',
+        ]
         extra_kwargs = {
             'client': {'required': False},
         }
@@ -664,8 +680,19 @@ class JobCardSerializer(serializers.ModelSerializer):
                 price_raw = self.instance.price
             manual_total = parse_jobcard_price(price_raw)
             items_were_updated = 'service_items' in data
+            # Prefer an explicit price from the request over stale line amounts
+            # (CRM often PATCHes price while still sending old service_items).
+            price_explicitly_set = False
+            if hasattr(self, 'initial_data') and isinstance(self.initial_data, dict):
+                price_explicitly_set = 'price' in self.initial_data
 
-            if items_total > 0 and items_were_updated:
+            if price_explicitly_set and manual_total > 0 and normalized:
+                if abs(manual_total - items_total) > parse_jobcard_price('0.01'):
+                    distribute_amount_across_service_items(normalized, manual_total)
+                    data['service_items'] = normalized
+                # Keep the staff-entered price string (avoid "1000" → "1000.0")
+                data['price'] = str(self.initial_data.get('price')).strip()
+            elif items_total > 0 and items_were_updated:
                 data['price'] = str(float(items_total))
             elif manual_total > 0 and normalized:
                 if abs(manual_total - items_total) > parse_jobcard_price('0.01'):
@@ -746,8 +773,42 @@ class JobCardSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError(exc.message_dict)
                     raise serializers.ValidationError(str(exc))
                 instance.refresh_from_db()
+                try:
+                    from core.payout_engine import try_apply_payout_after_completion
+
+                    try_apply_payout_after_completion(instance)
+                    instance.refresh_from_db()
+                except Exception:
+                    logger.exception('Payout after CRM Done failed for %s', instance.code)
 
         return instance
+
+    def create(self, validated_data):
+        from core.payout_engine import apply_revenue_defaults_for_new_booking
+
+        apply_revenue_defaults_for_new_booking(validated_data)
+        return super().create(validated_data)
+
+
+class JobCardTechnicianParticipationSerializer(serializers.ModelSerializer):
+    technician_name = serializers.CharField(source='technician.name', read_only=True)
+    technician_mobile = serializers.CharField(source='technician.mobile', read_only=True)
+    partner_name = serializers.CharField(source='partner.full_name', read_only=True)
+    technician_type = serializers.CharField(source='technician.technician_type', read_only=True)
+
+    class Meta:
+        model = JobCardTechnicianParticipation
+        fields = [
+            'id', 'jobcard', 'technician', 'technician_name', 'technician_mobile', 'technician_type',
+            'partner', 'partner_name', 'role', 'attendance_status',
+            'checked_in_at', 'checked_out_at', 'is_payout_eligible',
+            'share_percent_snapshot', 'payout_amount_snapshot',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'jobcard', 'share_percent_snapshot', 'payout_amount_snapshot',
+            'created_at', 'updated_at',
+        ]
 
 
 class BookingPaymentSerializer(serializers.ModelSerializer):

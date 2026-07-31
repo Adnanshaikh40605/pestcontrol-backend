@@ -5,6 +5,7 @@ from .models import (
     PartnerDeviceToken,
     PartnerNotification,
     PartnerEarning,
+    PartnerLeaveRequest,
     PartnerRating,
     PartnerReferral,
 )
@@ -73,6 +74,15 @@ class PartnerReferralAdmin(admin.ModelAdmin):
     search_fields = ['client_name', 'mobile', 'partner__full_name', 'partner__mobile']
     readonly_fields = ['created_at', 'updated_at']
     raw_id_fields = ['partner', 'crm_inquiry']
+
+
+@admin.register(PartnerLeaveRequest)
+class PartnerLeaveRequestAdmin(admin.ModelAdmin):
+    list_display = ['id', 'partner', 'start_date', 'end_date', 'status', 'created_at']
+    list_filter = ['status']
+    search_fields = ['partner__full_name', 'partner__mobile', 'reason']
+    readonly_fields = ['created_at', 'updated_at']
+    raw_id_fields = ['partner']
 
 
 @admin.register(CrmPartnerEvent)

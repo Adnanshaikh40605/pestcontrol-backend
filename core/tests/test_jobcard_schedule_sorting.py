@@ -8,7 +8,11 @@ from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from core.jobcard_schedule import effective_schedule_datetime, order_queryset_by_schedule_datetime
+from core.jobcard_schedule import (
+    effective_schedule_datetime,
+    order_queryset_by_completed_at,
+    order_queryset_by_schedule_datetime,
+)
 from core.models import Client, JobCard
 
 IST = pytz.timezone('Asia/Kolkata')
@@ -130,7 +134,6 @@ class JobCardScheduleSortingAPITest(APITestCase):
         for booking_type in (
             'pending',
             'on_process',
-            'done',
             'upcoming_services',
             'complaint_calls',
             'cancelled',
@@ -139,7 +142,6 @@ class JobCardScheduleSortingAPITest(APITestCase):
                 status={
                     'pending': JobCard.JobStatus.PENDING,
                     'on_process': JobCard.JobStatus.ON_PROCESS,
-                    'done': JobCard.JobStatus.DONE,
                     'upcoming_services': JobCard.JobStatus.UPCOMING,
                     'complaint_calls': JobCard.JobStatus.PENDING,
                     'cancelled': JobCard.JobStatus.CANCELLED,
@@ -200,3 +202,47 @@ class JobCardScheduleSortingAPITest(APITestCase):
         self.assertEqual(page1_ids[0], today_job.id)
         self.assertEqual(page1_ids[1], tomorrow_job.id)
         self.assertGreater(len(page2.data['results']), 0)
+
+    def test_queryset_done_tab_orders_by_completed_at_desc(self):
+        older_done = self._create_booking(self.past, '10:00 AM', status=JobCard.JobStatus.DONE)
+        newer_done = self._create_booking(self.today, '02:00 PM', status=JobCard.JobStatus.DONE)
+        oldest_done = self._create_booking(self.past - timedelta(days=30), '09:00 AM', status=JobCard.JobStatus.DONE)
+
+        older_done.completed_at = timezone.now() - timedelta(days=2, hours=6)
+        newer_done.completed_at = timezone.now() - timedelta(hours=2)
+        oldest_done.completed_at = timezone.now() - timedelta(days=5)
+        JobCard.objects.bulk_update(
+            [older_done, newer_done, oldest_done],
+            ['completed_at'],
+        )
+
+        ordered_ids = list(
+            order_queryset_by_completed_at(
+                JobCard.objects.filter(
+                    id__in=[older_done.id, newer_done.id, oldest_done.id],
+                ),
+                ascending=False,
+            ).values_list('id', flat=True)
+        )
+        self.assertEqual(ordered_ids, [newer_done.id, older_done.id, oldest_done.id])
+
+    def test_api_done_tab_orders_by_completed_at_desc(self):
+        jobs = []
+        for hours_ago in (48, 6, 120, 1):
+            job = self._create_booking(self.today, '10:00 AM', status=JobCard.JobStatus.DONE)
+            job.completed_at = timezone.now() - timedelta(hours=hours_ago)
+            jobs.append(job)
+        JobCard.objects.bulk_update(jobs, ['completed_at'])
+        expected_order = [jobs[3].id, jobs[1].id, jobs[0].id, jobs[2].id]
+
+        response = self.api_client.get(
+            '/api/v1/jobcards/',
+            {
+                'booking_type': 'done',
+                'ordering': '-created_at',
+                'page_size': 20,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        result_ids = [row['id'] for row in response.data['results'] if row['id'] in expected_order]
+        self.assertEqual(result_ids, expected_order)

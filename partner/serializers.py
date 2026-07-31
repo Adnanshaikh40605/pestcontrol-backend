@@ -1,6 +1,6 @@
 from rest_framework import serializers
-from .models import Partner, PartnerEarning, PartnerRating
-from core.models import JobCard
+from .models import Partner, PartnerEarning, PartnerLeaveRequest, PartnerRating
+from core.models import JobCard, TechnicianSettlement
 
 
 class PartnerSerializer(serializers.ModelSerializer):
@@ -20,6 +20,8 @@ class PartnerSerializer(serializers.ModelSerializer):
         image = data.get('profile_image')
         if request and image and not str(image).startswith('http'):
             data['profile_image'] = request.build_absolute_uri(image)
+        from partner.presence import presence_payload
+        data['presence'] = presence_payload(instance)
         return data
 
 
@@ -161,6 +163,7 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
             'is_complaint_call', 'complaint_type',
             'property_type', 'bhk_size',
             'price', 'payment_status', 'payment_mode',
+            'payment_model', 'visit_payout_amount', 'payout_status',
             'completed_at',
         ]
 
@@ -237,6 +240,7 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
             'schedule_datetime', 'time_slot',
             # Payment
             'price', 'price_display', 'payment_status', 'payment_mode',
+            'payment_model', 'visit_payout_amount', 'payout_status',
             # Status
             'status', 'partner_status', 'priority',
             # Timestamps
@@ -331,10 +335,64 @@ class PartnerEarningSerializer(serializers.ModelSerializer):
     job_code = serializers.CharField(source='job.code', read_only=True)
     service_type = serializers.CharField(source='job.service_type', read_only=True)
     completed_at = serializers.DateTimeField(source='job.completed_at', read_only=True)
+    payout_status = serializers.CharField(source='job.payout_status', read_only=True)
+    visit_payout_amount = serializers.DecimalField(
+        source='job.visit_payout_amount',
+        max_digits=12,
+        decimal_places=2,
+        read_only=True,
+        allow_null=True,
+    )
+    settlement_status = serializers.SerializerMethodField()
+    settlement_id = serializers.SerializerMethodField()
 
     class Meta:
         model = PartnerEarning
-        fields = ['id', 'job_code', 'service_type', 'amount', 'completed_at', 'created_at']
+        fields = [
+            'id', 'job_code', 'service_type', 'amount', 'earning_type',
+            'is_approved', 'payout_status', 'visit_payout_amount',
+            'settlement_status', 'settlement_id',
+            'completed_at', 'created_at',
+        ]
+
+    def get_settlement_status(self, obj):
+        line = getattr(obj, 'settlement_line', None)
+        if not line:
+            return None
+        return line.settlement.status
+
+    def get_settlement_id(self, obj):
+        line = getattr(obj, 'settlement_line', None)
+        if not line:
+            return None
+        return line.settlement_id
+
+
+class PartnerLeaveRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PartnerLeaveRequest
+        fields = [
+            'id', 'start_date', 'end_date', 'reason', 'status',
+            'admin_note', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'status', 'admin_note', 'created_at', 'updated_at']
+
+    def validate(self, attrs):
+        start = attrs.get('start_date')
+        end = attrs.get('end_date')
+        if start and end and end < start:
+            raise serializers.ValidationError({'end_date': 'end_date must be on or after start_date.'})
+        return attrs
+
+
+class PartnerSettlementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TechnicianSettlement
+        fields = [
+            'id', 'period_start', 'period_end', 'cadence', 'status',
+            'gross_amount', 'incentive_amount', 'deduction_amount', 'net_amount',
+            'paid_at', 'created_at',
+        ]
 
 
 class PartnerProfileStatsSerializer(serializers.Serializer):

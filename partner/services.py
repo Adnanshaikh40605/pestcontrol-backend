@@ -154,8 +154,12 @@ def _raise_if_booking_already_taken(job: JobCard, partner: Partner) -> None:
 
 @transaction.atomic
 def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
+    from core.models import Technician
+    from partner.presence import ensure_partner_not_suspended, set_partner_presence
+
     # Lock row so two technicians tapping Accept at the same time cannot both win.
     job = JobCard.objects.select_for_update().get(pk=job.pk)
+    ensure_partner_not_suspended(partner)
     _raise_if_booking_already_taken(job, partner)
 
     if job.status == JobCard.JobStatus.CANCELLED:
@@ -209,6 +213,21 @@ def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
         ]
     )
     try:
+        set_partner_presence(
+            partner,
+            Technician.PresenceStatus.BUSY,
+            allow_system=True,
+        )
+    except PartnerBookingError:
+        pass
+    try:
+        from core.payout_engine import ensure_lead_participation, is_revenue_model_enabled
+
+        if is_revenue_model_enabled():
+            ensure_lead_participation(job)
+    except Exception as exc:
+        logger.exception('Lead participation sync failed #%s: %s', job.id, exc)
+    try:
         from partner.notification_service import notify_crm_booking_accepted
 
         notify_crm_booking_accepted(job, partner)
@@ -219,6 +238,10 @@ def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
 
 @transaction.atomic
 def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCard:
+    from core.models import Technician
+    from partner.presence import ensure_partner_not_suspended, set_partner_presence
+
+    ensure_partner_not_suspended(partner)
     if job.partner_id != partner.id:
         raise PartnerBookingError('Booking not assigned to you.', code='forbidden')
     if job.partner_status == JobCard.PartnerStatus.IN_SERVICE:
@@ -245,6 +268,14 @@ def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCar
     job.started_at = timezone.now()
     job.save(update_fields=['job_start_selfie', 'partner_status', 'started_at'])
     try:
+        set_partner_presence(
+            partner,
+            Technician.PresenceStatus.ON_SERVICE,
+            allow_system=True,
+        )
+    except PartnerBookingError:
+        pass
+    try:
         from partner.notification_service import notify_crm_service_started
 
         notify_crm_service_started(job, partner)
@@ -255,6 +286,9 @@ def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCar
 
 @transaction.atomic
 def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) -> JobCard:
+    from core.models import Technician
+    from partner.presence import set_partner_presence
+
     if job.partner_id != partner.id:
         raise PartnerBookingError('Booking not assigned to you.', code='forbidden')
     if job.partner_status == JobCard.PartnerStatus.COMPLETED:
@@ -292,12 +326,34 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
             'started_at',
         ]
     )
-    JobCardService.apply_completion_payment(
-        job,
-        user=None,
-        payment_mode=normalized,
-        collection_type='full',
-    )
+    # Avoid double-posting if customer (or CRM) already recorded full payment
+    already_paid = (job.payment_status or '') == JobCard.PaymentStatus.PAID
+    paid_amt = job.paid_amount or 0
+    total_amt = job.total_amount or 0
+    if not already_paid and not (total_amt and paid_amt and paid_amt >= total_amt):
+        JobCardService.apply_completion_payment(
+            job,
+            user=None,
+            payment_mode=normalized,
+            collection_type='full',
+        )
+    elif normalized and job.payment_mode != normalized:
+        job.payment_mode = normalized
+        job.save(update_fields=['payment_mode', 'updated_at'])
+    try:
+        from core.payout_engine import try_apply_payout_after_completion
+
+        try_apply_payout_after_completion(job)
+    except Exception as exc:
+        logger.exception('Payout after partner complete failed #%s: %s', job.id, exc)
+    try:
+        set_partner_presence(
+            partner,
+            Technician.PresenceStatus.ONLINE,
+            allow_system=True,
+        )
+    except PartnerBookingError:
+        pass
     try:
         from partner.notification_service import notify_crm_service_completed
 

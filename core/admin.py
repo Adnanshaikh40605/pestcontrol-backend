@@ -1,5 +1,15 @@
 from django.contrib import admin
-from .models import Client, Inquiry, JobCard, Renewal, CRMInquiry, InquiryRemark, WebsiteLeadRemark, ECardVisit
+from .models import (
+    Client,
+    Inquiry,
+    JobCard,
+    Renewal,
+    CRMInquiry,
+    InquiryRemark,
+    WebsiteLeadRemark,
+    ECardVisit,
+    ECardWhatsAppSend,
+)
 from .partner_app_version import PartnerAppVersionConfig
 
 
@@ -10,6 +20,15 @@ class ECardVisitAdmin(admin.ModelAdmin):
     search_fields = ('city', 'ip_address', 'referrer')
     readonly_fields = ('created_at', 'updated_at', 'visited_at')
     ordering = ('-visited_at',)
+
+
+@admin.register(ECardWhatsAppSend)
+class ECardWhatsAppSendAdmin(admin.ModelAdmin):
+    list_display = ('mobile', 'sent_by', 'sent_at', 'template_name', 'source', 'customer_name')
+    list_filter = ('source', 'template_name', 'sent_at')
+    search_fields = ('mobile', 'sent_by', 'customer_name')
+    readonly_fields = ('created_at', 'updated_at', 'sent_at')
+    ordering = ('-sent_at',)
 
 
 @admin.register(PartnerAppVersionConfig)

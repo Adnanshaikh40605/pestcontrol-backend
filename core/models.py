@@ -1,5 +1,6 @@
 from django.db import models
 import uuid
+from decimal import Decimal
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 
@@ -10,6 +11,10 @@ from .validators import (
     validate_positive_decimal, 
     validate_non_negative_decimal,
     validate_job_code
+)
+from .revenue_constants import (
+    TECHNICIAN_SHARE_PERCENT,
+    COMPANY_SHARE_PERCENT,
 )
 
 
@@ -198,6 +203,23 @@ class Client(BaseModel):
 
 
 class Technician(BaseModel):
+    class TechnicianType(models.TextChoices):
+        PARTNER = 'partner', 'Partner'
+        SALARIED = 'salaried', 'Salaried'
+
+    class PresenceStatus(models.TextChoices):
+        ONLINE = 'online', 'Online'
+        OFFLINE = 'offline', 'Offline'
+        BUSY = 'busy', 'Busy'
+        ON_SERVICE = 'on_service', 'On Service'
+        ON_LEAVE = 'on_leave', 'On Leave'
+        SUSPENDED = 'suspended', 'Suspended'
+
+    class SecurityDepositStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        COLLECTED = 'collected', 'Collected'
+        REFUNDED = 'refunded', 'Refunded'
+
     name = models.CharField(
         max_length=255, 
         db_index=True,
@@ -254,6 +276,60 @@ class Technician(BaseModel):
         verbose_name="Last Active",
         help_text="Last known timestamp of activity"
     )
+    technician_type = models.CharField(
+        max_length=20,
+        choices=TechnicianType.choices,
+        default=TechnicianType.PARTNER,
+        db_index=True,
+        verbose_name="Technician Type",
+        help_text="Partner (40/60 share) or salaried (salary only)",
+    )
+    branch = models.CharField(max_length=120, blank=True, default='')
+    aadhaar = models.CharField(max_length=20, blank=True, default='')
+    pan = models.CharField(max_length=20, blank=True, default='')
+    photo = models.ImageField(
+        upload_to='technician_photos/%Y/%m/',
+        blank=True,
+        null=True,
+        verbose_name="Photo",
+    )
+    agreement_file = models.FileField(
+        upload_to='technician_agreements/%Y/%m/',
+        blank=True,
+        null=True,
+        verbose_name="Agreement File",
+    )
+    security_deposit_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Security Deposit Amount",
+    )
+    security_deposit_status = models.CharField(
+        max_length=20,
+        choices=SecurityDepositStatus.choices,
+        default=SecurityDepositStatus.PENDING,
+        verbose_name="Security Deposit Status",
+    )
+    skills = models.JSONField(default=list, blank=True)
+    star_rating = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Star Rating",
+    )
+    presence_status = models.CharField(
+        max_length=20,
+        choices=PresenceStatus.choices,
+        default=PresenceStatus.OFFLINE,
+        db_index=True,
+        verbose_name="Presence Status",
+    )
+    suspended_at = models.DateTimeField(blank=True, null=True)
+    suspend_reason = models.TextField(blank=True, default='')
+    reactivated_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
         ordering = ['name']
@@ -262,6 +338,14 @@ class Technician(BaseModel):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.mobile})"
+
+    @property
+    def is_partner_technician(self) -> bool:
+        return self.technician_type == self.TechnicianType.PARTNER
+
+    @property
+    def is_salaried_technician(self) -> bool:
+        return self.technician_type == self.TechnicianType.SALARIED
 
 
 class Inquiry(BaseModel):
@@ -658,6 +742,7 @@ class JobCard(BaseModel):
         SYSTEM = 'system', 'System'
         MIGRATION = 'migration', 'Migration'
         API = 'api', 'API'
+        CUSTOMER_APP = 'customer_app', 'Customer App'
 
     creation_source = models.CharField(
         max_length=50,
@@ -994,6 +1079,105 @@ class JobCard(BaseModel):
         help_text="True if this service is free/included in a previously paid AMC"
     )
 
+    # Revenue Model v2 (additive — legacy jobs stay payout_status=legacy_exempt)
+    class PackageTier(models.TextChoices):
+        STANDARD = 'standard', 'Standard'
+        PREMIUM = 'premium', 'Premium'
+
+    class PaymentModel(models.TextChoices):
+        REVENUE_SHARING = 'revenue_sharing', 'Revenue Sharing'
+        SALARIED = 'salaried', 'Salaried'
+
+    class PayoutStatus(models.TextChoices):
+        LEGACY_EXEMPT = 'legacy_exempt', 'Legacy Exempt'
+        NOT_APPLICABLE = 'not_applicable', 'Not Applicable'
+        PENDING = 'pending', 'Pending'
+        HELD = 'held', 'Held'
+        APPROVED = 'approved', 'Approved'
+        PAID = 'paid', 'Paid'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    package_tier = models.CharField(
+        max_length=20,
+        choices=PackageTier.choices,
+        blank=True,
+        default='',
+        db_index=True,
+        verbose_name="Package Tier",
+    )
+    payment_model = models.CharField(
+        max_length=30,
+        choices=PaymentModel.choices,
+        blank=True,
+        default='',
+        db_index=True,
+        verbose_name="Payment Model",
+        help_text="revenue_sharing (40/60) or salaried; blank for legacy",
+    )
+    technician_share_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=TECHNICIAN_SHARE_PERCENT,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Technician Share %",
+    )
+    company_share_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=COMPANY_SHARE_PERCENT,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Company Share %",
+    )
+    planned_visit_count = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        verbose_name="Planned Visit Count",
+        help_text="Contractual/AMC divisor; falls back to max_cycle when null",
+    )
+    discount_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Discount Amount",
+    )
+    visit_revenue_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Visit Revenue Amount",
+    )
+    technician_pool_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Technician Pool Amount",
+    )
+    company_share_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Company Share Amount",
+    )
+    visit_payout_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Visit Payout Amount",
+        help_text="Lead / primary partner snapshot; crew rows have their own snapshots",
+    )
+    payout_status = models.CharField(
+        max_length=20,
+        choices=PayoutStatus.choices,
+        default=PayoutStatus.LEGACY_EXEMPT,
+        db_index=True,
+        verbose_name="Payout Status",
+    )
+
     class Meta:
         ordering = ['-created_at']
         indexes = [
@@ -1150,6 +1334,268 @@ class JobCard(BaseModel):
         if creating and not self.code:
             self.code = str(self.pk)
             super().save(update_fields=['code'])
+
+
+class JobCardTechnicianParticipation(BaseModel):
+    """
+    Crew roster for a visit/booking. Lead stays on JobCard.technician/partner;
+    this table holds the full crew for contractual 40% pool splits.
+    """
+
+    class Role(models.TextChoices):
+        LEAD = 'lead', 'Lead'
+        CREW = 'crew', 'Crew'
+
+    class AttendanceStatus(models.TextChoices):
+        ASSIGNED = 'assigned', 'Assigned'
+        CHECKED_IN = 'checked_in', 'Checked In'
+        COMPLETED = 'completed', 'Completed'
+        ABSENT = 'absent', 'Absent'
+
+    jobcard = models.ForeignKey(
+        JobCard,
+        on_delete=models.CASCADE,
+        related_name='technician_participations',
+        verbose_name="Job Card",
+    )
+    technician = models.ForeignKey(
+        Technician,
+        on_delete=models.CASCADE,
+        related_name='job_participations',
+        verbose_name="Technician",
+    )
+    partner = models.ForeignKey(
+        'partner.Partner',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='job_participations',
+        verbose_name="Partner",
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.CREW,
+        db_index=True,
+    )
+    attendance_status = models.CharField(
+        max_length=20,
+        choices=AttendanceStatus.choices,
+        default=AttendanceStatus.ASSIGNED,
+        db_index=True,
+    )
+    checked_in_at = models.DateTimeField(blank=True, null=True)
+    checked_out_at = models.DateTimeField(blank=True, null=True)
+    is_payout_eligible = models.BooleanField(
+        default=True,
+        help_text="False for salaried techs (salary only; excluded from 40% divisor)",
+    )
+    share_percent_snapshot = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        blank=True,
+        null=True,
+    )
+    payout_amount_snapshot = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+    )
+
+    class Meta:
+        ordering = ['role', 'id']
+        verbose_name = 'Job Card Technician Participation'
+        verbose_name_plural = 'Job Card Technician Participations'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['jobcard', 'technician'],
+                name='unique_jobcard_technician_participation',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['jobcard', 'attendance_status']),
+            models.Index(fields=['jobcard', 'is_payout_eligible']),
+        ]
+
+    def __str__(self) -> str:
+        return f"Job#{self.jobcard_id} · Tech#{self.technician_id} ({self.role})"
+
+
+class TechnicianSettlement(BaseModel):
+    """Weekly/monthly payout batch for one technician (revenue-model v2)."""
+
+    class Cadence(models.TextChoices):
+        WEEKLY = 'weekly', 'Weekly'
+        MONTHLY = 'monthly', 'Monthly'
+
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'Draft'
+        PENDING_APPROVAL = 'pending_approval', 'Pending Approval'
+        APPROVED = 'approved', 'Approved'
+        PAID = 'paid', 'Paid'
+        CANCELLED = 'cancelled', 'Cancelled'
+
+    technician = models.ForeignKey(
+        Technician,
+        on_delete=models.CASCADE,
+        related_name='settlements',
+        verbose_name="Technician",
+    )
+    partner = models.ForeignKey(
+        'partner.Partner',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='settlements',
+        verbose_name="Partner",
+    )
+    period_start = models.DateField(db_index=True)
+    period_end = models.DateField(db_index=True)
+    cadence = models.CharField(
+        max_length=20,
+        choices=Cadence.choices,
+        default=Cadence.WEEKLY,
+        db_index=True,
+    )
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.DRAFT,
+        db_index=True,
+    )
+    gross_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+    )
+    incentive_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+    )
+    deduction_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+    )
+    net_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+    )
+    notes = models.TextField(blank=True, default='')
+    approved_at = models.DateTimeField(blank=True, null=True)
+    approved_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='approved_settlements',
+    )
+    paid_at = models.DateTimeField(blank=True, null=True)
+    paid_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='paid_settlements',
+    )
+
+    class Meta:
+        ordering = ['-period_end', '-id']
+        verbose_name = 'Technician Settlement'
+        verbose_name_plural = 'Technician Settlements'
+        indexes = [
+            models.Index(fields=['technician', 'status']),
+            models.Index(fields=['period_start', 'period_end']),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"Settlement #{self.pk} · Tech#{self.technician_id} "
+            f"{self.period_start}→{self.period_end} ({self.status})"
+        )
+
+    def recompute_totals(self) -> None:
+        from django.db.models import Sum
+
+        qs = self.line_items.all()
+        gross = qs.filter(
+            earning_type=SettlementLineItem.EarningType.REVENUE_SHARE
+        ).aggregate(s=Sum('amount'))['s'] or 0
+        incentive = qs.filter(
+            earning_type=SettlementLineItem.EarningType.INCENTIVE
+        ).aggregate(s=Sum('amount'))['s'] or 0
+        deduction = qs.filter(
+            earning_type=SettlementLineItem.EarningType.DEDUCTION
+        ).aggregate(s=Sum('amount'))['s'] or 0
+        self.gross_amount = gross
+        self.incentive_amount = incentive
+        self.deduction_amount = deduction
+        self.net_amount = Decimal(str(gross)) + Decimal(str(incentive)) - Decimal(str(deduction))
+
+
+class SettlementLineItem(BaseModel):
+    """One earning/deduction row inside a technician settlement."""
+
+    class EarningType(models.TextChoices):
+        REVENUE_SHARE = 'revenue_share', 'Revenue Share'
+        INCENTIVE = 'incentive', 'Incentive'
+        DEDUCTION = 'deduction', 'Deduction'
+
+    settlement = models.ForeignKey(
+        TechnicianSettlement,
+        on_delete=models.CASCADE,
+        related_name='line_items',
+    )
+    job = models.ForeignKey(
+        JobCard,
+        on_delete=models.CASCADE,
+        related_name='settlement_line_items',
+    )
+    participation = models.ForeignKey(
+        JobCardTechnicianParticipation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='settlement_line_items',
+    )
+    partner_earning = models.OneToOneField(
+        'partner.PartnerEarning',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='settlement_line',
+    )
+    earning_type = models.CharField(
+        max_length=30,
+        choices=EarningType.choices,
+        default=EarningType.REVENUE_SHARE,
+        db_index=True,
+    )
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+    )
+    notes = models.CharField(max_length=500, blank=True, default='')
+
+    class Meta:
+        ordering = ['id']
+        verbose_name = 'Settlement Line Item'
+        verbose_name_plural = 'Settlement Line Items'
+        indexes = [
+            models.Index(fields=['settlement', 'earning_type']),
+        ]
+
+    def __str__(self) -> str:
+        return f"Line #{self.pk} settlement={self.settlement_id} job={self.job_id} ₹{self.amount}"
 
 
 class Renewal(BaseModel):
@@ -2026,3 +2472,59 @@ class ECardVisit(BaseModel):
 
     def __str__(self) -> str:
         return f"E-Card {self.city} · {self.device_type} · {self.traffic_source} @ {self.visited_at}"
+
+
+class ECardWhatsAppSend(BaseModel):
+    """
+    Ledger of Pest e-Card WhatsApp template sends (one row per mobile).
+    Used by DOH CRM + Pest CRM to prevent duplicate promotional messages.
+    """
+
+    mobile = models.CharField(
+        max_length=10,
+        unique=True,
+        db_index=True,
+        verbose_name='Mobile Number',
+        help_text='10-digit Indian mobile (normalized)',
+    )
+    template_name = models.CharField(
+        max_length=100,
+        default='pestecardaadsd',
+        db_index=True,
+        verbose_name='Template Name',
+    )
+    customer_name = models.CharField(max_length=255, blank=True, default='')
+    sent_by = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        verbose_name='Sent By',
+        help_text='Staff display name who sent the e-card',
+    )
+    sent_by_user = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ecard_whatsapp_sends',
+        verbose_name='Sent By User',
+    )
+    sent_at = models.DateTimeField(default=timezone.now, db_index=True)
+    source = models.CharField(
+        max_length=40,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='doh_crm | pest_crm | website_inquiry | crm_inquiry',
+    )
+
+    class Meta:
+        ordering = ['-sent_at', '-id']
+        verbose_name = 'E-Card WhatsApp Send'
+        verbose_name_plural = 'E-Card WhatsApp Sends'
+        indexes = [
+            models.Index(fields=['-sent_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f"E-Card send {self.mobile} @ {self.sent_at}"

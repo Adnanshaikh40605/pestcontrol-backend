@@ -399,6 +399,10 @@ class BookingScheduleEngine:
                     created_by=main_job.created_by,
                     creation_source=JobCard.CreationSource.AMC_AUTO,
                 )
+                from core.payout_engine import revenue_fields_from_parent
+
+                for key, value in revenue_fields_from_parent(main_job).items():
+                    setattr(child, key, value)
                 if spec.cycle < spec.total_visits:
                     child.next_service_date = plans[spec.cycle].visit_date
                 child.save()

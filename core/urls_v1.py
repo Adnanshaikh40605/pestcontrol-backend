@@ -5,6 +5,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     health_check,
+    feature_flags,
     ClientViewSet,
     InquiryViewSet,
     WebsiteLeadViewSet,
@@ -37,6 +38,7 @@ from .media_views import MediaFileView
 from partner.crm_referral_views import PartnerReferralViewSet
 from .app_version_views import PartnerAppVersionCRMAPIView
 from .pricing_views import PricingConfigAPIView
+from .settlement_views import TechnicianSettlementViewSet
 from .pricing_master_views import (
     PricingRateAuditLogViewSet,
     PricingRateViewSet,
@@ -49,6 +51,7 @@ from .booking_report_views import (
     BookingReportClientRemarkDetailView,
 )
 from .ecard_views import ECardTrackView, ECardTrackingListView
+from .ecard_send_views import ECardMarkSentView, ECardSentCheckView
 # Create router for v1 API
 router = DefaultRouter()
 router.register(r'clients', ClientViewSet, basename='client')
@@ -79,10 +82,13 @@ router.register(
     BookingReportClientViewSet,
     basename='booking-report-client',
 )
+router.register(r'settlements', TechnicianSettlementViewSet, basename='settlement')
 
 urlpatterns = [
     path('e-card/track/', ECardTrackView.as_view(), name='e-card-track'),
     path('e-card/tracking/', ECardTrackingListView.as_view(), name='e-card-tracking'),
+    path('e-card/sent-check/', ECardSentCheckView.as_view(), name='e-card-sent-check'),
+    path('e-card/mark-sent/', ECardMarkSentView.as_view(), name='e-card-mark-sent'),
     path(
         'crm-inquiries/<int:inquiry_id>/remarks/',
         CRMInquiryRemarkListCreateView.as_view(),
@@ -118,6 +124,7 @@ urlpatterns = [
     path('partner-app-version/', PartnerAppVersionCRMAPIView.as_view(), name='partner-app-version'),
     path('pricing-config/', PricingConfigAPIView.as_view(), name='pricing-config'),
     path('health/', health_check, name='health_check'),
+    path('feature-flags/', feature_flags, name='feature-flags'),
     path('global-search/', GlobalSearchView.as_view(), name='global_search'),
     path('customer-history/<int:client_id>/', CustomerHistoryView.as_view(), name='customer_history'),
     path('', include(router.urls)),

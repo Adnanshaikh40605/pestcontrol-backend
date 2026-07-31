@@ -346,65 +346,83 @@ class InquiryService:
     @staticmethod
     @transaction.atomic
     def convert_to_jobcard(inquiry_id: int, conversion_data: Dict[str, Any], user=None) -> JobCard:
-        """Convert an inquiry to a job card."""
+        """Convert a website inquiry to a job card (idempotent under concurrent clicks)."""
         try:
-            inquiry = Inquiry.objects.get(id=inquiry_id)
-            
-            # Check if a specific client ID was provided in conversion data
-            client_id = conversion_data.get('client_id')
-            if client_id:
-                try:
-                    client = Client.objects.get(id=client_id)
-                except Client.DoesNotExist:
-                    raise ValidationError(f"Client with ID {client_id} does not exist.")
-            else:
-                # Get or create client
-                try:
-                    client, created = ClientService.get_or_create_client(
-                        name=inquiry.name,
-                        mobile=inquiry.mobile,
-                        email=inquiry.email,
-                        city=inquiry.city
-                    )
-                except ValidationError as e:
-                    # Provide more specific error message for mobile number conflicts
-                    if 'mobile' in str(e) and 'already exists' in str(e):
-                        raise ValidationError(f"A client with mobile number {inquiry.mobile} already exists. Please use the existing client or update the mobile number.")
-                    raise e
-            
-            # Create job card with proper defaults
-            jobcard_data = {
-                'client': client,
-                'status': JobCard.JobStatus.PENDING,
-                'service_type': inquiry.service_interest,
-                'service_category': JobCard.ServiceCategory.AMC if inquiry.service_frequency == 'amc' else JobCard.ServiceCategory.ONE_TIME,
-                'schedule_datetime': conversion_data.get('schedule_datetime', timezone.now()),
-                'price': conversion_data.get('price', ''),
-                'payment_status': JobCard.PaymentStatus.UNPAID,
-                'created_by': user,
-                'reference': 'Website',
-            }
-            
-            # Set client_address from conversion_data or fallback to client.address
-            client_address = conversion_data.get('client_address', '').strip() if conversion_data.get('client_address') else ''
-            if not client_address and client.address and client.address.strip():
-                client_address = client.address
-            if client_address:
-                jobcard_data['client_address'] = client_address
-            
-            jobcard = JobCard(**jobcard_data)
-            jobcard.full_clean()
-            jobcard.save()
-            
-            # Update inquiry status
-            inquiry.status = Inquiry.InquiryStatus.CONVERTED
-            inquiry.converted_by = user
-            inquiry.save()
-            
-            return jobcard
-            
+            inquiry = Inquiry.objects.select_for_update().get(id=inquiry_id)
         except Inquiry.DoesNotExist:
             raise ValidationError("Inquiry not found")
+
+        if inquiry.status == Inquiry.InquiryStatus.CONVERTED:
+            raise ValidationError("This inquiry has already been converted to a booking.")
+
+        # Check if a specific client ID was provided in conversion data
+        client_id = conversion_data.get('client_id')
+        if client_id:
+            try:
+                client = Client.objects.get(id=client_id)
+            except Client.DoesNotExist:
+                raise ValidationError(f"Client with ID {client_id} does not exist.")
+        else:
+            try:
+                client, _created = ClientService.get_or_create_client(
+                    name=inquiry.name,
+                    mobile=inquiry.mobile,
+                    email=inquiry.email,
+                    city=inquiry.city,
+                )
+            except ValidationError as e:
+                if 'mobile' in str(e) and 'already exists' in str(e):
+                    raise ValidationError(
+                        f"A client with mobile number {inquiry.mobile} already exists. "
+                        "Please use the existing client or update the mobile number."
+                    )
+                raise e
+
+        client_address = ''
+        if conversion_data.get('client_address'):
+            client_address = str(conversion_data.get('client_address')).strip()
+        if not client_address and client.address and client.address.strip():
+            client_address = client.address
+
+        # Route through JobCardService so revenue defaults / total_amount / AMC visits apply.
+        jobcard_data = {
+            'client': client.id,
+            'status': JobCard.JobStatus.PENDING,
+            'service_type': inquiry.service_interest,
+            'service_category': (
+                JobCard.ServiceCategory.AMC
+                if inquiry.service_frequency == 'amc'
+                else JobCard.ServiceCategory.ONE_TIME
+            ),
+            'schedule_datetime': conversion_data.get('schedule_datetime', timezone.now()),
+            'price': conversion_data.get('price', ''),
+            'payment_status': JobCard.PaymentStatus.UNPAID,
+            'reference': 'Website',
+            'city': inquiry.city or client.city or '',
+        }
+        if client_address:
+            jobcard_data['client_address'] = client_address
+        if conversion_data.get('time_slot'):
+            jobcard_data['time_slot'] = conversion_data['time_slot']
+
+        # Normalize schedule_datetime if CRM/website sent an ISO string.
+        schedule_raw = jobcard_data.get('schedule_datetime')
+        if isinstance(schedule_raw, str) and schedule_raw.strip():
+            from django.utils.dateparse import parse_datetime
+
+            parsed = parse_datetime(schedule_raw.strip().replace('Z', '+00:00'))
+            if parsed is not None:
+                if timezone.is_naive(parsed):
+                    parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+                jobcard_data['schedule_datetime'] = parsed
+
+        jobcard = JobCardService.create_jobcard(jobcard_data, user=user)
+
+        inquiry.status = Inquiry.InquiryStatus.CONVERTED
+        inquiry.converted_by = user
+        inquiry.save(update_fields=['status', 'converted_by', 'updated_at'])
+
+        return jobcard
 
 
 class JobCardService:
@@ -620,6 +638,17 @@ class JobCardService:
             # Prevent double-submits from frontend creating identical jobs within a short timeframe
             if jobcard_data.get('schedule_datetime'):
                 from core.jobcard_schedule import effective_schedule_datetime
+                from django.utils.dateparse import parse_datetime
+
+                schedule_raw = jobcard_data['schedule_datetime']
+                if isinstance(schedule_raw, str) and schedule_raw.strip():
+                    parsed_dt = parse_datetime(schedule_raw.strip().replace('Z', '+00:00'))
+                    if parsed_dt is not None:
+                        if timezone.is_naive(parsed_dt):
+                            parsed_dt = timezone.make_aware(
+                                parsed_dt, timezone.get_current_timezone()
+                            )
+                        jobcard_data['schedule_datetime'] = parsed_dt
                 try:
                     effective_dt = effective_schedule_datetime(
                         jobcard_data['schedule_datetime'],
@@ -643,6 +672,12 @@ class JobCardService:
                             return duplicate_check
                 except Exception as e:
                     logger.warning(f"Error checking for duplicate: {e}")
+
+            # Revenue Model v2 defaults (flag-gated). Must run for CRM create +
+            # inquiry converts that call this service directly (serializer.create is skipped).
+            from core.payout_engine import apply_revenue_defaults_for_new_booking
+
+            apply_revenue_defaults_for_new_booking(jobcard_data)
 
             # IMPORTANT: Always create a NEW job card - never update existing ones
             # Multiple job cards can exist for the same client
@@ -881,6 +916,9 @@ class JobCardService:
                     'created_by': jobcard.created_by,
                     'creation_source': JobCard.CreationSource.AMC_AUTO,
                 }
+                from core.payout_engine import revenue_fields_from_parent
+
+                next_job_data.update(revenue_fields_from_parent(jobcard))
                 
                 next_job = JobCard.objects.create(**next_job_data)
                 
@@ -951,15 +989,31 @@ class JobCardService:
         ])
 
         if paid > 0:
-            BookingPayment.objects.create(
-                jobcard=jobcard,
-                amount=paid,
-                payment_mode=payment_mode,
-                collection_type=collection_type if collection_type in dict(BookingPayment.CollectionType.choices) else BookingPayment.CollectionType.FULL,
-                balance_after=pending,
-                remarks=remarks or '',
-                collected_by=user,
+            # Avoid duplicate full-payment rows when already fully collected
+            from django.db.models import Sum
+            existing_sum = (
+                BookingPayment.objects.filter(jobcard=jobcard).aggregate(s=Sum('amount'))['s']
+                or 0
             )
+            remaining = max(total - existing_sum, 0)
+            if remaining <= 0 and total > 0:
+                record_amount = 0
+            else:
+                record_amount = min(paid, remaining) if remaining > 0 else paid
+            if record_amount > 0:
+                BookingPayment.objects.create(
+                    jobcard=jobcard,
+                    amount=record_amount,
+                    payment_mode=payment_mode,
+                    collection_type=(
+                        collection_type
+                        if collection_type in dict(BookingPayment.CollectionType.choices)
+                        else BookingPayment.CollectionType.FULL
+                    ),
+                    balance_after=pending,
+                    remarks=remarks or '',
+                    collected_by=user,
+                )
         return jobcard
 
     @staticmethod

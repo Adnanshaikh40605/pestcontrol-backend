@@ -1,5 +1,6 @@
 from django.urls import path
 from . import apis
+from . import revenue_apis
 
 app_name = 'partner'
 
@@ -35,4 +36,14 @@ urlpatterns = [
     path('refer-client/', apis.ReferClientAPIView.as_view(), name='refer-client'),
     path('referrals/', apis.PartnerReferralListAPIView.as_view(), name='referrals'),
     path('referrals/<int:id>/', apis.PartnerReferralDetailAPIView.as_view(), name='referral-detail'),
+
+    # ──────────────── REVENUE / PRESENCE ───
+    path('presence/', revenue_apis.PresenceAPIView.as_view(), name='presence'),
+    path('leave-requests/', revenue_apis.LeaveRequestListCreateAPIView.as_view(), name='leave-requests'),
+    path(
+        'leave-requests/<int:id>/cancel/',
+        revenue_apis.LeaveRequestCancelAPIView.as_view(),
+        name='leave-request-cancel',
+    ),
+    path('settlements/', revenue_apis.PartnerSettlementsAPIView.as_view(), name='settlements'),
 ]
