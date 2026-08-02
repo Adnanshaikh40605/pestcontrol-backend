@@ -570,45 +570,191 @@ class TechnicianViewSet(BaseModelViewSet):
 
     @action(detail=True, methods=['get'])
     def performance_detail(self, request, pk=None):
-        """Get detailed performance metrics for a specific technician."""
+        """
+        Technician monthly performance for CRM details page.
+
+        Query params:
+          - year (int, default: current year)
+          - month (int 1-12, default: current month)
+
+        Returns monthly_earnings (partner share for the month) and
+        monthly_bookings (completed jobs as lead or crew).
+        """
+        from datetime import datetime
+        from decimal import Decimal
+
+        from partner.models import PartnerEarning
+
         technician = self.get_object()
-        
-        # We can reuse the same logic or provide more time-series data
-        # For now, let's provide basic monthly breakdown
-        current_year = timezone.now().year
-        
+        now = timezone.now()
+        try:
+            year = int(request.query_params.get('year') or now.year)
+            month = int(request.query_params.get('month') or now.month)
+        except (TypeError, ValueError):
+            return response.Response(
+                {'error': 'year and month must be integers'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if month < 1 or month > 12:
+            return response.Response(
+                {'error': 'month must be between 1 and 12'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if year < 2000 or year > now.year + 1:
+            return response.Response(
+                {'error': 'year out of range'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Prefer completed_at for Done jobs; fall back to schedule date.
+        month_job_q = (
+            Q(completed_at__year=year, completed_at__month=month)
+            | Q(
+                completed_at__isnull=True,
+                schedule_datetime__year=year,
+                schedule_datetime__month=month,
+            )
+        )
+        done_q = Q(status='Done')
+
+        lead_ids = set(
+            JobCard.objects.filter(technician=technician)
+            .filter(done_q)
+            .filter(month_job_q)
+            .values_list('id', flat=True)
+        )
+        crew_ids = set(
+            JobCardTechnicianParticipation.objects.filter(technician=technician)
+            .filter(jobcard__status='Done')
+            .filter(
+                Q(jobcard__completed_at__year=year, jobcard__completed_at__month=month)
+                | Q(
+                    jobcard__completed_at__isnull=True,
+                    jobcard__schedule_datetime__year=year,
+                    jobcard__schedule_datetime__month=month,
+                )
+            )
+            .values_list('jobcard_id', flat=True)
+        )
+        booking_ids = lead_ids | crew_ids
+        monthly_bookings = len(booking_ids)
+
+        participation_earnings = (
+            JobCardTechnicianParticipation.objects.filter(
+                technician=technician,
+                jobcard_id__in=booking_ids,
+            ).aggregate(total=Coalesce(Sum('payout_amount_snapshot'), Decimal('0.00')))['total']
+            or Decimal('0.00')
+        )
+
+        partner_earnings = Decimal('0.00')
+        partner_account = getattr(technician, 'partner_account', None)
+        if partner_account is not None:
+            # Jobs with a participation payout already counted — skip those to avoid double count.
+            jobs_with_part = set(
+                JobCardTechnicianParticipation.objects.filter(
+                    technician=technician,
+                    jobcard_id__in=booking_ids,
+                ).values_list('jobcard_id', flat=True)
+            )
+            partner_only_ids = booking_ids - jobs_with_part
+            if partner_only_ids:
+                partner_earnings = (
+                    PartnerEarning.objects.filter(
+                        partner=partner_account,
+                        job_id__in=partner_only_ids,
+                    ).aggregate(total=Coalesce(Sum('amount'), Decimal('0.00')))['total']
+                    or Decimal('0.00')
+                )
+            # If no participation rows at all, use all PartnerEarnings for the month.
+            if not jobs_with_part and booking_ids:
+                partner_earnings = (
+                    PartnerEarning.objects.filter(
+                        partner=partner_account,
+                        job_id__in=booking_ids,
+                    ).aggregate(total=Coalesce(Sum('amount'), Decimal('0.00')))['total']
+                    or Decimal('0.00')
+                )
+            elif not booking_ids:
+                # Earnings may exist even if status/date filters missed lead link — still month-scope by job date.
+                partner_earnings = (
+                    PartnerEarning.objects.filter(partner=partner_account)
+                    .filter(
+                        Q(job__completed_at__year=year, job__completed_at__month=month)
+                        | Q(
+                            job__completed_at__isnull=True,
+                            job__schedule_datetime__year=year,
+                            job__schedule_datetime__month=month,
+                        )
+                    )
+                    .aggregate(total=Coalesce(Sum('amount'), Decimal('0.00')))['total']
+                    or Decimal('0.00')
+                )
+
+        is_salaried = technician.technician_type == Technician.TechnicianType.SALARIED
+        monthly_earnings = (
+            Decimal('0.00')
+            if is_salaried
+            else (participation_earnings + partner_earnings)
+        )
+
+        # Year chart breakdown (completed bookings + revenue totals by month).
         monthly_stats = []
-        for month in range(1, 13):
-            # Calculate stats for each month
-            month_filter = Q(jobcards__schedule_datetime__year=current_year, jobcards__schedule_datetime__month=month)
-            
-            stats = technician.jobcards.filter(month_filter).aggregate(
+        for m in range(1, 13):
+            m_filter = Q(
+                schedule_datetime__year=year,
+                schedule_datetime__month=m,
+            )
+            stats = technician.jobcards.filter(m_filter).aggregate(
                 completed=Count('id', filter=Q(status='Done')),
                 revenue=Coalesce(
                     Sum(
-                        Cast('price', FloatField()), 
-                        filter=Q(status='Done', booking_type__in=[JobCard.BookingType.NEW_BOOKING, JobCard.BookingType.AMC_MAIN])
-                    ), 
-                    Value(0.0, output_field=FloatField())
+                        Cast('price', FloatField()),
+                        filter=Q(
+                            status='Done',
+                            booking_type__in=[
+                                JobCard.BookingType.NEW_BOOKING,
+                                JobCard.BookingType.AMC_MAIN,
+                            ],
+                        ),
+                    ),
+                    Value(0.0, output_field=FloatField()),
                 ),
-                avg_rating=Avg('feedbacks__rating')
+                avg_rating=Avg('feedbacks__rating'),
             )
-            
-            monthly_stats.append({
-                'month': month,
-                'name': timezone.datetime(current_year, month, 1).strftime('%b'),
-                **stats
-            })
-            
-        # Recent feedbacks
-        recent_feedbacks = Feedback.objects.filter(booking__technician=technician).order_by('-created_at')[:10]
+            monthly_stats.append(
+                {
+                    'month': m,
+                    'name': datetime(year, m, 1).strftime('%b'),
+                    **stats,
+                }
+            )
+
+        recent_feedbacks = Feedback.objects.filter(
+            booking__technician=technician
+        ).order_by('-created_at')[:10]
         feedback_serializer = FeedbackSerializer(recent_feedbacks, many=True)
-        
-        return response.Response({
-            'technician_name': technician.name,
-            'monthly_stats': monthly_stats,
-            'recent_feedbacks': feedback_serializer.data
-        })
+
+        return response.Response(
+            {
+                'technician_id': technician.id,
+                'technician_name': technician.name,
+                'technician_type': technician.technician_type,
+                'year': year,
+                'month': month,
+                'month_label': datetime(year, month, 1).strftime('%B %Y'),
+                'monthly_earnings': str(monthly_earnings.quantize(Decimal('0.01'))),
+                'monthly_bookings': monthly_bookings,
+                'earnings_note': (
+                    'Salaried technicians do not receive partner share (40%). '
+                    'Monthly earnings stay ₹0 for revenue-share tracking.'
+                    if is_salaried
+                    else 'Partner share (40%) from completed bookings in this month.'
+                ),
+                'monthly_stats': monthly_stats,
+                'recent_feedbacks': feedback_serializer.data,
+            }
+        )
 
 
 @extend_schema_view(
