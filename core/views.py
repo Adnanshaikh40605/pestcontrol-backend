@@ -4407,13 +4407,61 @@ class StaffViewSet(viewsets.ModelViewSet):
         User.objects.filter(
             Q(is_staff=True) | Q(crm_profile__role='blog_user')
         )
+        .select_related('crm_profile')
         .distinct()
         .order_by('-date_joined')
     )
     serializer_class = StaffSerializer
     permission_classes = [IsSuperAdmin]
+    pagination_class = StandardListPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    search_fields = ['first_name', 'username']
+    search_fields = ['first_name', 'last_name', 'username']
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        role_filter = (self.request.query_params.get('role') or '').strip()
+        if role_filter:
+            from core.roles import DISPLAY_TO_ROLE, ROLE_SUPER_ADMIN
+
+            crm_role = DISPLAY_TO_ROLE.get(role_filter)
+            if crm_role == ROLE_SUPER_ADMIN:
+                queryset = queryset.filter(is_superuser=True)
+            elif crm_role:
+                queryset = queryset.filter(crm_profile__role=crm_role)
+            elif role_filter.lower() == 'super admin':
+                queryset = queryset.filter(is_superuser=True)
+            else:
+                queryset = queryset.none()
+
+        return queryset
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        summary = {
+            'total': queryset.count(),
+            'active': queryset.filter(is_active=True).count(),
+            'super_admins': queryset.filter(is_superuser=True).count(),
+            'technicians': queryset.filter(crm_profile__role='technician').count(),
+            'blog_users': queryset.filter(crm_profile__role='blog_user').count(),
+        }
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            paginated = self.get_paginated_response(serializer.data)
+            paginated.data['summary'] = summary
+            return paginated
+
+        serializer = self.get_serializer(queryset, many=True)
+        return response.Response({
+            'count': len(serializer.data),
+            'next': None,
+            'previous': None,
+            'results': serializer.data,
+            'summary': summary,
+        })
 
     @decorators.action(detail=True, methods=['post'])
     def reset_password(self, request, pk=None):
