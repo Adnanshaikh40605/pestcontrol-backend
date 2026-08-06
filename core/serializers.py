@@ -968,6 +968,7 @@ class TechnicianPerformanceSerializer(serializers.ModelSerializer):
     on_process_count = serializers.IntegerField(read_only=True)
     service_calls_count = serializers.IntegerField(read_only=True)
     total_revenue = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    technician_share = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     avg_rating = serializers.FloatField(read_only=True)
     feedback_count = serializers.IntegerField(read_only=True)
     completion_rate = serializers.FloatField(read_only=True)
@@ -977,8 +978,8 @@ class TechnicianPerformanceSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'mobile', 'is_active', 'service_area', 'city', 'last_active',
             'assigned_count', 'completed_count', 'pending_count', 'on_process_count',
-            'service_calls_count', 'total_revenue', 'avg_rating', 'feedback_count',
-            'completion_rate'
+            'service_calls_count', 'total_revenue', 'technician_share', 'avg_rating',
+            'feedback_count', 'completion_rate'
         ]
 
 

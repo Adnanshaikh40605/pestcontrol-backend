@@ -493,12 +493,14 @@ class TechnicianViewSet(BaseModelViewSet):
     @action(detail=False, methods=['get'])
     def performance(self, request):
         """Get performance metrics for all technicians with filtering."""
+        from django.db.models import DecimalField, Subquery
+
         # Filters
         from_date = request.query_params.get('from')
         to_date = request.query_params.get('to')
         service_type = request.query_params.get('service_type')
-        
-        # Base filter for jobcards
+
+        # Base filter for jobcards (lead technician FK)
         job_filter = Q()
         if from_date:
             job_filter &= Q(jobcards__schedule_datetime__date__gte=from_date)
@@ -506,6 +508,32 @@ class TechnicianViewSet(BaseModelViewSet):
             job_filter &= Q(jobcards__schedule_datetime__date__lte=to_date)
         if service_type:
             job_filter &= Q(jobcards__service_type__icontains=service_type)
+
+        # Crew/partner share from immutable payout snapshots (true 40% earnings).
+        participation_qs = JobCardTechnicianParticipation.objects.filter(
+            technician_id=OuterRef('pk'),
+            jobcard__status=JobCard.JobStatus.DONE,
+        )
+        if from_date:
+            participation_qs = participation_qs.filter(jobcard__schedule_datetime__date__gte=from_date)
+        if to_date:
+            participation_qs = participation_qs.filter(jobcard__schedule_datetime__date__lte=to_date)
+        if service_type:
+            participation_qs = participation_qs.filter(jobcard__service_type__icontains=service_type)
+        participation_total = (
+            participation_qs.values('technician_id')
+            .annotate(total=Sum('payout_amount_snapshot'))
+            .values('total')[:1]
+        )
+
+        done_revenue_filter = job_filter & Q(
+            jobcards__status='Done',
+            jobcards__booking_type__in=[
+                JobCard.BookingType.NEW_BOOKING,
+                JobCard.BookingType.AMC_MAIN,
+            ],
+        )
+        done_payout_filter = job_filter & Q(jobcards__status='Done')
 
         # Performance annotation
         queryset = Technician.objects.annotate(
@@ -517,55 +545,95 @@ class TechnicianViewSet(BaseModelViewSet):
                 distinct=True,
             ),
             on_process_count=Count('jobcards', filter=job_filter & Q(jobcards__status='On Process'), distinct=True),
-            service_calls_count=Count('jobcards', filter=job_filter & Q(jobcards__booking_type__in=[JobCard.BookingType.AMC_FOLLOWUP, JobCard.BookingType.SERVICE_CALL]), distinct=True),
-            
-            # Revenue calculation (casting CharField price to Float)
-            # Using Coalesce to handle None values
-            # Excluding free follow-ups/complaints from revenue
+            service_calls_count=Count(
+                'jobcards',
+                filter=job_filter & Q(
+                    jobcards__booking_type__in=[
+                        JobCard.BookingType.AMC_FOLLOWUP,
+                        JobCard.BookingType.SERVICE_CALL,
+                    ]
+                ),
+                distinct=True,
+            ),
+
+            # Full booking amount (customer price) — kept for reference only.
             total_revenue=Coalesce(
                 Sum(
                     Cast('jobcards__price', FloatField()),
-                    filter=job_filter & Q(
-                        jobcards__status='Done',
-                        jobcards__booking_type__in=[JobCard.BookingType.NEW_BOOKING, JobCard.BookingType.AMC_MAIN]
-                    )
+                    filter=done_revenue_filter,
                 ),
-                Value(0.0, output_field=FloatField())
+                Value(0.0, output_field=FloatField()),
             ),
-            
-            avg_rating=Coalesce(Avg('jobcards__feedbacks__rating', filter=job_filter), Value(0.0, output_field=FloatField())),
-            feedback_count=Count('jobcards__feedbacks', filter=job_filter, distinct=True)
+
+            # Lead payout snapshot when participation rows are missing (legacy jobs).
+            lead_payout=Coalesce(
+                Sum(
+                    Cast('jobcards__visit_payout_amount', FloatField()),
+                    filter=done_payout_filter,
+                ),
+                Value(0.0, output_field=FloatField()),
+            ),
+            participation_payout=Coalesce(
+                Subquery(
+                    participation_total,
+                    output_field=DecimalField(max_digits=12, decimal_places=2),
+                ),
+                Value(0),
+                output_field=DecimalField(max_digits=12, decimal_places=2),
+            ),
+
+            avg_rating=Coalesce(
+                Avg('jobcards__feedbacks__rating', filter=job_filter),
+                Value(0.0, output_field=FloatField()),
+            ),
+            feedback_count=Count('jobcards__feedbacks', filter=job_filter, distinct=True),
         ).annotate(
+            # Prefer crew snapshots; fall back to lead visit payout; last resort 40% of price.
+            technician_share=Case(
+                When(participation_payout__gt=0, then=Cast('participation_payout', FloatField())),
+                When(lead_payout__gt=0, then=F('lead_payout')),
+                default=ExpressionWrapper(
+                    F('total_revenue') * 0.40,
+                    output_field=FloatField(),
+                ),
+                output_field=FloatField(),
+            ),
             completion_rate=Case(
-                When(assigned_count__gt=0, then=ExpressionWrapper(F('completed_count') * 100.0 / F('assigned_count'), output_field=FloatField())),
-                default=Value(0.0, output_field=FloatField())
-            )
+                When(
+                    assigned_count__gt=0,
+                    then=ExpressionWrapper(
+                        F('completed_count') * 100.0 / F('assigned_count'),
+                        output_field=FloatField(),
+                    ),
+                ),
+                default=Value(0.0, output_field=FloatField()),
+            ),
         ).order_by('-completed_count')
 
-        # Leaderboard summaries
-        # Use a sub-query or simple aggregation for the stats
         stats_agg = queryset.aggregate(
             total_completed=Sum('completed_count'),
             total_revenue_sum=Sum('total_revenue'),
+            total_technician_share=Sum('technician_share'),
             overall_avg_rating=Avg('avg_rating'),
             total_pending=Sum('pending_count'),
-            total_service_calls=Sum('service_calls_count')
+            total_service_calls=Sum('service_calls_count'),
         )
 
         stats = {
             'total_technicians': queryset.count(),
             'total_completed': stats_agg['total_completed'] or 0,
             'total_revenue': stats_agg['total_revenue_sum'] or 0,
+            'total_technician_share': stats_agg['total_technician_share'] or 0,
             'avg_rating': stats_agg['overall_avg_rating'] or 0,
             'pending_jobs': stats_agg['total_pending'] or 0,
             'service_calls': stats_agg['total_service_calls'] or 0,
         }
 
         serializer = TechnicianPerformanceSerializer(queryset, many=True)
-        
+
         return response.Response({
             'stats': stats,
-            'technicians': serializer.data
+            'technicians': serializer.data,
         })
 
     @action(detail=True, methods=['get'])
@@ -755,6 +823,95 @@ class TechnicianViewSet(BaseModelViewSet):
                 'recent_feedbacks': feedback_serializer.data,
             }
         )
+
+    @action(detail=True, methods=['get'], url_path='ledger')
+    def ledger(self, request, pk=None):
+        """
+        Booking-wise technician ledger with payout, settlement and performance totals.
+
+        Filters: from, to, city, service_type, booking_type, status, page, page_size.
+        AMC/contract share is recognized only for completed visits, using immutable
+        payout snapshots rather than recalculating historical money.
+        """
+        from core.technician_ledger import (
+            apply_ledger_filters,
+            earning_periods,
+            payment_history,
+            serialize_ledger_row,
+            summarize_rows,
+            technician_jobs_queryset,
+        )
+
+        technician = self.get_object()
+        base_queryset = technician_jobs_queryset(technician)
+        filtered_queryset = apply_ledger_filters(base_queryset, request.query_params)
+        filtered_jobs = list(filtered_queryset.order_by('-schedule_datetime', '-id'))
+        rows = [serialize_ledger_row(job, technician) for job in filtered_jobs]
+
+        try:
+            page_number = max(int(request.query_params.get('page') or 1), 1)
+            page_size = min(max(int(request.query_params.get('page_size') or 20), 1), 100)
+        except (TypeError, ValueError):
+            return response.Response(
+                {'error': 'page and page_size must be integers'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        start = (page_number - 1) * page_size
+        end = start + page_size
+        page_rows = rows[start:end]
+        total_pages = max((len(rows) + page_size - 1) // page_size, 1)
+
+        option_jobs = base_queryset.values(
+            'city', 'master_city__name', 'service_type',
+        )
+        cities = sorted({
+            row['master_city__name'] or row['city']
+            for row in option_jobs
+            if row['master_city__name'] or row['city']
+        })
+        services = sorted({
+            row['service_type'] for row in option_jobs if row['service_type']
+        })
+
+        return response.Response({
+            'technician': {
+                'id': technician.id,
+                'name': technician.name,
+                'mobile': technician.mobile,
+                'technician_type': technician.technician_type,
+            },
+            'filters': {
+                'from': request.query_params.get('from') or '',
+                'to': request.query_params.get('to') or '',
+                'city': request.query_params.get('city') or '',
+                'service_type': request.query_params.get('service_type') or '',
+                'booking_type': request.query_params.get('booking_type') or '',
+                'status': request.query_params.get('status') or '',
+            },
+            'summary': summarize_rows(rows),
+            'earnings': earning_periods(technician),
+            'payment_history': payment_history(technician, request.query_params),
+            'options': {
+                'cities': cities,
+                'service_types': services,
+                'booking_types': [
+                    {'value': 'one_time', 'label': 'One Time'},
+                    {'value': 'amc', 'label': 'AMC'},
+                    {'value': 'contract', 'label': 'Contract'},
+                ],
+                'statuses': [
+                    {'value': value, 'label': label}
+                    for value, label in JobCard.JobStatus.choices
+                ],
+            },
+            'count': len(rows),
+            'page': page_number,
+            'page_size': page_size,
+            'total_pages': total_pages,
+            'next': page_number < total_pages,
+            'previous': page_number > 1,
+            'results': page_rows,
+        })
 
 
 @extend_schema_view(

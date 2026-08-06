@@ -10,7 +10,6 @@ from .models import (
     ECardVisit,
     ECardWhatsAppSend,
 )
-from .partner_app_version import PartnerAppVersionConfig
 
 
 @admin.register(ECardVisit)
@@ -29,43 +28,6 @@ class ECardWhatsAppSendAdmin(admin.ModelAdmin):
     search_fields = ('mobile', 'sent_by', 'customer_name')
     readonly_fields = ('created_at', 'updated_at', 'sent_at')
     ordering = ('-sent_at',)
-
-
-@admin.register(PartnerAppVersionConfig)
-class PartnerAppVersionConfigAdmin(admin.ModelAdmin):
-    list_display = (
-        'latest_version',
-        'minimum_supported_version',
-        'force_update',
-        'updated_at',
-    )
-    fieldsets = (
-        (
-            'Version numbers',
-            {
-                'fields': ('latest_version', 'minimum_supported_version', 'force_update'),
-                'description': (
-                    'When Force update is enabled, partner apps with version lower than '
-                    'Minimum supported version cannot open the app. Distribute new APK manually '
-                    '(WhatsApp/CRM); do not put download links in the app.'
-                ),
-            },
-        ),
-        (
-            'Update screen text',
-            {
-                'fields': ('update_title', 'update_message'),
-            },
-        ),
-        ('Meta', {'fields': ('updated_at',)}),
-    )
-    readonly_fields = ('updated_at',)
-
-    def has_add_permission(self, request):
-        return not PartnerAppVersionConfig.objects.exists()
-
-    def has_delete_permission(self, request, obj=None):
-        return False
 
 
 @admin.register(CRMInquiry)

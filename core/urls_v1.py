@@ -36,7 +36,6 @@ from .remark_views import (
 from .theme_views import UserThemeView
 from .media_views import MediaFileView
 from partner.crm_referral_views import PartnerReferralViewSet
-from .app_version_views import PartnerAppVersionCRMAPIView
 from .pricing_views import PricingConfigAPIView
 from .settlement_views import TechnicianSettlementViewSet
 from .pricing_master_views import (
@@ -121,7 +120,6 @@ urlpatterns = [
     ),
     path('users/theme/', UserThemeView.as_view(), name='user-theme'),
     path('media-file/', MediaFileView.as_view(), name='media-file'),
-    path('partner-app-version/', PartnerAppVersionCRMAPIView.as_view(), name='partner-app-version'),
     path('pricing-config/', PricingConfigAPIView.as_view(), name='pricing-config'),
     path('health/', health_check, name='health_check'),
     path('feature-flags/', feature_flags, name='feature-flags'),
