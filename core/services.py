@@ -78,6 +78,7 @@ def _is_cockroach_amc(service: str, plan: str) -> bool:
 
 
 from .telegram import notify_new_inquiry
+from .whatsflow_pc99 import notify_inquiry_received
 
 logger = logging.getLogger(__name__)
 
@@ -336,6 +337,29 @@ class InquiryService:
         except Exception as exc:
             logger.error(
                 "Failed to send Telegram notification for inquiry %s: %s",
+                inquiry.id,
+                exc,
+                exc_info=True,
+            )
+
+        try:
+            premise = (inquiry.premise_type or "").lower()
+            property_type = (
+                "Commercial"
+                if premise in ("commercial", "office", "society", "shop")
+                else "Residential"
+            )
+            notify_inquiry_received(
+                name=inquiry.name,
+                mobile=inquiry.mobile,
+                service=inquiry.service_interest,
+                area=inquiry.city or inquiry.state,
+                property_type=property_type,
+                inquiry_id=inquiry.id,
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to send WhatsApp inquiry template for inquiry %s: %s",
                 inquiry.id,
                 exc,
                 exc_info=True,

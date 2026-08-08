@@ -53,6 +53,10 @@ TELEGRAM_NOTIFICATIONS_ENABLED = config('TELEGRAM_NOTIFICATIONS_ENABLED', defaul
 TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='')
 TELEGRAM_CHAT_ID = config('TELEGRAM_CHAT_ID', default='')
 
+# WhatsFlow / Meta WhatsApp (website inquiry auto-replies; soft-fail if unset)
+WHATSFLOW_API_URL = config('WHATSFLOW_API_URL', default='https://api.driveronhire.ai')
+WHATSFLOW_API_KEY = config('WHATSFLOW_API_KEY', default='')
+
 # Partner app FCM (Firebase Admin SDK) — project: pest-99-partner-app
 PARTNER_FIREBASE_PROJECT_ID = config('PARTNER_FIREBASE_PROJECT_ID', default='pest-99-partner-app')
 FIREBASE_SERVICE_ACCOUNT_JSON = config('FIREBASE_SERVICE_ACCOUNT_JSON', default='')
