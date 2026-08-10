@@ -25,6 +25,11 @@ SECRET_KEY = config('DJANGO_SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DJANGO_DEBUG', default=False, cast=bool)
 
+# Customer app passwordless OTP (4-digit). When DEBUG or CUSTOMER_OTP_FIXED is set,
+# send-OTP responses include `dev_otp` for local testing without SMS.
+CUSTOMER_OTP_TTL_SECONDS = config('CUSTOMER_OTP_TTL_SECONDS', default=300, cast=int)
+CUSTOMER_OTP_FIXED = config('CUSTOMER_OTP_FIXED', default='1234' if DEBUG else '')
+
 # URL configuration
 APPEND_SLASH = True  # Automatically append trailing slashes to URLs
 

@@ -120,6 +120,93 @@ class PayoutEngineTests(TestCase):
         earning = PartnerEarning.objects.get(job=visit, partner=partner)
         self.assertEqual(earning.amount, Decimal('293.33'))
 
+    def test_amc_1000_three_visits_gives_133_33_per_visit_tech(self):
+        """User rule: AMC ₹1000 / 3 visits → tech gets ₹133.33 only for the visit they did."""
+        tech_a, partner_a = self._make_partner_tech('9000000011', 'Imtiyaz')
+        tech_b, partner_b = self._make_partner_tech('9000000012', 'Mustafa')
+        parent = self._base_job(
+            technician=tech_a,
+            partner=partner_a,
+            service_category=JobCard.ServiceCategory.AMC,
+            is_amc_main_booking=True,
+            price='1000',
+            total_amount=Decimal('1000.00'),
+            max_cycle=3,
+            planned_visit_count=3,
+        )
+        visit1 = self._base_job(
+            technician=tech_a,
+            partner=partner_a,
+            service_category=JobCard.ServiceCategory.AMC,
+            parent_job=parent,
+            is_followup_visit=True,
+            included_in_amc=True,
+            price='0',
+            total_amount=Decimal('0.00'),
+            max_cycle=3,
+            planned_visit_count=3,
+            service_cycle=1,
+        )
+        visit2 = self._base_job(
+            technician=tech_b,
+            partner=partner_b,
+            service_category=JobCard.ServiceCategory.AMC,
+            parent_job=parent,
+            is_followup_visit=True,
+            included_in_amc=True,
+            price='0',
+            total_amount=Decimal('0.00'),
+            max_cycle=3,
+            planned_visit_count=3,
+            service_cycle=2,
+        )
+        calculate_and_apply_payout(visit1)
+        calculate_and_apply_payout(visit2)
+        visit1.refresh_from_db()
+        visit2.refresh_from_db()
+        # Visit value 1000/3 = 333.33; tech 40% = 133.33; company 60% = 200.00
+        self.assertEqual(visit1.visit_revenue_amount, Decimal('333.33'))
+        self.assertEqual(visit1.technician_pool_amount, Decimal('133.33'))
+        self.assertEqual(visit1.company_share_amount, Decimal('200.00'))
+        self.assertEqual(visit1.visit_payout_amount, Decimal('133.33'))
+        self.assertEqual(visit2.visit_payout_amount, Decimal('133.33'))
+        self.assertEqual(
+            PartnerEarning.objects.get(job=visit1, partner=partner_a).amount,
+            Decimal('133.33'),
+        )
+        self.assertEqual(
+            PartnerEarning.objects.get(job=visit2, partner=partner_b).amount,
+            Decimal('133.33'),
+        )
+        # Visit 1 tech must NOT also get visit 2 commission
+        self.assertFalse(
+            PartnerEarning.objects.filter(job=visit2, partner=partner_a).exists()
+        )
+
+    def test_partner_without_app_account_still_earns_tech_share(self):
+        """CRM desk partner (no Partner app login) must still get Tech 40%."""
+        tech = Technician.objects.create(
+            name='Desk Partner',
+            mobile='9000000013',
+            technician_type=Technician.TechnicianType.PARTNER,
+        )
+        job = self._base_job(
+            technician=tech,
+            partner=None,
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            price='1000',
+            total_amount=Decimal('1000.00'),
+        )
+        result = calculate_and_apply_payout(job)
+        job.refresh_from_db()
+        self.assertFalse(result.skipped)
+        self.assertEqual(job.payout_status, JobCard.PayoutStatus.PENDING)
+        self.assertEqual(job.visit_payout_amount, Decimal('400.00'))
+        self.assertEqual(job.company_share_amount, Decimal('600.00'))
+        part = JobCardTechnicianParticipation.objects.get(jobcard=job, technician=tech)
+        self.assertEqual(part.payout_amount_snapshot, Decimal('400.00'))
+        self.assertEqual(PartnerEarning.objects.filter(job=job).count(), 0)
+
     def test_contractual_crew_split_excludes_salaried(self):
         lead, lead_p = self._make_partner_tech('9000000003', 'Lead P')
         crew1, crew1_p = self._make_partner_tech('9000000004', 'Crew1 P')

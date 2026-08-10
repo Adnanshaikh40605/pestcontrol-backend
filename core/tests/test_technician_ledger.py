@@ -185,6 +185,35 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(Decimal(res.data['results'][0]['technician_share']), Decimal('0.00'))
         self.assertFalse(res.data['results'][0]['is_completed_visit'])
 
+    def test_type_labels_one_time_amc_contract_amc(self):
+        one = self._job(amount='1000')
+        amc = self._job(
+            amount='1000',
+            booking_type=JobCard.BookingType.AMC_FOLLOWUP,
+        )
+        JobCard.objects.filter(pk=amc.pk).update(
+            service_category=JobCard.ServiceCategory.AMC,
+            included_in_amc=True,
+            planned_visit_count=3,
+        )
+        contract_amc = self._job(
+            amount='1000',
+            booking_type=JobCard.BookingType.AMC_MAIN,
+        )
+        JobCard.objects.filter(pk=contract_amc.pk).update(
+            service_category=JobCard.ServiceCategory.AMC,
+            is_amc_main_booking=True,
+            job_type=JobCard.JobType.SOCIETY,
+            commercial_type=JobCard.CommercialType.SOCIETY,
+            planned_visit_count=3,
+        )
+        res = self.api.get(f'/api/v1/technicians/{self.tech.id}/ledger/')
+        self.assertEqual(res.status_code, 200, res.data)
+        labels = {row['job_id']: row['booking_type_label'] for row in res.data['results']}
+        self.assertEqual(labels[one.id], 'One Time')
+        self.assertEqual(labels[amc.id], 'AMC')
+        self.assertEqual(labels[contract_amc.id], 'Contract AMC')
+
     def test_unsettled_bonus_is_in_pending_payable(self):
         job = self._job(amount='1000')
         PartnerEarning.objects.create(

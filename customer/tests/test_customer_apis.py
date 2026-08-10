@@ -72,6 +72,40 @@ class CustomerApiTests(TestCase):
         self.assertEqual(profile.status_code, 200)
         self.assertEqual(profile.data['customer']['full_name'], 'Cust User')
 
+    @override_settings(DEBUG=True, CUSTOMER_OTP_FIXED='1234')
+    def test_otp_register_and_login(self):
+        send = self.api.post(
+            '/api/customer/otp/send/',
+            {'mobile': '9000111222', 'purpose': 'register', 'full_name': 'Otp User'},
+            format='json',
+        )
+        self.assertEqual(send.status_code, 200, send.data)
+        self.assertEqual(send.data.get('dev_otp'), '1234')
+
+        verify = self.api.post(
+            '/api/customer/otp/verify/',
+            {'mobile': '9000111222', 'otp': '1234', 'purpose': 'register', 'full_name': 'Otp User'},
+            format='json',
+        )
+        self.assertEqual(verify.status_code, 200, verify.data)
+        self.assertIn('access', verify.data)
+        self.assertEqual(verify.data['customer']['full_name'], 'Otp User')
+
+        self.api.credentials()
+        send_login = self.api.post(
+            '/api/customer/otp/send/',
+            {'mobile': '9000111222', 'purpose': 'login'},
+            format='json',
+        )
+        self.assertEqual(send_login.status_code, 200, send_login.data)
+        login = self.api.post(
+            '/api/customer/otp/verify/',
+            {'mobile': '9000111222', 'otp': '1234', 'purpose': 'login'},
+            format='json',
+        )
+        self.assertEqual(login.status_code, 200, login.data)
+        self.assertIn('access', login.data)
+
     def test_catalog_lists_rates_with_package_tiers(self):
         res = self.api.get('/api/customer/catalog/')
         self.assertEqual(res.status_code, 200, res.data)

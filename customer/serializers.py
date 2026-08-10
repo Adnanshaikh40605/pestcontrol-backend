@@ -12,7 +12,8 @@ from .models import CustomerAccount
 class CustomerRegisterSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=255)
     mobile = serializers.CharField(max_length=15)
-    password = serializers.CharField(min_length=6, write_only=True)
+    # Optional — passwordless OTP register uses an unusable password.
+    password = serializers.CharField(min_length=6, write_only=True, required=False, allow_blank=True, default='')
     email = serializers.EmailField(required=False, allow_blank=True, default='')
 
     def validate_mobile(self, value):
@@ -48,7 +49,8 @@ class CustomerRegisterSerializer(serializers.Serializer):
             email=email,
             is_active=True,
         )
-        account.set_password(validated_data['password'])
+        raw_password = (validated_data.get('password') or '').strip()
+        account.set_password(raw_password or None)
         account.save()
         return account
 
@@ -56,6 +58,39 @@ class CustomerRegisterSerializer(serializers.Serializer):
 class CustomerLoginSerializer(serializers.Serializer):
     mobile = serializers.CharField()
     password = serializers.CharField(write_only=True)
+
+
+class CustomerOTPSendSerializer(serializers.Serializer):
+    mobile = serializers.CharField(max_length=15)
+    purpose = serializers.ChoiceField(choices=['login', 'register'])
+    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        attrs['mobile'] = normalize_mobile(attrs['mobile'])
+        purpose = attrs['purpose']
+        name = (attrs.get('full_name') or '').strip()
+        if purpose == 'register' and len(name) < 2:
+            raise serializers.ValidationError({'full_name': 'Name is required to create an account.'})
+        attrs['full_name'] = name
+        return attrs
+
+
+class CustomerOTPVerifySerializer(serializers.Serializer):
+    mobile = serializers.CharField(max_length=15)
+    otp = serializers.CharField(min_length=4, max_length=4)
+    purpose = serializers.ChoiceField(choices=['login', 'register'])
+    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+
+    def validate_otp(self, value):
+        value = (value or '').strip()
+        if not value.isdigit() or len(value) != 4:
+            raise serializers.ValidationError('Enter the 4-digit OTP.')
+        return value
+
+    def validate(self, attrs):
+        attrs['mobile'] = normalize_mobile(attrs['mobile'])
+        attrs['full_name'] = (attrs.get('full_name') or '').strip()
+        return attrs
 
 
 class CustomerRefreshSerializer(serializers.Serializer):

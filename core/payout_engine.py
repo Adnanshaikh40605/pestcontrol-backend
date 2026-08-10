@@ -232,6 +232,14 @@ def ensure_lead_participation(job) -> Optional[object]:
 
 
 def _eligible_partner_participations(job) -> list:
+    """
+    Partner-type technicians who attended the visit earn from the 40% pool.
+
+    Salaried staff are always excluded.
+    A Partner app login is preferred (for PartnerEarning rows) but NOT required —
+    CRM desk-assigned partner technicians still get the visit commission via
+    participation.payout_amount_snapshot so the Technician Ledger shows Tech 40%.
+    """
     from core.models import JobCardTechnicianParticipation, Technician
 
     attended = {
@@ -249,11 +257,13 @@ def _eligible_partner_participations(job) -> list:
         tech = row.technician
         if tech.technician_type == Technician.TechnicianType.SALARIED:
             continue
-        # Prefer linked partner for ledger; allow partner FK on participation
-        if not row.partner_id and not getattr(tech, 'partner_account', None):
-            # Partner-type tech without Partner account cannot receive PartnerEarning
+        # Partner-type techs earn even without a linked Partner app account.
+        if tech.technician_type == Technician.TechnicianType.PARTNER:
+            eligible.append(row)
             continue
-        eligible.append(row)
+        # Fallback: any non-salaried tech that already has a partner link on the row.
+        if row.partner_id or getattr(tech, 'partner_account', None):
+            eligible.append(row)
     return eligible
 
 
@@ -315,8 +325,18 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
             reason='salaried_no_visit_ledger',
         )
 
+    # Blank payment_model on Done jobs → default to revenue sharing when v2 is on.
     if payment_model != JobCard.PaymentModel.REVENUE_SHARING:
-        return PayoutResult(skipped=True, reason='payment_model_not_revenue_sharing', payout_status=job.payout_status)
+        if not payment_model and (is_revenue_model_enabled() or force):
+            job.payment_model = JobCard.PaymentModel.REVENUE_SHARING
+            job.save(update_fields=['payment_model', 'updated_at'])
+            payment_model = job.payment_model
+        else:
+            return PayoutResult(
+                skipped=True,
+                reason='payment_model_not_revenue_sharing',
+                payout_status=job.payout_status,
+            )
 
     ensure_lead_participation(job)
     job.refresh_from_db()

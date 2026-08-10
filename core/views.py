@@ -836,6 +836,7 @@ class TechnicianViewSet(BaseModelViewSet):
         from core.technician_ledger import (
             apply_ledger_filters,
             earning_periods,
+            heal_stuck_payouts,
             payment_history,
             serialize_ledger_row,
             summarize_rows,
@@ -846,6 +847,9 @@ class TechnicianViewSet(BaseModelViewSet):
         base_queryset = technician_jobs_queryset(technician)
         filtered_queryset = apply_ledger_filters(base_queryset, request.query_params)
         filtered_jobs = list(filtered_queryset.order_by('-schedule_datetime', '-id'))
+        # Auto-repair Held / missing Tech 40% rows for Done jobs in this range.
+        if heal_stuck_payouts(filtered_jobs):
+            filtered_jobs = list(filtered_queryset.order_by('-schedule_datetime', '-id'))
         rows = [serialize_ledger_row(job, technician) for job in filtered_jobs]
 
         try:
@@ -897,7 +901,7 @@ class TechnicianViewSet(BaseModelViewSet):
                 'booking_types': [
                     {'value': 'one_time', 'label': 'One Time'},
                     {'value': 'amc', 'label': 'AMC'},
-                    {'value': 'contract', 'label': 'Contract'},
+                    {'value': 'contract', 'label': 'Contract (One Time / AMC)'},
                 ],
                 'statuses': [
                     {'value': value, 'label': label}

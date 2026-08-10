@@ -1,11 +1,15 @@
 """
-Customer App APIs — register/login, catalog, book, track, pay stub, rate.
+Customer App APIs — register/login, OTP auth, catalog, book, track, pay stub, rate.
 """
 from __future__ import annotations
 
 import logging
+import secrets
+from datetime import timedelta
 
+from django.conf import settings
 from django.db.models import Q
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny
@@ -14,13 +18,15 @@ from rest_framework.response import Response
 from core.models import JobCard, PricingRate, PricingRegion
 from core.staff_partner_sync import normalize_mobile
 
-from .models import CustomerAccount
+from .models import CustomerAccount, CustomerOTPChallenge
 from .permissions import IsCustomer
 from .serializers import (
     CatalogRateSerializer,
     CustomerBookSerializer,
     CustomerBookingSerializer,
     CustomerLoginSerializer,
+    CustomerOTPSendSerializer,
+    CustomerOTPVerifySerializer,
     CustomerPaymentConfirmSerializer,
     CustomerProfileSerializer,
     CustomerProfileUpdateSerializer,
@@ -64,7 +70,7 @@ class RegisterAPIView(CustomerPublicAPIView):
 class LoginAPIView(CustomerPublicAPIView):
     permission_classes = [AllowAny]
 
-    @extend_schema(tags=['Customer Auth'], summary='Login')
+    @extend_schema(tags=['Customer Auth'], summary='Login (password — legacy)')
     def post(self, request):
         serializer = CustomerLoginSerializer(data=request.data)
         if not serializer.is_valid():
@@ -83,6 +89,127 @@ class LoginAPIView(CustomerPublicAPIView):
         return Response(
             {
                 'message': 'Login successful.',
+                'customer': CustomerProfileSerializer(account).data,
+                **tokens,
+            }
+        )
+
+
+def _generate_customer_otp() -> str:
+    fixed = getattr(settings, 'CUSTOMER_OTP_FIXED', None)
+    if fixed:
+        return str(fixed).zfill(4)[:4]
+    if settings.DEBUG:
+        return '1234'
+    return f'{secrets.randbelow(10000):04d}'
+
+
+class SendOTPAPIView(CustomerPublicAPIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=['Customer Auth'], summary='Send 4-digit OTP (login / register)')
+    def post(self, request):
+        serializer = CustomerOTPSendSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'errors': serializer.errors}, status=400)
+        mobile = serializer.validated_data['mobile']
+        purpose = serializer.validated_data['purpose']
+        full_name = serializer.validated_data.get('full_name') or ''
+
+        exists = CustomerAccount.objects.filter(mobile=mobile).exists()
+        if purpose == CustomerOTPChallenge.PURPOSE_LOGIN and not exists:
+            return Response(
+                {'error': 'No account found for this mobile. Please register first.', 'code': 'not_registered'},
+                status=400,
+            )
+        if purpose == CustomerOTPChallenge.PURPOSE_REGISTER and exists:
+            return Response(
+                {'error': 'An account with this mobile already exists. Please login.', 'code': 'already_registered'},
+                status=400,
+            )
+
+        otp = _generate_customer_otp()
+        ttl = int(getattr(settings, 'CUSTOMER_OTP_TTL_SECONDS', 300))
+        challenge = CustomerOTPChallenge(
+            mobile=mobile,
+            purpose=purpose,
+            full_name=full_name,
+            expires_at=timezone.now() + timedelta(seconds=ttl),
+        )
+        challenge.set_otp(otp)
+        challenge.save()
+
+        logger.info('Customer OTP generated mobile=%s purpose=%s otp=%s', mobile, purpose, otp)
+
+        payload = {
+            'message': 'OTP sent successfully.',
+            'mobile': mobile,
+            'purpose': purpose,
+            'expires_in': ttl,
+        }
+        # Expose OTP only in local/debug so the app can be tested without SMS.
+        if settings.DEBUG or getattr(settings, 'CUSTOMER_OTP_FIXED', None):
+            payload['dev_otp'] = otp
+        return Response(payload)
+
+
+class VerifyOTPAPIView(CustomerPublicAPIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=['Customer Auth'], summary='Verify 4-digit OTP and issue tokens')
+    def post(self, request):
+        serializer = CustomerOTPVerifySerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'errors': serializer.errors}, status=400)
+        mobile = serializer.validated_data['mobile']
+        otp = serializer.validated_data['otp']
+        purpose = serializer.validated_data['purpose']
+        full_name = serializer.validated_data.get('full_name') or ''
+
+        challenge = (
+            CustomerOTPChallenge.objects.filter(mobile=mobile, purpose=purpose, consumed_at__isnull=True)
+            .order_by('-created_at')
+            .first()
+        )
+        if not challenge:
+            return Response({'error': 'OTP expired or not found. Please request a new OTP.', 'code': 'otp_missing'}, status=400)
+        if challenge.is_expired:
+            return Response({'error': 'OTP expired. Please request a new OTP.', 'code': 'otp_expired'}, status=400)
+        if challenge.attempts >= 5:
+            return Response({'error': 'Too many incorrect attempts. Request a new OTP.', 'code': 'otp_locked'}, status=400)
+
+        if not challenge.check_otp(otp):
+            challenge.attempts += 1
+            challenge.save(update_fields=['attempts'])
+            return Response({'error': 'Invalid OTP. Please try again.', 'code': 'otp_invalid'}, status=400)
+
+        challenge.consumed_at = timezone.now()
+        challenge.save(update_fields=['consumed_at'])
+
+        if purpose == CustomerOTPChallenge.PURPOSE_REGISTER:
+            name = full_name or challenge.full_name
+            if len(name.strip()) < 2:
+                return Response({'error': 'Name is required to create an account.', 'code': 'name_required'}, status=400)
+            reg = CustomerRegisterSerializer(
+                data={'full_name': name.strip(), 'mobile': mobile, 'password': ''}
+            )
+            if not reg.is_valid():
+                return Response({'errors': reg.errors}, status=400)
+            account = reg.save()
+            message = 'Registered successfully.'
+        else:
+            try:
+                account = CustomerAccount.objects.select_related('client').get(mobile=mobile)
+            except CustomerAccount.DoesNotExist:
+                return Response({'error': 'No account found for this mobile.', 'code': 'not_registered'}, status=400)
+            if not account.is_active:
+                return Response({'error': 'Account deactivated.', 'code': 'inactive'}, status=403)
+            message = 'Login successful.'
+
+        tokens = generate_customer_tokens(account)
+        return Response(
+            {
+                'message': message,
                 'customer': CustomerProfileSerializer(account).data,
                 **tokens,
             }
