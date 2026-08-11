@@ -881,8 +881,22 @@ class TechnicianViewSet(BaseModelViewSet):
         rows = [serialize_ledger_row(job, technician) for job in filtered_jobs]
 
         settlement_filter = (request.query_params.get('settlement_status') or '').strip().lower()
-        if settlement_filter in ('unsettled', 'settled', 'legacy'):
-            rows = [r for r in rows if r.get('settlement_status') == settlement_filter]
+        if settlement_filter == 'unsettled':
+            rows = [r for r in rows if r.get('settlement_status') == 'unsettled']
+        elif settlement_filter == 'settled':
+            # Settlement History — already settled entries
+            rows = [r for r in rows if r.get('settlement_status') == 'settled']
+        elif settlement_filter in ('legacy', 'history'):
+            # Old Service Calls / History — legacy + settled completed records
+            rows = [
+                r for r in rows
+                if r.get('settlement_status') in ('legacy', 'settled')
+                or (
+                    r.get('is_completed_visit')
+                    and r.get('settlement_status') != 'unsettled'
+                )
+            ]
+        # '' / all → no extra filter
 
         try:
             page_number = max(int(request.query_params.get('page') or 1), 1)

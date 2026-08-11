@@ -545,3 +545,76 @@ class LedgerFixesMdCrossCheckTests(TestCase):
         # Must get one service share (₹400), NOT full booking 40% (₹1200)
         self.assertEqual(v1.visit_payout_amount, Decimal('400.00'))
         self.assertNotEqual(v1.visit_payout_amount, Decimal('1200.00'))
+
+    def test_a3_multi_tech_each_can_settle_own_share(self):
+        """MD A3: after tech A settles, tech B must still settle ₹200."""
+        t1, p1 = self._partner_tech('8111000015', 'Multi A')
+        t2, p2 = self._partner_tech('8111000016', 'Multi B')
+        job = self._job(
+            technician=t1,
+            partner=p1,
+            service_type='Mosquito Control',
+            price='1000',
+            total_amount=Decimal('1000.00'),
+        )
+        for tech, partner, role in (
+            (t1, p1, JobCardTechnicianParticipation.Role.LEAD),
+            (t2, p2, JobCardTechnicianParticipation.Role.CREW),
+        ):
+            JobCardTechnicianParticipation.objects.create(
+                jobcard=job,
+                technician=tech,
+                partner=partner,
+                role=role,
+                attendance_status=JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
+                is_payout_eligible=True,
+            )
+        calculate_and_apply_payout(job)
+        job.refresh_from_db()
+
+        s1 = settle_jobs_for_technician(technician=t1, job_ids=[job.id], user=self.user)
+        self.assertEqual(s1.net_amount, Decimal('200.00'))
+        job.refresh_from_db()
+        # Not fully PAID until both partners settle
+        self.assertNotEqual(job.payout_status, JobCard.PayoutStatus.PAID)
+
+        r2 = serialize_ledger_row(job, t2)
+        self.assertEqual(r2['settlement_status'], 'unsettled')
+        self.assertEqual(Decimal(r2['technician_share']), Decimal('200.00'))
+
+        s2 = settle_jobs_for_technician(technician=t2, job_ids=[job.id], user=self.user)
+        self.assertEqual(s2.net_amount, Decimal('200.00'))
+        job.refresh_from_db()
+        self.assertEqual(job.payout_status, JobCard.PayoutStatus.PAID)
+        self.assertEqual(serialize_ledger_row(job, t1)['settlement_status'], 'settled')
+        self.assertEqual(serialize_ledger_row(job, t2)['settlement_status'], 'settled')
+
+    def test_e_history_filter_excludes_unsettled(self):
+        tech, partner = self._partner_tech('8111000017', 'Hist Filter')
+        unsettled_job = self._job(
+            technician=tech,
+            partner=partner,
+            price='1000',
+            total_amount=Decimal('1000.00'),
+        )
+        calculate_and_apply_payout(unsettled_job)
+        settled_job = self._job(
+            technician=tech,
+            partner=partner,
+            price='2000',
+            total_amount=Decimal('2000.00'),
+        )
+        calculate_and_apply_payout(settled_job)
+        settle_jobs_for_technician(
+            technician=tech, job_ids=[settled_job.id], user=self.user,
+        )
+
+        history = self._ledger(tech, {'settlement_status': 'history'})
+        self.assertEqual(history.status_code, 200)
+        ids = {r['job_id'] for r in history.data['results']}
+        self.assertIn(settled_job.id, ids)
+        self.assertNotIn(unsettled_job.id, ids)
+        unsettled = self._ledger(tech, {'settlement_status': 'unsettled'})
+        uids = {r['job_id'] for r in unsettled.data['results']}
+        self.assertIn(unsettled_job.id, uids)
+        self.assertNotIn(settled_job.id, uids)

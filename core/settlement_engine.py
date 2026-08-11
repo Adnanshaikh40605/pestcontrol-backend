@@ -214,10 +214,53 @@ def mark_settlement_paid(settlement: TechnicianSettlement, *, user=None) -> Tech
     settlement.paid_by = user
     settlement.save(update_fields=['status', 'paid_at', 'paid_by', 'updated_at'])
 
-    job_ids = list(settlement.line_items.values_list('job_id', flat=True))
-    JobCard.objects.filter(id__in=job_ids).exclude(
-        payout_status=JobCard.PayoutStatus.LEGACY_EXEMPT
-    ).update(payout_status=JobCard.PayoutStatus.PAID)
+    # Mark each job PAID only when EVERY eligible partner tech on that job
+    # already has a paid revenue-share settlement line. Otherwise keep APPROVED
+    # so co-technicians can still settle their own share.
+    job_ids = list(settlement.line_items.values_list('job_id', flat=True).distinct())
+    jobs = (
+        JobCard.objects.filter(id__in=job_ids)
+        .exclude(payout_status=JobCard.PayoutStatus.LEGACY_EXEMPT)
+        .prefetch_related(
+            'technician_participations__technician',
+            'settlement_line_items__settlement',
+        )
+    )
+    fully_paid_ids = []
+    partially_paid_ids = []
+    for job in jobs:
+        eligible_tech_ids = {
+            p.technician_id
+            for p in job.technician_participations.all()
+            if p.technician_id
+            and p.is_payout_eligible
+            and getattr(p.technician, 'technician_type', None) == Technician.TechnicianType.PARTNER
+        }
+        if not eligible_tech_ids and job.technician_id:
+            # Lead-only jobs without participation rows
+            if getattr(job.technician, 'technician_type', None) == Technician.TechnicianType.PARTNER:
+                eligible_tech_ids = {job.technician_id}
+        settled_tech_ids = {
+            line.settlement.technician_id
+            for line in job.settlement_line_items.all()
+            if line.settlement.status == TechnicianSettlement.Status.PAID
+            and line.earning_type == SettlementLineItem.EarningType.REVENUE_SHARE
+            and line.settlement.technician_id
+        }
+        if eligible_tech_ids and eligible_tech_ids.issubset(settled_tech_ids):
+            fully_paid_ids.append(job.id)
+        else:
+            partially_paid_ids.append(job.id)
+
+    if fully_paid_ids:
+        JobCard.objects.filter(id__in=fully_paid_ids).update(
+            payout_status=JobCard.PayoutStatus.PAID,
+        )
+    if partially_paid_ids:
+        JobCard.objects.filter(id__in=partially_paid_ids).exclude(
+            payout_status=JobCard.PayoutStatus.PAID,
+        ).update(payout_status=JobCard.PayoutStatus.APPROVED)
+
     from core.revenue_audit import log_revenue_event
     log_revenue_event(
         action='settlement_marked_paid',
@@ -240,8 +283,9 @@ def settle_jobs_for_technician(
     Settle selected completed ledger jobs for one technician in a single batch.
 
     Creates settlement lines from participation snapshots / PartnerEarnings,
-    then marks the settlement Approved + Paid. Jobs stay on the ledger with
-    payout_status=paid (Settled) — they are never deleted.
+    then marks the settlement Approved + Paid. Jobs stay on the ledger —
+    they are never deleted. Multi-tech jobs stay settleable per technician
+    until each partner's share is paid.
     """
     if not is_revenue_model_enabled():
         raise SettlementError('REVENUE_MODEL_V2 is disabled', code='feature_flag_off')
@@ -274,25 +318,37 @@ def settle_jobs_for_technician(
 
     lines_created = 0
     for job in jobs:
-        # Skip if already paid via a settlement line for this technician.
+        # Per-technician only — co-techs must still be able to settle their share.
         already_paid = any(
             line.settlement.technician_id == technician.id
             and line.settlement.status == TechnicianSettlement.Status.PAID
             and line.earning_type == SettlementLineItem.EarningType.REVENUE_SHARE
             for line in job.settlement_line_items.all()
         )
-        if already_paid or job.payout_status == JobCard.PayoutStatus.PAID:
+        if already_paid:
             continue
 
         if job.payout_status in (
             JobCard.PayoutStatus.HELD,
             JobCard.PayoutStatus.PENDING,
             JobCard.PayoutStatus.NOT_APPLICABLE,
+            JobCard.PayoutStatus.APPROVED,
             '',
             None,
         ):
-            calculate_and_apply_payout(job, force=True)
-            job.refresh_from_db()
+            # Recalc when this tech still has no snapshot (even if co-tech already settled).
+            participation = next(
+                (p for p in job.technician_participations.all() if p.technician_id == technician.id),
+                None,
+            )
+            snap = (
+                quantize_money(participation.payout_amount_snapshot)
+                if participation and participation.payout_amount_snapshot
+                else Decimal('0.00')
+            )
+            if snap <= 0 and job.payout_status != JobCard.PayoutStatus.PAID:
+                calculate_and_apply_payout(job, force=True)
+                job.refresh_from_db()
 
         participation = next(
             (p for p in job.technician_participations.all() if p.technician_id == technician.id),
@@ -317,10 +373,14 @@ def settle_jobs_for_technician(
         if amount <= 0 and participation and participation.payout_amount_snapshot:
             amount = quantize_money(participation.payout_amount_snapshot)
         if amount <= 0 and job.technician_id == technician.id and job.visit_payout_amount:
-            amount = quantize_money(job.visit_payout_amount)
-        if amount <= 0 and job.technician_pool_amount:
-            # Sole assignee fallback for held→settled path
-            amount = quantize_money(job.visit_payout_amount or job.technician_pool_amount)
+            # Sole lead fallback — never give full pool when multiple partners exist.
+            eligible = [
+                p for p in job.technician_participations.all()
+                if p.is_payout_eligible
+                and getattr(p.technician, 'technician_type', None) == Technician.TechnicianType.PARTNER
+            ]
+            if len(eligible) <= 1:
+                amount = quantize_money(job.visit_payout_amount)
         if amount <= 0:
             continue
 

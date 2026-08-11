@@ -274,28 +274,31 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
     cycle = job.service_cycle or (1 if completed else None)
 
     settlement_date = None
+    tech_has_paid_share = False
     for line in job.settlement_line_items.all():
         if (
             line.settlement.technician_id == technician.id
             and line.settlement.status == TechnicianSettlement.Status.PAID
-            and line.settlement.paid_at
+            and line.earning_type == SettlementLineItem.EarningType.REVENUE_SHARE
         ):
-            settlement_date = timezone.localtime(line.settlement.paid_at).date().isoformat()
+            tech_has_paid_share = True
+            if line.settlement.paid_at:
+                settlement_date = timezone.localtime(line.settlement.paid_at).date().isoformat()
             break
 
+    # Per-technician settlement — never treat co-tech PAID as this tech Settled.
     if not completed:
         settlement_status = 'n_a'
         settlement_status_label = 'N/A'
-    elif job.payout_status == JobCard.PayoutStatus.PAID or (net > 0 and pending <= 0 and paid > 0):
-        settlement_status = 'settled'
-        settlement_status_label = 'Settled'
-        if pending > 0:
-            # Partial — still show unsettled balance
-            settlement_status = 'unsettled'
-            settlement_status_label = 'Unsettled'
     elif job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
         settlement_status = 'legacy'
         settlement_status_label = 'Old record'
+    elif tech_has_paid_share or (net > 0 and pending <= 0 and paid > 0):
+        settlement_status = 'settled'
+        settlement_status_label = 'Settled'
+        if pending > 0:
+            settlement_status = 'unsettled'
+            settlement_status_label = 'Unsettled'
     else:
         settlement_status = 'unsettled'
         settlement_status_label = 'Unsettled'

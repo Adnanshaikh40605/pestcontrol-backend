@@ -45,7 +45,7 @@ CALENDAR_FREQUENCY_INTERVALS: dict[str, tuple[str, int]] = {
     'annual': ('months', 12),
 }
 
-TERMITE_TOTAL_VISITS = 5
+TERMITE_TOTAL_VISITS = 1  # Product rule: Termite = One-Time only (no checkup chain)
 TERMITE_CHECKUP_INTERVAL_MONTHS = 6
 DEFAULT_CONTRACT_MONTHS = 12
 # Hard cap so Weekly over long contracts cannot explode the DB.
