@@ -14,6 +14,9 @@ class ReferenceSourcesTests(TestCase):
     def test_auto_rickshaw_advertisement_in_canonical_list(self):
         self.assertIn('Auto Rickshaw Advertisement', BOOKING_REFERENCE_OPTIONS)
 
+    def test_driver_on_hire_in_canonical_list(self):
+        self.assertIn('DriverOnHire', BOOKING_REFERENCE_OPTIONS)
+
     def test_case_insensitive_merge(self):
         merged = reference_counts_by_canonical_name({
             'website': 10,
@@ -31,11 +34,16 @@ class ReferenceSourcesTests(TestCase):
         names = [row['reference_name'] for row in rows]
         self.assertIn('Calling Data', names)
         self.assertIn('Auto Rickshaw Advertisement', names)
+        self.assertIn('DriverOnHire', names)
         self.assertEqual(
             next(r for r in rows if r['reference_name'] == 'Calling Data')['reference_count'],
             0,
         )
         self.assertEqual(
             next(r for r in rows if r['reference_name'] == 'Auto Rickshaw Advertisement')['reference_count'],
+            0,
+        )
+        self.assertEqual(
+            next(r for r in rows if r['reference_name'] == 'DriverOnHire')['reference_count'],
             0,
         )

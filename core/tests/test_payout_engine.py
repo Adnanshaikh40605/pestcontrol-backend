@@ -295,3 +295,26 @@ class PayoutEngineTests(TestCase):
         result = calculate_and_apply_payout(job)
         self.assertTrue(result.skipped)
         self.assertEqual(result.reason, 'feature_flag_off')
+
+    def test_bed_bugs_two_services_per_visit_share(self):
+        """Bed Bugs package ÷ 2 × 40% per completed visit (not full booking 40%)."""
+        tech, partner = self._make_partner_tech('9000000010', 'BedBug Tech')
+        job = self._base_job(
+            technician=tech,
+            partner=partner,
+            service_type='Bed Bugs',
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            price='5000',
+            total_amount=Decimal('5000.00'),
+            planned_visit_count=2,
+            max_cycle=2,
+            service_cycle=1,
+        )
+        result = calculate_and_apply_payout(job)
+        job.refresh_from_db()
+        self.assertFalse(result.skipped)
+        self.assertEqual(job.visit_revenue_amount, Decimal('2500.00'))
+        self.assertEqual(job.technician_pool_amount, Decimal('1000.00'))
+        self.assertEqual(job.visit_payout_amount, Decimal('1000.00'))
+        earning = PartnerEarning.objects.get(job=job, partner=partner)
+        self.assertEqual(earning.amount, Decimal('1000.00'))

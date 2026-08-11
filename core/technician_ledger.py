@@ -26,12 +26,12 @@ from partner.models import PartnerEarning
 
 def _report_date(job: JobCard):
     """
-    Use completion date when available, otherwise the scheduled booking date.
+    Use the scheduled booking date (same as View Bookings).
 
-    Dates are resolved in the project timezone so a visit closed late in the
-    evening is reported on the same day the `__date` filters match it on.
+    Completion date is only a fallback when schedule is missing, so a visit
+    closed the next day still shows under the booked day staff expect.
     """
-    stamp = job.completed_at or job.schedule_datetime or job.created_at
+    stamp = job.schedule_datetime or job.completed_at or job.created_at
     return timezone.localtime(stamp).date()
 
 
@@ -172,19 +172,20 @@ def technician_jobs_queryset(technician: Technician):
 def apply_ledger_filters(queryset, params):
     date_from = parse_date(params.get('from') or '')
     date_to = parse_date(params.get('to') or '')
-    # Mirrors _report_date: completion date, else schedule date, else created date.
-    unscheduled = Q(completed_at__isnull=True, schedule_datetime__isnull=True)
+    # Mirrors _report_date: booking schedule date, else completion, else created.
+    no_schedule = Q(schedule_datetime__isnull=True)
+    no_schedule_or_completion = Q(schedule_datetime__isnull=True, completed_at__isnull=True)
     if date_from:
         queryset = queryset.filter(
-            Q(completed_at__date__gte=date_from)
-            | Q(completed_at__isnull=True, schedule_datetime__date__gte=date_from)
-            | (unscheduled & Q(created_at__date__gte=date_from))
+            Q(schedule_datetime__date__gte=date_from)
+            | (no_schedule & Q(completed_at__date__gte=date_from))
+            | (no_schedule_or_completion & Q(created_at__date__gte=date_from))
         )
     if date_to:
         queryset = queryset.filter(
-            Q(completed_at__date__lte=date_to)
-            | Q(completed_at__isnull=True, schedule_datetime__date__lte=date_to)
-            | (unscheduled & Q(created_at__date__lte=date_to))
+            Q(schedule_datetime__date__lte=date_to)
+            | (no_schedule & Q(completed_at__date__lte=date_to))
+            | (no_schedule_or_completion & Q(created_at__date__lte=date_to))
         )
 
     city = (params.get('city') or '').strip()
@@ -236,11 +237,13 @@ def heal_stuck_payouts(jobs) -> int:
             JobCard.PayoutStatus.PENDING,
         ):
             continue
-        # Only touch rows that look broken: company/pool set but tech payout empty,
-        # or payout still held / never applied.
-        pool = job.technician_pool_amount or Decimal('0.00')
+        # Fix Held / never-applied / Tech share ₹0 rows (e.g. booking 1895).
         visit_pay = job.visit_payout_amount or Decimal('0.00')
-        if job.payout_status == JobCard.PayoutStatus.HELD or (pool > 0 and visit_pay <= 0) or not job.payment_model:
+        if (
+            job.payout_status == JobCard.PayoutStatus.HELD
+            or visit_pay <= 0
+            or not job.payment_model
+        ):
             result = calculate_and_apply_payout(job, force=True)
             if not result.skipped:
                 healed += 1
@@ -268,20 +271,67 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
     feedbacks = list(job.feedbacks.all())
     rating = feedbacks[0].rating if feedbacks else None
     planned = job.planned_visit_count or job.max_cycle
+    cycle = job.service_cycle or (1 if completed else None)
+
+    settlement_date = None
+    for line in job.settlement_line_items.all():
+        if (
+            line.settlement.technician_id == technician.id
+            and line.settlement.status == TechnicianSettlement.Status.PAID
+            and line.settlement.paid_at
+        ):
+            settlement_date = timezone.localtime(line.settlement.paid_at).date().isoformat()
+            break
+
+    if not completed:
+        settlement_status = 'n_a'
+        settlement_status_label = 'N/A'
+    elif job.payout_status == JobCard.PayoutStatus.PAID or (net > 0 and pending <= 0 and paid > 0):
+        settlement_status = 'settled'
+        settlement_status_label = 'Settled'
+        if pending > 0:
+            # Partial — still show unsettled balance
+            settlement_status = 'unsettled'
+            settlement_status_label = 'Unsettled'
+    elif job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
+        settlement_status = 'legacy'
+        settlement_status_label = 'Old record'
+    else:
+        settlement_status = 'unsettled'
+        settlement_status_label = 'Unsettled'
+
+    tech_names = []
+    if job.technician_id:
+        tech_names.append(job.technician.name if hasattr(job.technician, 'name') else '')
+    for part in job.technician_participations.all():
+        name = part.technician.name if part.technician_id else ''
+        if name and name not in tech_names:
+            tech_names.append(name)
+
+    share_pct = job.technician_share_percent or 40
+    service_number = None
+    if planned and cycle:
+        service_number = f'Service {cycle} of {planned}'
+    elif economics == 'one_time':
+        service_number = 'One-Time'
 
     return {
         'job_id': job.id,
         'booking_id': job.code or str(job.id),
         'booking_date': _report_date(job).isoformat(),
         'customer_name': job.client.full_name if job.client_id else '',
+        'property_type': job.property_type or job.commercial_type or '',
         'service_type': job.service_type or '',
         'city': job.master_city.name if job.master_city_id else (job.city or ''),
         'booking_type': economics,
         'booking_type_label': _booking_type_label(economics),
         'status': job.status,
         'is_completed_visit': completed,
-        'service_cycle': job.service_cycle,
+        'service_cycle': cycle,
         'planned_visits': planned,
+        'service_number': service_number,
+        'assigned_technicians': ', '.join([n for n in tech_names if n]) or '—',
+        'technician_share_percent': str(share_pct),
         'booking_amount': str(booking_amount),
         'visit_revenue': str(visit_revenue),
         'technician_share': str(tech_share),
@@ -292,15 +342,10 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
         'pending_amount': str(pending),
         'net_payable': str(net),
         'payout_status': job.payout_status or '',
-        'payout_status_label': {
-            JobCard.PayoutStatus.PENDING: 'Pending',
-            JobCard.PayoutStatus.HELD: 'Held',
-            JobCard.PayoutStatus.APPROVED: 'Approved',
-            JobCard.PayoutStatus.PAID: 'Paid',
-            JobCard.PayoutStatus.CANCELLED: 'Cancelled',
-            JobCard.PayoutStatus.NOT_APPLICABLE: 'N/A',
-            JobCard.PayoutStatus.LEGACY_EXEMPT: 'Legacy',
-        }.get(job.payout_status or '', job.payout_status or '—'),
+        'payout_status_label': settlement_status_label,
+        'settlement_status': settlement_status,
+        'settlement_status_label': settlement_status_label,
+        'settlement_date': settlement_date,
         'customer_rating': rating,
     }
 

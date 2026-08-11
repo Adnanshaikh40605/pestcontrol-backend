@@ -155,6 +155,28 @@ def is_amc_economics(job) -> bool:
     return False
 
 
+def is_bed_bug_multi_visit(job) -> bool:
+    """Bed Bugs is always 2 services — settle 40% of (package ÷ 2) per completed visit."""
+    from core.booking_schedule_engine import is_bed_bug_service
+
+    root = _package_root(job)
+    for text in (
+        job.service_type,
+        job.source_service,
+        root.service_type,
+        root.source_service,
+    ):
+        if is_bed_bug_service(text or ''):
+            return True
+    # Also detect from service_items JSON when present
+    items = getattr(job, 'service_items', None) or getattr(root, 'service_items', None) or []
+    if isinstance(items, list):
+        for item in items:
+            if is_bed_bug_service(str((item or {}).get('service') or '')):
+                return True
+    return False
+
+
 def is_contractual_economics(job) -> bool:
     from core.models import JobCard
 
@@ -350,6 +372,15 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
         package_total = _billable_total(root)
         divisor = _visit_divisor(job, root)
         visit_revenue = quantize_money(package_total / Decimal(divisor))
+    elif is_bed_bug_multi_visit(job):
+        # Product rule: Bed Bugs = 2 services → per completed service value = package/2.
+        economics = 'amc'
+        package_total = _billable_total(root)
+        divisor = max(_visit_divisor(job, root), 2)
+        visit_revenue = quantize_money(package_total / Decimal(divisor))
+        if not job.planned_visit_count or int(job.planned_visit_count) < 2:
+            job.planned_visit_count = 2
+            job.save(update_fields=['planned_visit_count', 'updated_at'])
     elif is_contractual_economics(job):
         economics = 'contractual'
         package_total = _billable_total(root)
@@ -469,10 +500,18 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
 
 def try_apply_payout_after_completion(job) -> Optional[PayoutResult]:
     """Best-effort wrapper for complete hooks — never raises into callers."""
+    result = None
     try:
-        if not is_revenue_model_enabled():
-            return None
-        return calculate_and_apply_payout(job)
+        if is_revenue_model_enabled():
+            result = calculate_and_apply_payout(job)
     except Exception:
         logger.exception('Payout engine failed for job %s', getattr(job, 'code', job.pk))
-        return None
+
+    # Accounts booking-cost snapshot (best-effort; does not block completion).
+    try:
+        from accounts.services.profit import recalculate_booking_cost
+
+        recalculate_booking_cost(job)
+    except Exception:
+        logger.exception('Accounts cost snapshot failed for job %s', getattr(job, 'code', job.pk))
+    return result

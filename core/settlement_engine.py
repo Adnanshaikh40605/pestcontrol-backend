@@ -229,6 +229,138 @@ def mark_settlement_paid(settlement: TechnicianSettlement, *, user=None) -> Tech
 
 
 @transaction.atomic
+def settle_jobs_for_technician(
+    *,
+    technician: Technician,
+    job_ids: list[int],
+    user=None,
+    notes: str = '',
+) -> TechnicianSettlement:
+    """
+    Settle selected completed ledger jobs for one technician in a single batch.
+
+    Creates settlement lines from participation snapshots / PartnerEarnings,
+    then marks the settlement Approved + Paid. Jobs stay on the ledger with
+    payout_status=paid (Settled) — they are never deleted.
+    """
+    if not is_revenue_model_enabled():
+        raise SettlementError('REVENUE_MODEL_V2 is disabled', code='feature_flag_off')
+    ids = [int(x) for x in (job_ids or []) if x]
+    if not ids:
+        raise SettlementError('Select at least one booking to settle', code='empty_selection')
+
+    from core.payout_engine import calculate_and_apply_payout
+    from partner.models import PartnerEarning
+
+    jobs = list(
+        JobCard.objects.select_related('technician', 'partner')
+        .prefetch_related('technician_participations', 'partner_earnings', 'settlement_line_items__settlement')
+        .filter(id__in=ids, status=JobCard.JobStatus.DONE)
+    )
+    if not jobs:
+        raise SettlementError('No completed bookings found for settlement', code='no_jobs')
+
+    today = timezone.localdate()
+    partner = getattr(technician, 'partner_account', None)
+    settlement = TechnicianSettlement.objects.create(
+        technician=technician,
+        partner=partner if partner and getattr(partner, 'is_active', True) else None,
+        period_start=today,
+        period_end=today,
+        cadence=SETTLEMENT_CADENCE_WEEKLY,
+        status=TechnicianSettlement.Status.DRAFT,
+        notes=notes or f'Ledger settle {today.isoformat()} ({len(ids)} jobs)',
+    )
+
+    lines_created = 0
+    for job in jobs:
+        # Skip if already paid via a settlement line for this technician.
+        already_paid = any(
+            line.settlement.technician_id == technician.id
+            and line.settlement.status == TechnicianSettlement.Status.PAID
+            and line.earning_type == SettlementLineItem.EarningType.REVENUE_SHARE
+            for line in job.settlement_line_items.all()
+        )
+        if already_paid or job.payout_status == JobCard.PayoutStatus.PAID:
+            continue
+
+        if job.payout_status in (
+            JobCard.PayoutStatus.HELD,
+            JobCard.PayoutStatus.PENDING,
+            JobCard.PayoutStatus.NOT_APPLICABLE,
+            '',
+            None,
+        ):
+            calculate_and_apply_payout(job, force=True)
+            job.refresh_from_db()
+
+        participation = next(
+            (p for p in job.technician_participations.all() if p.technician_id == technician.id),
+            None,
+        )
+        amount = Decimal('0.00')
+        earning = None
+        if partner:
+            earning = next(
+                (
+                    e for e in job.partner_earnings.all()
+                    if e.partner_id == partner.id
+                    and e.earning_type == PartnerEarning.EarningType.REVENUE_SHARE
+                ),
+                None,
+            )
+            if earning:
+                amount = quantize_money(earning.amount)
+                if not earning.is_approved:
+                    earning.is_approved = True
+                    earning.save(update_fields=['is_approved'])
+        if amount <= 0 and participation and participation.payout_amount_snapshot:
+            amount = quantize_money(participation.payout_amount_snapshot)
+        if amount <= 0 and job.technician_id == technician.id and job.visit_payout_amount:
+            amount = quantize_money(job.visit_payout_amount)
+        if amount <= 0 and job.technician_pool_amount:
+            # Sole assignee fallback for held→settled path
+            amount = quantize_money(job.visit_payout_amount or job.technician_pool_amount)
+        if amount <= 0:
+            continue
+
+        # Avoid double OneToOne partner_earning link if already on another open settlement
+        pe_link = earning
+        if pe_link is not None:
+            from core.models import SettlementLineItem as SLI
+            if SLI.objects.filter(partner_earning=pe_link).exists():
+                pe_link = None
+
+        SettlementLineItem.objects.create(
+            settlement=settlement,
+            job=job,
+            participation=participation,
+            partner_earning=pe_link,
+            earning_type=SettlementLineItem.EarningType.REVENUE_SHARE,
+            amount=amount,
+            notes=f'Ledger settle Job #{job.code or job.id}',
+        )
+        lines_created += 1
+
+    if lines_created == 0:
+        settlement.status = TechnicianSettlement.Status.CANCELLED
+        settlement.save(update_fields=['status', 'updated_at'])
+        raise SettlementError(
+            'Selected bookings are already settled or have ₹0 tech share',
+            code='nothing_to_settle',
+        )
+
+    settlement.recompute_totals()
+    settlement.status = TechnicianSettlement.Status.PENDING_APPROVAL
+    settlement.save(update_fields=[
+        'gross_amount', 'incentive_amount', 'deduction_amount', 'net_amount',
+        'status', 'updated_at',
+    ])
+    approve_settlement(settlement, user=user)
+    return mark_settlement_paid(settlement, user=user)
+
+
+@transaction.atomic
 def cancel_settlement(settlement: TechnicianSettlement) -> TechnicianSettlement:
     settlement = TechnicianSettlement.objects.select_for_update().get(pk=settlement.pk)
     if settlement.status == TechnicianSettlement.Status.PAID:

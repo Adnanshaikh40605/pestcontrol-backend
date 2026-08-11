@@ -287,16 +287,15 @@ class BookingFlowTests(BookingE2EBase):
         self.assertEqual(local.day, 15)
         self.assertEqual(local.hour, 14)
 
-    def test_termite_generates_five_visits_with_checkup_types(self):
+    def test_termite_is_one_time_no_auto_checkups(self):
         payload = self._create_payload('Termite', 'One Time Treatment')
         resp = self._post_booking(payload)
         self.assertEqual(resp.status_code, 201)
         main = JobCard.objects.get(pk=resp.data['id'])
         children = list(self._child_visits(main))
-        self.assertEqual(len(children), 4)
-        types = [main.visit_type or ''] + [c.visit_type for c in children]
-        self.assertEqual(types[0], 'TERMITE TREATMENT')
-        self.assertTrue(all(t == 'TERMITE CHECK-UP' for t in types[1:]))
+        self.assertEqual(len(children), 0)
+        self.assertEqual(main.visit_type or 'TERMITE TREATMENT', 'TERMITE TREATMENT')
+        self.assertLessEqual(main.planned_visit_count or 1, 1)
 
 
 class BookingValidationTests(BookingE2EBase):

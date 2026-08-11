@@ -239,15 +239,33 @@ def build_visit_plans(
     service = service or ''
     plan = plan or ''
 
+    # Termite is One-Time only — never auto-generate checkup / AMC chain visits.
     if is_termite_service(service):
         return [
             VisitPlan(
-                cycle=i + 1,
-                visit_date=start_date + relativedelta(months=TERMITE_CHECKUP_INTERVAL_MONTHS * i),
-                visit_type='TERMITE TREATMENT' if i == 0 else 'TERMITE CHECK-UP',
-                total_visits=TERMITE_TOTAL_VISITS,
+                cycle=1,
+                visit_date=start_date,
+                visit_type='TERMITE TREATMENT',
+                total_visits=1,
             )
-            for i in range(TERMITE_TOTAL_VISITS)
+        ]
+
+    # Bed Bugs always has 2 paid services (day 0 + ~15 days), even if booked as One-Time.
+    if is_bed_bug_service(service):
+        second = start_date + timedelta(days=15)
+        return [
+            VisitPlan(
+                cycle=1,
+                visit_date=start_date,
+                visit_type='BED BUG SERVICE',
+                total_visits=2,
+            ),
+            VisitPlan(
+                cycle=2,
+                visit_date=second,
+                visit_type='BED BUG SERVICE',
+                total_visits=2,
+            ),
         ]
 
     spec = resolve_recurring_spec(
@@ -451,13 +469,32 @@ class BookingScheduleEngine:
             main_job.next_service_date = earliest_next
             update_fields.append('next_service_date')
 
-        # Recurring society / AMC main bookings should be flagged for tab sync
-        if root_max_cycle > 1 and not main_job.is_amc_main_booking:
+        # Recurring society / AMC main bookings should be flagged for tab sync.
+        # Never force Termite into AMC (product rule: Termite = One-Time only).
+        termite_main = is_termite_service(main_job.service_type or '') or is_termite_service(
+            main_job.source_service or ''
+        )
+        if root_max_cycle > 1 and not termite_main and not main_job.is_amc_main_booking:
             main_job.is_amc_main_booking = True
             update_fields.append('is_amc_main_booking')
-        if root_max_cycle > 1 and main_job.service_category != JobCard.ServiceCategory.AMC:
+        if (
+            root_max_cycle > 1
+            and not termite_main
+            and main_job.service_category != JobCard.ServiceCategory.AMC
+        ):
             main_job.service_category = JobCard.ServiceCategory.AMC
             update_fields.append('service_category')
+
+        # Bed Bugs: persist planned visit count = 2 for per-service 40% payout.
+        if is_bed_bug_service(main_job.service_type or '') or is_bed_bug_service(
+            main_job.source_service or ''
+        ):
+            if (main_job.planned_visit_count or 0) < 2:
+                main_job.planned_visit_count = 2
+                update_fields.append('planned_visit_count')
+            if (main_job.max_cycle or 0) < 2:
+                main_job.max_cycle = 2
+                update_fields.append('max_cycle')
 
         if update_fields:
             main_job.save(update_fields=list(dict.fromkeys(update_fields)))

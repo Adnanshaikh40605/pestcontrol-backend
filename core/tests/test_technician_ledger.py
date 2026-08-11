@@ -451,6 +451,34 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(res.data['results'][0]['booking_date'], local_today.isoformat())
         self.assertEqual(Decimal(res.data['earnings']['daily']), Decimal('400.00'))
 
+    def test_ledger_uses_booking_schedule_date_not_completion_date(self):
+        """Scenario: closed next day still shows under the booked schedule date."""
+        booked_day = timezone.localdate() - timezone.timedelta(days=1)
+        schedule = timezone.make_aware(
+            timezone.datetime.combine(booked_day, timezone.datetime.strptime('09:30', '%H:%M').time())
+        )
+        completed = timezone.make_aware(
+            timezone.datetime.combine(timezone.localdate(), timezone.datetime.strptime('11:00', '%H:%M').time())
+        )
+        job = self._job(amount='1000', when=schedule)
+        JobCard.objects.filter(pk=job.pk).update(completed_at=completed)
+
+        res = self._ledger({
+            'from': booked_day.isoformat(),
+            'to': booked_day.isoformat(),
+        })
+
+        self.assertEqual(res.data['count'], 1)
+        self.assertEqual(int(res.data['results'][0]['booking_id']), job.id)
+        self.assertEqual(res.data['results'][0]['booking_date'], booked_day.isoformat())
+
+        # Must not appear under the completion day filter.
+        next_day = self._ledger({
+            'from': timezone.localdate().isoformat(),
+            'to': timezone.localdate().isoformat(),
+        })
+        self.assertEqual(next_day.data['count'], 0)
+
     def test_booking_without_schedule_still_matches_date_range(self):
         """Scenario: a booking with no schedule falls back to its created date."""
         job = self._job(status='Pending', amount='1000')
@@ -473,3 +501,37 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(Decimal(earnings['daily']), Decimal('400.00'))
         self.assertEqual(Decimal(earnings['lifetime']), Decimal('1200.00'))
         self.assertGreaterEqual(Decimal(earnings['monthly']), Decimal('400.00'))
+
+    def test_settle_selected_jobs_marks_settled_keeps_row(self):
+        """Scenario: multi-select settle → Unsettled becomes Settled; row stays."""
+        job_a = self._job(amount='1000')
+        job_b = self._job(amount='2000')
+
+        unsettled = self._ledger({'settlement_status': 'unsettled'})
+        self.assertEqual(unsettled.status_code, 200, unsettled.data)
+        self.assertEqual(unsettled.data['count'], 2)
+        self.assertEqual(
+            {row['settlement_status'] for row in unsettled.data['results']},
+            {'unsettled'},
+        )
+
+        settle = self.api.post(
+            f'/api/v1/technicians/{self.tech.id}/ledger/',
+            {'job_ids': [job_a.id, job_b.id]},
+            format='json',
+        )
+        self.assertEqual(settle.status_code, 200, settle.data)
+        self.assertEqual(settle.data['job_count'], 2)
+        self.assertEqual(Decimal(settle.data['net_amount']), Decimal('1200.00'))
+
+        after = self._ledger({'settlement_status': 'settled'})
+        self.assertEqual(after.data['count'], 2)
+        for row in after.data['results']:
+            self.assertEqual(row['settlement_status'], 'settled')
+            self.assertEqual(row['settlement_status_label'], 'Settled')
+            self.assertTrue(row['settlement_date'])
+            self.assertEqual(Decimal(row['pending_amount']), Decimal('0.00'))
+
+        # Still visible when filter is cleared
+        all_rows = self._ledger({'settlement_status': ''})
+        self.assertEqual(all_rows.data['count'], 2)

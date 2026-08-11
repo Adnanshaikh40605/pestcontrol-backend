@@ -18,6 +18,7 @@ BOOKING_REFERENCE_OPTIONS: tuple[str, ...] = (
     'No Parking Board',
     'Holding',
     'Auto Rickshaw Advertisement',
+    'DriverOnHire',
     'Other',
 )
 

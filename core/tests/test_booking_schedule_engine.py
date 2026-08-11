@@ -44,12 +44,20 @@ class VisitPlanTests(TestCase):
         self.assertEqual(plans[1].visit_date, date(2026, 6, 8))
         self.assertEqual(plans[4].visit_date, date(2026, 6, 29))
 
-    def test_termite_five_visits_six_month_gap(self):
+    def test_termite_one_time_single_visit_only(self):
+        """Termite is One-Time only — no auto checkup / AMC chain."""
         plans = build_visit_plans('Termite', 'One Time Service', date(2026, 1, 15))
-        self.assertEqual(len(plans), 5)
+        self.assertEqual(len(plans), 1)
         self.assertEqual(plans[0].visit_type, 'TERMITE TREATMENT')
-        self.assertEqual(plans[1].visit_type, 'TERMITE CHECK-UP')
-        self.assertEqual(plans[4].visit_date, date(2028, 1, 15))
+        self.assertEqual(plans[0].visit_date, date(2026, 1, 15))
+        self.assertEqual(plans[0].total_visits, 1)
+
+    def test_bed_bugs_two_services(self):
+        plans = build_visit_plans('Bed Bugs', 'One Time Service', date(2026, 1, 15))
+        self.assertEqual(len(plans), 2)
+        self.assertEqual(plans[0].visit_type, 'BED BUG SERVICE')
+        self.assertEqual(plans[1].visit_date, date(2026, 1, 30))
+        self.assertEqual(plans[1].total_visits, 2)
 
     def test_one_time_single_visit(self):
         plans = build_visit_plans('Mosquito', 'One Time Service', date(2026, 6, 1))

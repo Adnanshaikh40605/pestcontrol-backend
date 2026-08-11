@@ -824,15 +824,18 @@ class TechnicianViewSet(BaseModelViewSet):
             }
         )
 
-    @action(detail=True, methods=['get'], url_path='ledger')
+    @action(detail=True, methods=['get', 'post'], url_path='ledger')
     def ledger(self, request, pk=None):
         """
         Booking-wise technician ledger with payout, settlement and performance totals.
 
-        Filters: from, to, city, service_type, booking_type, status, page, page_size.
-        AMC/contract share is recognized only for completed visits, using immutable
-        payout snapshots rather than recalculating historical money.
+        GET filters: from, to, city, service_type, booking_type, status,
+        settlement_status (unsettled|settled|legacy), page, page_size.
+
+        POST body: { "job_ids": [1,2,3], "notes": "" } — settle selected Unsettled rows.
         """
+        from decimal import Decimal
+
         from core.technician_ledger import (
             apply_ledger_filters,
             earning_periods,
@@ -844,6 +847,31 @@ class TechnicianViewSet(BaseModelViewSet):
         )
 
         technician = self.get_object()
+
+        if request.method == 'POST':
+            from core.settlement_engine import SettlementError, settle_jobs_for_technician
+
+            job_ids = request.data.get('job_ids') or []
+            try:
+                settlement = settle_jobs_for_technician(
+                    technician=technician,
+                    job_ids=job_ids,
+                    user=request.user,
+                    notes=request.data.get('notes') or '',
+                )
+            except SettlementError as exc:
+                return response.Response(
+                    {'error': exc.message, 'code': exc.code},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return response.Response({
+                'settlement_id': settlement.id,
+                'net_amount': str(settlement.net_amount),
+                'status': settlement.status,
+                'paid_at': settlement.paid_at,
+                'job_count': settlement.line_items.count(),
+            })
+
         base_queryset = technician_jobs_queryset(technician)
         filtered_queryset = apply_ledger_filters(base_queryset, request.query_params)
         filtered_jobs = list(filtered_queryset.order_by('-schedule_datetime', '-id'))
@@ -851,6 +879,10 @@ class TechnicianViewSet(BaseModelViewSet):
         if heal_stuck_payouts(filtered_jobs):
             filtered_jobs = list(filtered_queryset.order_by('-schedule_datetime', '-id'))
         rows = [serialize_ledger_row(job, technician) for job in filtered_jobs]
+
+        settlement_filter = (request.query_params.get('settlement_status') or '').strip().lower()
+        if settlement_filter in ('unsettled', 'settled', 'legacy'):
+            rows = [r for r in rows if r.get('settlement_status') == settlement_filter]
 
         try:
             page_number = max(int(request.query_params.get('page') or 1), 1)
@@ -877,6 +909,11 @@ class TechnicianViewSet(BaseModelViewSet):
             row['service_type'] for row in option_jobs if row['service_type']
         })
 
+        unsettled_total = sum(
+            (Decimal(r['pending_amount']) for r in rows if r.get('settlement_status') == 'unsettled'),
+            Decimal('0.00'),
+        )
+
         return response.Response({
             'technician': {
                 'id': technician.id,
@@ -891,8 +928,10 @@ class TechnicianViewSet(BaseModelViewSet):
                 'service_type': request.query_params.get('service_type') or '',
                 'booking_type': request.query_params.get('booking_type') or '',
                 'status': request.query_params.get('status') or '',
+                'settlement_status': settlement_filter,
             },
             'summary': summarize_rows(rows),
+            'unsettled_payable': str(unsettled_total),
             'earnings': earning_periods(technician),
             'payment_history': payment_history(technician, request.query_params),
             'options': {
@@ -4044,27 +4083,49 @@ class CustomerHistoryView(views.APIView):
         feedbacks = Feedback.objects.filter(booking__client=client).order_by('-created_at')
         feedback_data = FeedbackSerializer(feedbacks, many=True).data
 
-        # 3. Revenue Summary
+        # 3. Revenue Summary — count each billable root booking once only.
         total_revenue = 0
         amc_revenue = 0
         paid_services = 0
-        
+        seen_revenue_keys = set()
+
         for jc in jobcards:
-            # Only count revenue for main bookings, exclude free follow-ups and complaints
-            if jc.included_in_amc or jc.is_complaint_call or jc.is_followup_visit:
+            if jc.status == JobCard.JobStatus.CANCELLED:
+                continue
+            # Child / free follow-up / complaint rows never add to Total Revenue.
+            if (
+                jc.parent_job_id
+                or jc.included_in_amc
+                or jc.is_complaint_call
+                or jc.is_followup_visit
+            ):
                 if jc.payment_status == JobCard.PaymentStatus.PAID:
                     paid_services += 1
                 continue
 
             try:
-                price_str = str(jc.price).replace('₹', '').replace(',', '').strip()
-                p = float(price_str) if price_str else 0
-                total_revenue += p
+                from core.payment_utils import effective_service_total
+
+                amount = float(effective_service_total(jc) or 0)
+                if amount <= 0:
+                    price_str = str(jc.price or '').replace('₹', '').replace(',', '').strip()
+                    amount = float(price_str) if price_str else 0
+                if amount <= 0:
+                    continue
+                # Dedupe accidental duplicate main rows (same service + same day).
+                day = None
+                if jc.schedule_datetime:
+                    day = timezone.localtime(jc.schedule_datetime).date().isoformat()
+                key = (jc.service_type or '', day or str(jc.id), round(amount, 2))
+                if key in seen_revenue_keys:
+                    continue
+                seen_revenue_keys.add(key)
+                total_revenue += amount
                 if jc.service_category == JobCard.ServiceCategory.AMC:
-                    amc_revenue += p
+                    amc_revenue += amount
                 if jc.payment_status == JobCard.PaymentStatus.PAID:
                     paid_services += 1
-            except ValueError:
+            except (TypeError, ValueError):
                 pass
 
         # 4. Reminders
@@ -4113,11 +4174,21 @@ class CustomerHistoryView(views.APIView):
             elif jc.assigned_to:
                 technicians.add(jc.assigned_to)
 
-        # 6. Upcoming Services
+        # 6. Upcoming Services — hide Termite auto-checkups (Termite is One-Time only).
+        from core.booking_schedule_engine import is_termite_service
+
         upcoming = jobcards.filter(
             status=JobCard.JobStatus.UPCOMING,
             booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES,
         ).order_by('next_service_date', 'schedule_datetime')
+        upcoming = [
+            jc for jc in upcoming
+            if not (
+                is_termite_service(jc.service_type or '')
+                or is_termite_service(jc.source_service or '')
+                or is_termite_service(jc.visit_type or '')
+            )
+        ]
 
         return response.Response({
             'client': ClientSerializer(client).data,
