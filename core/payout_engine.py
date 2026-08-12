@@ -115,6 +115,52 @@ def _billable_total(job) -> Decimal:
     return quantize_money(parse_jobcard_price(job.price))
 
 
+def service_line_package_amount(job) -> Decimal:
+    """
+    Billable package for THIS service line (not the whole multi-service booking).
+
+    - Standalone / priced child → own amount
+    - Follow-up child (price 0) → amount from parent.service_items matching source_service
+    - Classic single-service AMC child → full parent package
+    - Multi-service package shell → full package (caller should not pay tech on shell)
+    """
+    from core.payment_utils import parse_jobcard_price
+
+    own_price = parse_jobcard_price(getattr(job, 'price', None))
+    own_total = quantize_money(getattr(job, 'total_amount', None) or 0)
+    if own_price > 0:
+        return own_price
+    if own_total > 0 and not job.parent_job_id:
+        return own_total
+
+    source = (job.source_service or job.service_type or '').strip()
+    root = _package_root(job)
+    items = []
+    if isinstance(getattr(job, 'service_items', None), list) and job.service_items:
+        items = job.service_items
+    elif isinstance(getattr(root, 'service_items', None), list):
+        items = root.service_items or []
+
+    if source and items:
+        for item in items:
+            svc = str((item or {}).get('service') or '').strip()
+            if svc and svc.lower() == source.lower():
+                amt = parse_jobcard_price((item or {}).get('amount'))
+                if amt > 0:
+                    return amt
+
+    # Single-item child / parent carrying its line in service_items
+    if len(items) == 1:
+        amt = parse_jobcard_price((items[0] or {}).get('amount'))
+        if amt > 0:
+            return amt
+
+    # Classic AMC follow-up (price 0, no line items) → parent package total
+    if job.parent_job_id:
+        return _billable_total(root)
+    return _billable_total(job)
+
+
 def _package_root(job):
     """Root booking that owns package total / visit count for AMC children."""
     root = job
@@ -126,12 +172,13 @@ def _package_root(job):
 
 
 def _visit_divisor(job, root) -> int:
-    for candidate in (
-        job.planned_visit_count,
-        root.planned_visit_count,
-        root.max_cycle,
-        job.max_cycle,
-    ):
+    # Prefer THIS visit's planned count (per-service child), not the multi package max.
+    for candidate in (job.planned_visit_count, job.max_cycle):
+        if candidate and int(candidate) > 0:
+            return int(candidate)
+    if job.parent_job_id:
+        return 1
+    for candidate in (root.planned_visit_count, root.max_cycle):
         if candidate and int(candidate) > 0:
             return int(candidate)
     return 1
@@ -139,6 +186,19 @@ def _visit_divisor(job, root) -> int:
 
 def is_amc_economics(job) -> bool:
     from core.models import JobCard
+
+    # Per-service child of a multi-service package: use THIS line's flags only.
+    if job.parent_job_id:
+        if job.service_category == JobCard.ServiceCategory.AMC:
+            return True
+        if job.included_in_amc:
+            return True
+        if job.booking_type in (
+            JobCard.BookingType.AMC_MAIN,
+            JobCard.BookingType.AMC_FOLLOWUP,
+        ):
+            return True
+        return False
 
     if job.service_category == JobCard.ServiceCategory.AMC:
         return True
@@ -149,32 +209,37 @@ def is_amc_economics(job) -> bool:
         JobCard.BookingType.AMC_FOLLOWUP,
     ):
         return True
-    root = _package_root(job)
-    if root.id != job.id and root.service_category == JobCard.ServiceCategory.AMC:
-        return True
     return False
 
 
 def is_bed_bug_multi_visit(job) -> bool:
-    """Bed Bugs is always 2 services — settle 40% of (package ÷ 2) per completed visit."""
+    """Bed Bugs is always 2 services — settle 40% of (line package ÷ 2) per completed visit."""
     from core.booking_schedule_engine import is_bed_bug_service
 
-    root = _package_root(job)
     for text in (
         job.service_type,
         job.source_service,
-        root.service_type,
-        root.source_service,
     ):
         if is_bed_bug_service(text or ''):
             return True
-    # Also detect from service_items JSON when present
-    items = getattr(job, 'service_items', None) or getattr(root, 'service_items', None) or []
+    items = getattr(job, 'service_items', None) or []
     if isinstance(items, list):
         for item in items:
             if is_bed_bug_service(str((item or {}).get('service') or '')):
                 return True
+    # Only fall back to package root labels when this job has no own service name
+    if not (job.service_type or job.source_service):
+        root = _package_root(job)
+        for text in (root.service_type, root.source_service):
+            if is_bed_bug_service(text or ''):
+                return True
     return False
+
+
+def is_multi_service_package_shell(job) -> bool:
+    from core.booking_schedule_engine import is_multi_service_package_shell as _shell
+
+    return _shell(job)
 
 
 def is_contractual_economics(job) -> bool:
@@ -319,6 +384,23 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
     if not is_revenue_model_enabled() and not force:
         return PayoutResult(skipped=True, reason='feature_flag_off')
 
+    # Multi-service package shell: payment lives here, tech share is on per-service children.
+    if is_multi_service_package_shell(job):
+        job.visit_revenue_amount = Decimal('0.00')
+        job.technician_pool_amount = Decimal('0.00')
+        job.company_share_amount = Decimal('0.00')
+        job.visit_payout_amount = Decimal('0.00')
+        job.payout_status = JobCard.PayoutStatus.NOT_APPLICABLE
+        job.save(update_fields=[
+            'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
+            'visit_payout_amount', 'payout_status', 'updated_at',
+        ])
+        return PayoutResult(
+            skipped=True,
+            reason='multi_service_package_shell',
+            payout_status=job.payout_status,
+        )
+
     if job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
         return PayoutResult(skipped=True, reason='legacy_exempt', payout_status=job.payout_status)
 
@@ -366,16 +448,17 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
     tech_pct = _tech_share_percent(job)
     company_pct = _company_share_percent(job)
     root = _package_root(job)
+    line_package = service_line_package_amount(job)
 
     if is_amc_economics(job):
         economics = 'amc'
-        package_total = _billable_total(root)
+        package_total = line_package
         divisor = _visit_divisor(job, root)
         visit_revenue = quantize_money(package_total / Decimal(divisor))
     elif is_bed_bug_multi_visit(job):
-        # Product rule: Bed Bugs = 2 services → per completed service value = package/2.
+        # Product rule: Bed Bugs = 2 services → per completed service value = line/2.
         economics = 'amc'
-        package_total = _billable_total(root)
+        package_total = line_package
         divisor = max(_visit_divisor(job, root), 2)
         visit_revenue = quantize_money(package_total / Decimal(divisor))
         if not job.planned_visit_count or int(job.planned_visit_count) < 2:
@@ -383,12 +466,12 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
             job.save(update_fields=['planned_visit_count', 'updated_at'])
     elif is_contractual_economics(job):
         economics = 'contractual'
-        package_total = _billable_total(root)
+        package_total = line_package
         divisor = _visit_divisor(job, root)
         visit_revenue = quantize_money(package_total / Decimal(divisor))
     else:
         economics = 'one_time'
-        visit_revenue = _billable_total(job)
+        visit_revenue = line_package
 
     technician_pool = quantize_money(visit_revenue * tech_pct / Decimal('100'))
     company_share = quantize_money(visit_revenue * company_pct / Decimal('100'))

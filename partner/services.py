@@ -342,7 +342,13 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
         job.save(update_fields=['payment_mode', 'updated_at'])
     try:
         from core.payout_engine import try_apply_payout_after_completion
+        from core.booking_schedule_engine import (
+            BookingScheduleEngine,
+            is_multi_service_booking,
+        )
 
+        if is_multi_service_booking(job):
+            BookingScheduleEngine.sync_multi_service_day1_children(job, completing=True)
         try_apply_payout_after_completion(job)
     except Exception as exc:
         logger.exception('Payout after partner complete failed #%s: %s', job.id, exc)

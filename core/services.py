@@ -408,6 +408,18 @@ class InquiryService:
         if not client_address and client.address and client.address.strip():
             client_address = client.address
 
+        # Draft booking only — never treat website estimated_price as the final
+        # confirmed price. Staff set the agreed price on Edit Booking, then WhatsApp.
+        quoted = getattr(inquiry, 'estimated_price', None)
+        note_parts = []
+        if inquiry.remark:
+            note_parts.append(str(inquiry.remark).strip())
+        if quoted:
+            note_parts.append(f'[Website estimated price (not final): ₹{quoted}]')
+        note_parts.append(
+            '[Draft from website inquiry — staff must confirm final price/details before WhatsApp]'
+        )
+
         # Route through JobCardService so revenue defaults / total_amount / AMC visits apply.
         jobcard_data = {
             'client': client.id,
@@ -419,10 +431,12 @@ class InquiryService:
                 else JobCard.ServiceCategory.ONE_TIME
             ),
             'schedule_datetime': conversion_data.get('schedule_datetime', timezone.now()),
-            'price': conversion_data.get('price', ''),
+            'price': '',
             'payment_status': JobCard.PaymentStatus.UNPAID,
             'reference': 'Website',
             'city': inquiry.city or client.city or '',
+            'notes': '\n'.join(note_parts),
+            'bhk_size': conversion_data.get('bhk_size') or inquiry.premise_size or '',
         }
         if client_address:
             jobcard_data['client_address'] = client_address
@@ -708,7 +722,18 @@ class JobCardService:
             jobcard = JobCard(created_by=user, creation_source=JobCard.CreationSource.API, **jobcard_data)
             
             # Set AMC Main Booking flag and Booking Type if it's the first AMC service
-            if jobcard.service_category == JobCard.ServiceCategory.AMC and jobcard.service_cycle == 1:
+            from core.booking_schedule_engine import (
+                enforce_fixed_service_rules_on_job,
+                is_fixed_visit_service,
+            )
+
+            enforce_fixed_service_rules_on_job(jobcard)
+
+            if (
+                jobcard.service_category == JobCard.ServiceCategory.AMC
+                and jobcard.service_cycle == 1
+                and not is_fixed_visit_service(jobcard.service_type or '')
+            ):
                 jobcard.is_amc_main_booking = True
                 jobcard.booking_type = JobCard.BookingType.AMC_MAIN
             elif jobcard.is_complaint_call:
@@ -1463,12 +1488,55 @@ class DashboardService:
                 'hold': 0
             }
             
-            # City breakdown (Top 5)
-            city_stats = list(JobCard.objects.filter(jobcard_filters)
-                             .exclude(city=None).exclude(city='')
-                             .values('city')
-                             .annotate(count=Count('city'))
-                             .order_by('-count')[:5])
+            # City breakdown — prefer master city name (Pune / Mumbai / Lonavala…)
+            from django.db.models.functions import Coalesce
+            from django.db.models import CharField, Value as V
+
+            city_qs = (
+                JobCard.objects.filter(jobcard_filters)
+                .exclude(status=JobCard.JobStatus.CANCELLED)
+                .annotate(
+                    city_label=Coalesce(
+                        'master_city__name',
+                        'city',
+                        V(''),
+                        output_field=CharField(),
+                    )
+                )
+                .exclude(city_label='')
+                .values('city_label')
+                .annotate(count=Count('id'))
+                .order_by('-count')[:12]
+            )
+            city_stats = [
+                {'city': row['city_label'], 'count': row['count']}
+                for row in city_qs
+            ]
+
+            # Always include today's city counts (even when date range is wider)
+            today_city_qs = (
+                JobCard.objects.filter(schedule_datetime__date=today)
+                .exclude(status=JobCard.JobStatus.CANCELLED)
+                .annotate(
+                    city_label=Coalesce(
+                        'master_city__name',
+                        'city',
+                        V(''),
+                        output_field=CharField(),
+                    )
+                )
+                .exclude(city_label='')
+                .values('city_label')
+                .annotate(count=Count('id'))
+                .order_by('-count')[:12]
+            )
+            today_city_stats = [
+                {'city': row['city_label'], 'count': row['count']}
+                for row in today_city_qs
+            ]
+            today_booking_count = JobCard.objects.filter(
+                schedule_datetime__date=today,
+            ).exclude(status=JobCard.JobStatus.CANCELLED).count()
             
             # Property Type breakdown
             property_type_stats = list(JobCard.objects.filter(jobcard_filters)
@@ -1594,6 +1662,8 @@ class DashboardService:
                 'status_stats': status_stats,
                 'job_type_stats': job_type_stats,
                 'city_stats': city_stats,
+                'today_city_stats': today_city_stats,
+                'today_booking_count': today_booking_count,
                 'property_type_stats': property_type_stats,
             }
         except Exception as e:
@@ -1768,19 +1838,28 @@ class CRMInquiryService:
                 service_city=inquiry.master_city.name if inquiry.master_city_id else inquiry.location,
                 remark=notes_text,
             )
+            # Quoted website/CRM rate is for staff reference only — final price is set
+            # on Edit Booking before WhatsApp confirmation is sent.
             quoted_price = rate_info.get('display_total') or rate_info.get('total') or 0
             area_label = rate_info.get('area_label') or ''
             if area_label.endswith(' (est.)'):
                 area_label = area_label[:-8]
 
-            # 2. Map Inquiry to JobCard fields
+            note_parts = [p for p in [notes_text.strip() if notes_text else ''] if p]
+            if quoted_price:
+                note_parts.append(f'[Inquiry quoted rate (not final): ₹{int(quoted_price)}]')
+            note_parts.append(
+                '[Draft from inquiry — staff must confirm final price/details before WhatsApp]'
+            )
+
+            # 2. Map Inquiry → booking draft (basic details only; no auto final price)
             job_card_data = {
                 'client': client.id,
                 'client_address': inquiry.location or '',
                 'service_type': inquiry.pest_type,
                 'service_category': JobCard.ServiceCategory.AMC if inquiry.service_frequency == 'amc' else JobCard.ServiceCategory.ONE_TIME,
                 'bhk_size': area_label or None,
-                'notes': notes_text,
+                'notes': '\n'.join(note_parts),
                 'status': 'Pending',
                 'schedule_datetime': timezone.now(),
                 'state': inquiry.master_state.name if inquiry.master_state_id else (client.state or 'Maharashtra'),
@@ -1789,7 +1868,7 @@ class CRMInquiryService:
                 'master_state': inquiry.master_state_id,
                 'master_city': inquiry.master_city_id,
                 'master_location': inquiry.master_location_id,
-                'price': str(int(quoted_price)) if quoted_price else '',
+                'price': '',
                 'reference': 'CRM Inquiry',
             }
             

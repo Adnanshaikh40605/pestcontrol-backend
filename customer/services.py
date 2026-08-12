@@ -98,8 +98,22 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
     if contract_duration:
         payload['contract_duration'] = contract_duration
     if booking_kind == 'amc':
-        payload['service_cycle'] = 1
-        payload['max_cycle'] = 3
+        # Termite / Bed Bugs never use AMC visit packages from the customer app.
+        from core.booking_schedule_engine import is_fixed_visit_service
+
+        service_name = payload.get('service_type') or ''
+        if is_fixed_visit_service(service_name):
+            payload['service_category'] = JobCard.ServiceCategory.ONE_TIME
+            if 'termite' in service_name.lower():
+                payload['max_cycle'] = 1
+                payload['planned_visit_count'] = 1
+            else:
+                payload['max_cycle'] = 2
+                payload['planned_visit_count'] = 2
+            payload['service_cycle'] = 1
+        else:
+            payload['service_cycle'] = 1
+            payload['max_cycle'] = 3
 
     if getattr(settings, 'REVENUE_MODEL_V2', False):
         payload['payment_model'] = JobCard.PaymentModel.REVENUE_SHARING

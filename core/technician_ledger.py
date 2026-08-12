@@ -169,6 +169,13 @@ def technician_jobs_queryset(technician: Technician):
     )
 
 
+def exclude_package_shells(jobs):
+    """Technician ledger shows per-service rows, not the multi-service package shell."""
+    from core.booking_schedule_engine import is_multi_service_package_shell
+
+    return [job for job in jobs if not is_multi_service_package_shell(job)]
+
+
 def apply_ledger_filters(queryset, params):
     date_from = parse_date(params.get('from') or '')
     date_to = parse_date(params.get('to') or '')
@@ -398,7 +405,9 @@ def earning_periods(technician: Technician) -> dict:
     today = timezone.localdate()
     all_rows = [
         serialize_ledger_row(job, technician)
-        for job in technician_jobs_queryset(technician).filter(status=JobCard.JobStatus.DONE)
+        for job in exclude_package_shells(
+            technician_jobs_queryset(technician).filter(status=JobCard.JobStatus.DONE)
+        )
     ]
     daily = [row for row in all_rows if row['booking_date'] == today.isoformat()]
     monthly = [

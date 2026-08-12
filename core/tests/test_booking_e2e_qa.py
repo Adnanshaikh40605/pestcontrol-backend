@@ -35,8 +35,10 @@ SERVICE_PLAN_MATRIX = {
 }
 
 EXPECTED_VISIT_COUNTS = {
-    ('Termite', 'One Time Treatment'): 5,
-    ('Bed Bugs', 'One Time Service'): 1,
+    # Termite = One-Time only (no checkup chain)
+    ('Termite', 'One Time Treatment'): 1,
+    # Bed Bugs = main + 1 follow-up (2 services total)
+    ('Bed Bugs', 'One Time Service'): 2,
     ('Cockroach / Ants', 'One Time Service'): 1,
     ('Cockroach / Ants', 'AMC 3 Services'): 3,
     ('Cockroach / Ants', 'AMC 4 Services'): 4,
@@ -357,7 +359,15 @@ class BookingValidationTests(BookingE2EBase):
         self.assertEqual(r1.status_code, 201)
         self.assertEqual(r2.status_code, 201)
         self.assertEqual(r1.data['id'], r2.data['id'])
-        self.assertEqual(JobCard.objects.filter(client__mobile=mobile).count(), 1)
+        # One customer package shell — Bed Bugs also has its auto follow-up child.
+        self.assertEqual(
+            JobCard.objects.filter(client__mobile=mobile, parent_job__isnull=True).count(),
+            1,
+        )
+        self.assertEqual(
+            JobCard.objects.filter(client__mobile=mobile).count(),
+            2,
+        )
 
 
 class MultiServiceBookingTests(BookingE2EBase):
@@ -384,10 +394,13 @@ class MultiServiceBookingTests(BookingE2EBase):
         resp = self._post_booking(payload)
         self.assertEqual(resp.status_code, 201, resp.data)
         main = JobCard.objects.get(pk=resp.data['id'])
+        # Multi-service package: day-1 row per service + follow-ups.
         rodent_children = self._child_visits(main).filter(source_service='Rodent')
-        self.assertEqual(rodent_children.count(), 2)
+        self.assertEqual(rodent_children.count(), 3)  # cycles 1,2,3
+        self.assertTrue(rodent_children.filter(service_cycle=1).exists())
         cockroach_children = self._child_visits(main).filter(source_service='Cockroach / Ants')
-        self.assertEqual(cockroach_children.count(), 0)
+        self.assertEqual(cockroach_children.count(), 1)  # day-1 only
+        self.assertEqual(main.visit_type, 'MULTI SERVICE PACKAGE')
 
     def test_mixed_booking_completion_may_duplicate_legacy_followup(self):
         """

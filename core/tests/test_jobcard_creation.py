@@ -284,7 +284,8 @@ class CRMInquiryConversionTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='crm', password='pass1234')
 
-    def test_convert_inquiry_creates_booking_with_price(self):
+    def test_convert_inquiry_creates_draft_without_final_price(self):
+        """Convert copies basic details only — final price is set on Edit Booking."""
         inquiry = CRMInquiry.objects.create(
             name='Naziya Sayyed',
             mobile='9867123456',
@@ -296,5 +297,7 @@ class CRMInquiryConversionTests(TestCase):
         )
         job = CRMInquiryService.convert_to_booking(inquiry.id, user=self.user)
         self.assertIsNotNone(job.pk)
-        self.assertTrue(job.price)
-        self.assertGreater(job.total_amount, 0)
+        self.assertEqual(job.service_type, 'Cockroach / Ants')
+        self.assertEqual((job.price or '').strip(), '')
+        self.assertEqual(job.total_amount or 0, 0)
+        self.assertIn('not final', (job.notes or '').lower())

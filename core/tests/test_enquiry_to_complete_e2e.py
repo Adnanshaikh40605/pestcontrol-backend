@@ -86,12 +86,12 @@ class EnquiryToCompleteE2ETests(TestCase):
         inquiry = Inquiry.objects.get(id=inquiry_id)
         self.assertEqual(inquiry.status, Inquiry.InquiryStatus.NEW)
 
-        # 2) Staff converts enquiry → booking
+        # 2) Staff converts enquiry → draft booking (no final price / no WhatsApp yet)
         schedule = (timezone.now() + timedelta(days=1)).isoformat()
         convert = self.crm.post(
             f'/api/v1/inquiries/{inquiry_id}/convert/',
             {
-                'price': '2500',
+                'price': '2500',  # ignored — final price set on Edit Booking
                 'schedule_datetime': schedule,
                 'client_address': '12 Website Lane, Pune',
             },
@@ -106,6 +106,17 @@ class EnquiryToCompleteE2ETests(TestCase):
         self.assertEqual(job.status, JobCard.JobStatus.PENDING)
         self.assertEqual(job.payment_model, JobCard.PaymentModel.REVENUE_SHARING)
         self.assertNotEqual(job.payout_status, JobCard.PayoutStatus.LEGACY_EXEMPT)
+        self.assertEqual((job.price or '').strip(), '')
+        self.assertEqual(job.total_amount or 0, 0)
+
+        # Staff confirms final agreed price on Edit Booking
+        price_patch = self.crm.patch(
+            f'/api/v1/jobcards/{job_id}/',
+            {'price': '2500', 'total_amount': '2500.00'},
+            format='json',
+        )
+        self.assertEqual(price_patch.status_code, 200, price_patch.data)
+        job.refresh_from_db()
         self.assertEqual(job.total_amount, Decimal('2500.00'))
 
         # Double-convert must fail

@@ -177,6 +177,81 @@ def is_bed_bug_service(service: str) -> bool:
     return 'bed bug' in normalized or 'bedbug' in normalized
 
 
+def is_fixed_visit_service(service: str) -> bool:
+    """Services with hard-coded visit counts that must never become AMC packages."""
+    return is_termite_service(service) or is_bed_bug_service(service)
+
+
+def fixed_visit_count_for_service(service: str) -> Optional[int]:
+    """Return locked visit count when the service has a hard product rule."""
+    if is_termite_service(service):
+        return 1
+    if is_bed_bug_service(service):
+        return 2
+    return None
+
+
+def enforce_fixed_service_rules_on_job(job) -> list[str]:
+    """
+    Force Termite = One-Time (1 visit, never AMC) and Bed Bugs = 2 services max.
+
+    Returns list of field names that were changed (caller may save).
+    """
+    from core.models import JobCard
+
+    texts = [
+        job.service_type or '',
+        job.source_service or '',
+        job.visit_type or '',
+    ]
+    items = job.service_items if isinstance(getattr(job, 'service_items', None), list) else []
+    for item in items:
+        texts.append(str((item or {}).get('service') or ''))
+
+    blob = ' '.join(texts)
+    changed: list[str] = []
+
+    if is_termite_service(blob):
+        if job.service_category != JobCard.ServiceCategory.ONE_TIME:
+            job.service_category = JobCard.ServiceCategory.ONE_TIME
+            changed.append('service_category')
+        if job.is_amc_main_booking:
+            job.is_amc_main_booking = False
+            changed.append('is_amc_main_booking')
+        if (job.max_cycle or 0) != 1:
+            job.max_cycle = 1
+            changed.append('max_cycle')
+        if (job.planned_visit_count or 0) != 1:
+            job.planned_visit_count = 1
+            changed.append('planned_visit_count')
+        if (job.service_cycle or 0) not in (0, 1):
+            job.service_cycle = 1
+            changed.append('service_cycle')
+        if (job.visit_type or '').upper().find('CHECK') >= 0:
+            job.visit_type = 'TERMITE TREATMENT'
+            changed.append('visit_type')
+
+    if is_bed_bug_service(blob):
+        # Bed Bugs is a 2-service package, not an AMC subscription.
+        if job.service_category == JobCard.ServiceCategory.AMC:
+            job.service_category = JobCard.ServiceCategory.ONE_TIME
+            changed.append('service_category')
+        if job.is_amc_main_booking:
+            job.is_amc_main_booking = False
+            changed.append('is_amc_main_booking')
+        if (job.max_cycle or 0) != 2:
+            job.max_cycle = 2
+            changed.append('max_cycle')
+        if (job.planned_visit_count or 0) != 2:
+            job.planned_visit_count = 2
+            changed.append('planned_visit_count')
+        if not job.service_cycle:
+            job.service_cycle = 1
+            changed.append('service_cycle')
+
+    return list(dict.fromkeys(changed))
+
+
 def interval_months_for_package(visit_count: int) -> int:
     return AMC_INTERVAL_MONTHS.get(visit_count, 4)
 
@@ -211,9 +286,10 @@ def visit_date_for_cycle(
 
 def visit_type_label(service: str, plan: str, cycle: int = 1) -> str:
     svc = (service or '').lower()
-    recurring = is_amc_plan(plan)
+    recurring = is_amc_plan(plan) and not is_fixed_visit_service(service)
     if is_termite_service(service):
-        return 'TERMITE CHECK-UP' if cycle > 1 else 'TERMITE TREATMENT'
+        # Termite is One-Time only — never label checkup / AMC follow-ups.
+        return 'TERMITE TREATMENT'
     if 'rodent' in svc:
         return 'RODENT AMC' if recurring else 'RODENT SERVICE'
     if 'mosquito' in svc:
@@ -221,7 +297,7 @@ def visit_type_label(service: str, plan: str, cycle: int = 1) -> str:
     if 'cockroach' in svc or 'ants' in svc or 'general pest' in svc:
         return 'COCKROACH AMC' if recurring else 'COCKROACH SERVICE'
     if is_bed_bug_service(service):
-        return 'BED BUG AMC' if recurring else 'BED BUG SERVICE'
+        return 'BED BUG SERVICE'
     if recurring:
         return 'AMC VISIT'
     return 'SERVICE VISIT'
@@ -239,7 +315,7 @@ def build_visit_plans(
     service = service or ''
     plan = plan or ''
 
-    # Termite is One-Time only — never auto-generate checkup / AMC chain visits.
+    # HARD RULE: Termite = One-Time only (ignore AMC / preferred visit count).
     if is_termite_service(service):
         return [
             VisitPlan(
@@ -250,7 +326,7 @@ def build_visit_plans(
             )
         ]
 
-    # Bed Bugs always has 2 paid services (day 0 + ~15 days), even if booked as One-Time.
+    # HARD RULE: Bed Bugs = exactly 2 services (day 0 + ~15 days). Never AMC chain.
     if is_bed_bug_service(service):
         second = start_date + timedelta(days=15)
         return [
@@ -310,17 +386,120 @@ def calculate_next_visit_date(service: str, plan: str, schedule_date: date) -> t
     return plans[1].visit_date, plans[0].total_visits
 
 
+def service_line_names(job_or_items) -> list[str]:
+    """Distinct non-empty service names from a JobCard or service_items list."""
+    if isinstance(job_or_items, list):
+        items = job_or_items
+    else:
+        items = list(getattr(job_or_items, 'service_items', None) or [])
+        if not items and getattr(job_or_items, 'service_type', None):
+            return [str(job_or_items.service_type).strip()]
+    names: list[str] = []
+    for item in items:
+        name = str((item or {}).get('service') or '').strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def is_multi_service_booking(job) -> bool:
+    """True when the root booking has 2+ service lines (package shell)."""
+    if getattr(job, 'parent_job_id', None):
+        return False
+    return len(service_line_names(job)) > 1
+
+
+def is_multi_service_package_shell(job) -> bool:
+    """
+    Multi-service root whose day-1 work was split into per-service JobCards.
+    Shell holds payment / customer total; technician ledger uses the children.
+    """
+    if not is_multi_service_booking(job):
+        return False
+    from core.models import JobCard
+
+    return JobCard.objects.filter(parent_job_id=job.id, service_cycle=1).exists()
+
+
 class BookingScheduleEngine:
     @staticmethod
+    def sync_multi_service_day1_children(main_job, *, completing: bool = False) -> list[Any]:
+        """
+        Copy crew from the package shell onto day-1 per-service visits.
+        When completing the shell, mark those day-1 visits Done and run payouts.
+        """
+        from django.utils import timezone
+
+        from core.models import JobCard, JobCardTechnicianParticipation
+
+        if not is_multi_service_booking(main_job):
+            return []
+
+        children = list(
+            JobCard.objects.filter(parent_job=main_job, service_cycle=1).exclude(
+                status=JobCard.JobStatus.CANCELLED,
+            )
+        )
+        synced: list[Any] = []
+        for child in children:
+            update_fields: list[str] = []
+            if main_job.technician_id and child.technician_id != main_job.technician_id:
+                child.technician_id = main_job.technician_id
+                update_fields.append('technician')
+            if main_job.partner_id and child.partner_id != main_job.partner_id:
+                child.partner_id = main_job.partner_id
+                update_fields.append('partner')
+            if main_job.assigned_to and child.assigned_to != main_job.assigned_to:
+                child.assigned_to = main_job.assigned_to
+                update_fields.append('assigned_to')
+            if completing and child.status != JobCard.JobStatus.DONE:
+                child.status = JobCard.JobStatus.DONE
+                child.completed_at = main_job.completed_at or timezone.now()
+                update_fields.extend(['status', 'completed_at'])
+                if main_job.payment_model and child.payment_model != main_job.payment_model:
+                    child.payment_model = main_job.payment_model
+                    update_fields.append('payment_model')
+            if update_fields:
+                child.save(update_fields=list(dict.fromkeys(update_fields + ['updated_at'])))
+
+            # Mirror shell crew participations onto the child (idempotent).
+            for part in main_job.technician_participations.all():
+                JobCardTechnicianParticipation.objects.update_or_create(
+                    jobcard=child,
+                    technician_id=part.technician_id,
+                    defaults={
+                        'partner_id': part.partner_id,
+                        'role': part.role,
+                        'attendance_status': part.attendance_status,
+                        'is_payout_eligible': part.is_payout_eligible,
+                        'checked_in_at': part.checked_in_at,
+                        'checked_out_at': part.checked_out_at,
+                    },
+                )
+
+            if completing and child.status == JobCard.JobStatus.DONE:
+                from core.payout_engine import try_apply_payout_after_completion
+
+                try_apply_payout_after_completion(child)
+            synced.append(child)
+        return synced
+
+    @staticmethod
     def generate_all_visits(main_job) -> list[Any]:
-        """Pre-generate all future visits for AMC / termite service lines."""
+        """Pre-generate visits. Multi-service bookings get day-1 rows per service line."""
         from core.models import JobCard
         from core.jobcard_schedule import schedule_datetime_from_service_date
+        from core.payment_utils import parse_jobcard_price
 
         if main_job.is_followup_visit or main_job.is_complaint_call:
             return []
         if not main_job.schedule_datetime:
             return []
+
+        # Lock Termite / Bed Bugs fields before generating children.
+        fixed_fields = enforce_fixed_service_rules_on_job(main_job)
+        if fixed_fields:
+            main_job.save(update_fields=list(dict.fromkeys(fixed_fields + ['updated_at'])))
 
         start_date = main_job.schedule_datetime.date()
         contract_months = parse_contract_months(getattr(main_job, 'contract_duration', None))
@@ -336,9 +515,14 @@ class BookingScheduleEngine:
                 }
             ]
 
+        # Multi-service package: create cycle-1 JobCards per line so the ledger
+        # shows Cockroach / Bed Bugs / Mosquito separately (not one combined row).
+        is_multi = len(service_line_names(items)) > 1
+
         created: list[Any] = []
         earliest_next: Optional[date] = None
         root_max_cycle = main_job.max_cycle or 1
+        has_true_amc_line = False
 
         for item in items:
             service = str(item.get('service') or '').strip()
@@ -346,19 +530,43 @@ class BookingScheduleEngine:
             if not service:
                 continue
 
+            # Never pass preferred AMC visit counts into Termite / Bed Bugs.
+            preferred_for_line = None
+            if (
+                not is_fixed_visit_service(service)
+                and preferred_visits
+                and preferred_visits > 1
+            ):
+                preferred_for_line = preferred_visits
+
             plans = build_visit_plans(
                 service,
                 plan,
                 start_date,
                 contract_months=contract_months,
-                preferred_visit_count=preferred_visits if preferred_visits and preferred_visits > 1 else None,
+                preferred_visit_count=preferred_for_line,
             )
             if not plans:
                 continue
 
-            root_max_cycle = max(root_max_cycle, plans[-1].total_visits)
+            # Absolute caps — Termite 1, Bed Bugs 2 (never more).
+            locked = fixed_visit_count_for_service(service)
+            if locked is not None:
+                plans = plans[:locked]
 
-            for spec in plans[1:]:
+            root_max_cycle = max(root_max_cycle, plans[-1].total_visits)
+            is_amc = is_amc_plan(plan) and not is_fixed_visit_service(service)
+            if is_amc:
+                has_true_amc_line = True
+
+            # Single-service: main IS cycle 1 → only create follow-ups (plans[1:]).
+            # Multi-service: also create cycle 1 per line (package shell is not payable).
+            specs = plans if is_multi else plans[1:]
+            line_amount = parse_jobcard_price(item.get('amount'))
+
+            for spec in specs:
+                if locked is not None and spec.cycle > locked:
+                    break
                 if JobCard.objects.filter(
                     parent_job=main_job,
                     source_service=service,
@@ -372,7 +580,21 @@ class BookingScheduleEngine:
                     time_slot=main_job.time_slot,
                 )
 
-                is_amc = is_amc_plan(plan)
+                is_day1 = spec.cycle == 1 and is_multi
+                child_price = line_amount if is_day1 else parse_jobcard_price('0')
+                if is_day1:
+                    # Same operational day as the package shell.
+                    child_status = (
+                        main_job.status
+                        if main_job.status
+                        not in (JobCard.JobStatus.DONE, JobCard.JobStatus.CANCELLED)
+                        else JobCard.JobStatus.PENDING
+                    )
+                    if child_status == JobCard.JobStatus.UPCOMING:
+                        child_status = JobCard.JobStatus.PENDING
+                else:
+                    child_status = JobCard.JobStatus.UPCOMING
+
                 child = JobCard(
                     client=main_job.client,
                     service_type=service,
@@ -380,12 +602,13 @@ class BookingScheduleEngine:
                     service_category=(
                         JobCard.ServiceCategory.AMC
                         if is_amc
-                        else main_job.service_category
+                        else JobCard.ServiceCategory.ONE_TIME
                     ),
                     schedule_datetime=sched_dt,
                     time_slot=main_job.time_slot,
                     service_cycle=spec.cycle,
                     max_cycle=spec.total_visits,
+                    planned_visit_count=spec.total_visits,
                     parent_job=main_job,
                     source_service=service,
                     visit_type=spec.visit_type,
@@ -396,9 +619,9 @@ class BookingScheduleEngine:
                     society_billing_type=main_job.society_billing_type,
                     bhk_size=item.get('area') or main_job.bhk_size,
                     contract_duration=main_job.contract_duration,
-                    price='0',
-                    total_amount=0,
-                    paid_amount=0,
+                    price=str(child_price) if child_price > 0 else '0',
+                    total_amount=child_price if child_price > 0 else 0,
+                    paid_amount=child_price if is_day1 and child_price > 0 else 0,
                     pending_amount=0,
                     client_address=main_job.client_address,
                     state=main_job.state,
@@ -409,17 +632,27 @@ class BookingScheduleEngine:
                     master_location=main_job.master_location,
                     full_address=main_job.full_address,
                     reference=main_job.reference,
-                    status=JobCard.JobStatus.UPCOMING,
+                    technician=main_job.technician if is_day1 else None,
+                    partner=main_job.partner if is_day1 else None,
+                    assigned_to=main_job.assigned_to if is_day1 else '',
+                    status=child_status,
                     payment_status=JobCard.PaymentStatus.PAID,
-                    is_service_call=True,
-                    is_followup_visit=True,
-                    included_in_amc=is_amc,
+                    is_service_call=not is_day1,
+                    is_followup_visit=not is_day1,
+                    # Day-1 AMC line under a package = that line's "main" visit
+                    # (not AMC_FOLLOWUP), so CRM keeps it in Pending with the shell.
+                    included_in_amc=bool(is_amc and not is_day1),
                     created_by=main_job.created_by,
                     creation_source=JobCard.CreationSource.AMC_AUTO,
                 )
                 from core.payout_engine import revenue_fields_from_parent
 
-                for key, value in revenue_fields_from_parent(main_job).items():
+                rev = revenue_fields_from_parent(main_job)
+                # Keep this line's own visit count — never inherit package max_cycle.
+                rev.pop('planned_visit_count', None)
+                # Fresh visit — never inherit locked/legacy payout state from the shell.
+                rev['payout_status'] = JobCard.PayoutStatus.NOT_APPLICABLE
+                for key, value in rev.items():
                     setattr(child, key, value)
                 if spec.cycle < spec.total_visits:
                     child.next_service_date = plans[spec.cycle].visit_date
@@ -448,7 +681,11 @@ class BookingScheduleEngine:
             main_job.service_cycle = 1
             update_fields.append('service_cycle')
 
-        if items:
+        if is_multi:
+            if main_job.visit_type != 'MULTI SERVICE PACKAGE':
+                main_job.visit_type = 'MULTI SERVICE PACKAGE'
+                update_fields.append('visit_type')
+        elif items:
             first_service = str(items[0].get('service') or '')
             first_plan = str(items[0].get('plan') or items[0].get('frequency') or '')
             first_plans = build_visit_plans(
@@ -456,7 +693,11 @@ class BookingScheduleEngine:
                 first_plan,
                 start_date,
                 contract_months=contract_months,
-                preferred_visit_count=preferred_visits if preferred_visits and preferred_visits > 1 else None,
+                preferred_visit_count=(
+                    preferred_visits
+                    if preferred_visits and preferred_visits > 1 and not is_fixed_visit_service(first_service)
+                    else None
+                ),
             )
             if first_plans and not main_job.visit_type:
                 main_job.visit_type = first_plans[0].visit_type
@@ -469,35 +710,37 @@ class BookingScheduleEngine:
             main_job.next_service_date = earliest_next
             update_fields.append('next_service_date')
 
-        # Recurring society / AMC main bookings should be flagged for tab sync.
-        # Never force Termite into AMC (product rule: Termite = One-Time only).
+        # Only real AMC lines become AMC main — never Termite or Bed Bugs packages.
         termite_main = is_termite_service(main_job.service_type or '') or is_termite_service(
             main_job.source_service or ''
         )
-        if root_max_cycle > 1 and not termite_main and not main_job.is_amc_main_booking:
+        bed_bug_main = is_bed_bug_service(main_job.service_type or '') or is_bed_bug_service(
+            main_job.source_service or ''
+        )
+        if (
+            has_true_amc_line
+            and root_max_cycle > 1
+            and not termite_main
+            and not bed_bug_main
+            and not main_job.is_amc_main_booking
+        ):
             main_job.is_amc_main_booking = True
             update_fields.append('is_amc_main_booking')
         if (
-            root_max_cycle > 1
+            has_true_amc_line
+            and root_max_cycle > 1
             and not termite_main
+            and not bed_bug_main
             and main_job.service_category != JobCard.ServiceCategory.AMC
         ):
             main_job.service_category = JobCard.ServiceCategory.AMC
             update_fields.append('service_category')
 
-        # Bed Bugs: persist planned visit count = 2 for per-service 40% payout.
-        if is_bed_bug_service(main_job.service_type or '') or is_bed_bug_service(
-            main_job.source_service or ''
-        ):
-            if (main_job.planned_visit_count or 0) < 2:
-                main_job.planned_visit_count = 2
-                update_fields.append('planned_visit_count')
-            if (main_job.max_cycle or 0) < 2:
-                main_job.max_cycle = 2
-                update_fields.append('max_cycle')
+        # Re-apply hard locks after cycle updates.
+        update_fields.extend(enforce_fixed_service_rules_on_job(main_job))
 
         if update_fields:
-            main_job.save(update_fields=list(dict.fromkeys(update_fields)))
+            main_job.save(update_fields=list(dict.fromkeys(update_fields + ['updated_at'])))
 
         return created
 

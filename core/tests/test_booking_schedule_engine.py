@@ -52,12 +52,39 @@ class VisitPlanTests(TestCase):
         self.assertEqual(plans[0].visit_date, date(2026, 1, 15))
         self.assertEqual(plans[0].total_visits, 1)
 
+    def test_termite_ignores_amc_plan_and_preferred_count(self):
+        """Regression: Termite must never become AMC even if plan says AMC 5/12."""
+        for plan in ('AMC 5 Services', 'AMC 12 Services', 'AMC', 'Monthly'):
+            with self.subTest(plan=plan):
+                plans = build_visit_plans(
+                    'Termite Control',
+                    plan,
+                    date(2026, 1, 15),
+                    preferred_visit_count=5,
+                )
+                self.assertEqual(len(plans), 1, plan)
+                self.assertEqual(plans[0].total_visits, 1, plan)
+                self.assertEqual(plans[0].visit_type, 'TERMITE TREATMENT', plan)
+
     def test_bed_bugs_two_services(self):
         plans = build_visit_plans('Bed Bugs', 'One Time Service', date(2026, 1, 15))
         self.assertEqual(len(plans), 2)
         self.assertEqual(plans[0].visit_type, 'BED BUG SERVICE')
         self.assertEqual(plans[1].visit_date, date(2026, 1, 30))
         self.assertEqual(plans[1].total_visits, 2)
+
+    def test_bed_bugs_ignores_amc_plan_stays_two(self):
+        """Regression: Bed Bugs max 2 services even if booked as AMC 12."""
+        plans = build_visit_plans(
+            'Bed Bugs',
+            'AMC 12 Services',
+            date(2026, 3, 1),
+            preferred_visit_count=12,
+        )
+        self.assertEqual(len(plans), 2)
+        self.assertEqual(plans[0].total_visits, 2)
+        self.assertEqual(plans[1].total_visits, 2)
+        self.assertTrue(all(p.visit_type == 'BED BUG SERVICE' for p in plans))
 
     def test_one_time_single_visit(self):
         plans = build_visit_plans('Mosquito', 'One Time Service', date(2026, 6, 1))
@@ -172,3 +199,207 @@ class AutoVisitGenerationTests(TestCase):
         self.assertTrue(
             all(c.booking_category in JobCard.UPCOMING_SERVICE_CATEGORIES for c in created)
         )
+
+    def test_termite_amc_payload_creates_zero_children_and_stays_one_time(self):
+        """Even if CRM/API sends Termite + AMC plan, generate exactly 0 follow-ups."""
+        client = Client.objects.create(full_name='Termite User', mobile='9876543301', city='Pune')
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Termite',
+            service_items=[
+                {'service': 'Termite', 'plan': 'AMC 5 Services', 'area': '2 BHK', 'amount': 5000},
+            ],
+            service_category=JobCard.ServiceCategory.AMC,
+            is_amc_main_booking=True,
+            max_cycle=5,
+            planned_visit_count=5,
+            schedule_datetime=datetime(2026, 8, 10, 10, 0, tzinfo=dt_timezone.utc),
+            time_slot='10:00 AM',
+            price='5000',
+            reference='Poster',
+            client_address='Test address',
+            status=JobCard.JobStatus.PENDING,
+        )
+        created = BookingScheduleEngine.generate_all_visits(job)
+        job.refresh_from_db()
+        self.assertEqual(len(created), 0)
+        self.assertEqual(
+            JobCard.objects.filter(parent_job=job, is_auto_generated=True).count(),
+            0,
+        )
+        self.assertEqual(job.max_cycle, 1)
+        self.assertEqual(job.planned_visit_count, 1)
+        self.assertEqual(job.service_category, JobCard.ServiceCategory.ONE_TIME)
+        self.assertFalse(job.is_amc_main_booking)
+
+    def test_bed_bugs_creates_exactly_one_followup_not_amc(self):
+        client = Client.objects.create(full_name='BedBug User', mobile='9876543302', city='Pune')
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Bed Bugs',
+            service_items=[
+                {'service': 'Bed Bugs', 'plan': 'AMC 12 Services', 'area': '2 BHK', 'amount': 4000},
+            ],
+            service_category=JobCard.ServiceCategory.AMC,
+            max_cycle=12,
+            schedule_datetime=datetime(2026, 8, 10, 10, 0, tzinfo=dt_timezone.utc),
+            time_slot='10:00 AM',
+            price='4000',
+            reference='Poster',
+            client_address='Test address',
+            status=JobCard.JobStatus.PENDING,
+        )
+        created = BookingScheduleEngine.generate_all_visits(job)
+        job.refresh_from_db()
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0].service_cycle, 2)
+        self.assertEqual(created[0].max_cycle, 2)
+        self.assertEqual(created[0].visit_type, 'BED BUG SERVICE')
+        self.assertFalse(created[0].included_in_amc)
+        self.assertEqual(created[0].service_category, JobCard.ServiceCategory.ONE_TIME)
+        self.assertEqual(job.max_cycle, 2)
+        self.assertEqual(job.planned_visit_count, 2)
+        self.assertEqual(job.service_category, JobCard.ServiceCategory.ONE_TIME)
+        self.assertFalse(job.is_amc_main_booking)
+
+
+class MultiServiceSeparateVisitTests(TestCase):
+    """Cockroach + Bed Bugs + Mosquito → separate JobCards (not one combined ledger row)."""
+
+    def test_multi_service_creates_day1_row_per_service(self):
+        client = Client.objects.create(
+            full_name='Multi User', mobile='9876543401', city='Pune',
+        )
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Cockroach, Bed Bugs, Mosquito',
+            service_items=[
+                {'service': 'Cockroach', 'plan': 'One Time Service', 'area': '2 BHK', 'amount': 1500},
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'area': '2 BHK', 'amount': 4000},
+                {'service': 'Mosquito', 'plan': 'AMC 3 Services', 'area': '2 BHK', 'amount': 3000},
+            ],
+            schedule_datetime=datetime(2026, 8, 10, 10, 0, tzinfo=dt_timezone.utc),
+            time_slot='10:00 AM',
+            price='8500',
+            total_amount=8500,
+            reference='Poster',
+            client_address='Test address',
+            status=JobCard.JobStatus.PENDING,
+        )
+        created = BookingScheduleEngine.generate_all_visits(job)
+        job.refresh_from_db()
+
+        day1 = list(
+            JobCard.objects.filter(parent_job=job, service_cycle=1).order_by('service_type')
+        )
+        self.assertEqual(len(day1), 3)
+        names = [c.service_type for c in day1]
+        self.assertEqual(names, ['Bed Bugs', 'Cockroach', 'Mosquito'])
+
+        by_name = {c.service_type: c for c in day1}
+        from core.payment_utils import parse_jobcard_price
+        self.assertEqual(parse_jobcard_price(by_name['Cockroach'].price), parse_jobcard_price('1500'))
+        self.assertEqual(by_name['Cockroach'].planned_visit_count, 1)
+        self.assertEqual(by_name['Bed Bugs'].planned_visit_count, 2)
+        self.assertEqual(by_name['Mosquito'].planned_visit_count, 3)
+        self.assertEqual(by_name['Mosquito'].service_category, JobCard.ServiceCategory.AMC)
+
+        # Bed Bugs cycle 2 + Mosquito cycles 2–3 are future visits
+        self.assertTrue(
+            JobCard.objects.filter(
+                parent_job=job, source_service='Bed Bugs', service_cycle=2,
+            ).exists()
+        )
+        self.assertEqual(
+            JobCard.objects.filter(parent_job=job, source_service='Mosquito').count(),
+            3,
+        )
+        self.assertEqual(job.visit_type, 'MULTI SERVICE PACKAGE')
+        # More than 3 day-1 rows were created (includes follow-ups)
+        self.assertGreaterEqual(len(created), 3 + 1 + 2)
+
+    def test_multi_service_ledger_rows_are_separate_not_combined(self):
+        from decimal import Decimal
+
+        from django.test import override_settings
+
+        from core.models import Technician
+        from core.payout_engine import calculate_and_apply_payout
+        from core.technician_ledger import exclude_package_shells, serialize_ledger_row
+        from partner.models import Partner
+
+        with override_settings(REVENUE_MODEL_V2=True):
+            client = Client.objects.create(
+                full_name='Ledger Multi', mobile='9876543402', city='Pune',
+            )
+            tech = Technician.objects.create(
+                name='Tech Multi',
+                mobile='9111111101',
+                technician_type=Technician.TechnicianType.PARTNER,
+            )
+            partner = Partner.objects.create(
+                full_name='Tech Multi',
+                mobile='9111111101',
+                password='x',
+                core_technician=tech,
+                is_app_approved=True,
+            )
+            partner.set_password('testpass')
+            partner.save()
+
+            shell = JobCard.objects.create(
+                client=client,
+                service_type='Cockroach, Bed Bugs, Mosquito',
+                service_items=[
+                    {'service': 'Cockroach', 'plan': 'One Time Service', 'amount': 1000},
+                    {'service': 'Bed Bugs', 'plan': 'One Time Service', 'amount': 2000},
+                    {'service': 'Mosquito', 'plan': 'AMC 3 Services', 'amount': 3000},
+                ],
+                schedule_datetime=datetime(2026, 8, 10, 10, 0, tzinfo=dt_timezone.utc),
+                time_slot='10:00 AM',
+                price='6000',
+                total_amount=Decimal('6000.00'),
+                technician=tech,
+                partner=partner,
+                payment_model=JobCard.PaymentModel.REVENUE_SHARING,
+                payout_status=JobCard.PayoutStatus.NOT_APPLICABLE,
+                reference='Poster',
+                client_address='Test address',
+                status=JobCard.JobStatus.PENDING,
+            )
+            BookingScheduleEngine.generate_all_visits(shell)
+            shell.status = JobCard.JobStatus.DONE
+            shell.save(update_fields=['status', 'updated_at'])
+            BookingScheduleEngine.sync_multi_service_day1_children(shell, completing=True)
+            calculate_and_apply_payout(shell, force=True)
+            shell.refresh_from_db()
+            self.assertEqual(shell.payout_status, JobCard.PayoutStatus.NOT_APPLICABLE)
+
+            day1 = list(JobCard.objects.filter(parent_job=shell, service_cycle=1))
+            self.assertEqual(len(day1), 3)
+            for child in day1:
+                child.refresh_from_db()
+                self.assertEqual(child.status, JobCard.JobStatus.DONE)
+                calculate_and_apply_payout(child, force=True)
+                child.refresh_from_db()
+
+            cockroach = next(c for c in day1 if c.service_type == 'Cockroach')
+            bed = next(c for c in day1 if c.service_type == 'Bed Bugs')
+            mosquito = next(c for c in day1 if c.service_type == 'Mosquito')
+            self.assertEqual(cockroach.visit_revenue_amount, Decimal('1000.00'))
+            self.assertEqual(cockroach.technician_pool_amount, Decimal('400.00'))
+            # Bed Bugs: 2000 / 2 = 1000 visit revenue → 400 tech
+            self.assertEqual(bed.visit_revenue_amount, Decimal('1000.00'))
+            self.assertEqual(bed.technician_pool_amount, Decimal('400.00'))
+            # Mosquito AMC: 3000 / 3 = 1000 → 400 tech
+            self.assertEqual(mosquito.visit_revenue_amount, Decimal('1000.00'))
+            self.assertEqual(mosquito.technician_pool_amount, Decimal('400.00'))
+
+            rows = [
+                serialize_ledger_row(j, tech)
+                for j in exclude_package_shells(day1 + [shell])
+            ]
+            service_types = sorted(r['service_type'] for r in rows)
+            self.assertEqual(service_types, ['Bed Bugs', 'Cockroach', 'Mosquito'])
+            self.assertNotIn('Cockroach, Bed Bugs, Mosquito', service_types)
+

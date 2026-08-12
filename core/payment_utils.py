@@ -258,6 +258,18 @@ def requires_payment_on_completion(jobcard) -> bool:
     if jobcard.parent_job_id and (jobcard.service_cycle or 1) > 1:
         return False
 
+    # Day-1 per-service children of a multi-service package — payment is on the shell.
+    if jobcard.parent_job_id and (jobcard.service_cycle or 1) == 1:
+        parent = jobcard.parent_job
+        items = list(getattr(parent, 'service_items', None) or []) if parent else []
+        services = [
+            str((i or {}).get('service') or '').strip()
+            for i in items
+            if str((i or {}).get('service') or '').strip()
+        ]
+        if len(set(services)) > 1:
+            return False
+
     total = effective_service_total(jobcard)
     if total <= 0:
         return False

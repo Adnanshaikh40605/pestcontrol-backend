@@ -663,14 +663,40 @@ class JobCardSerializer(serializers.ModelSerializer):
             data['service_items'] = normalized
             if not data.get('service_type'):
                 data['service_type'] = ', '.join(i['service'] for i in normalized)
+
+            from core.booking_schedule_engine import (
+                is_bed_bug_service,
+                is_fixed_visit_service,
+                is_termite_service,
+            )
+
+            # CRM cannot book Termite / Bed Bugs as AMC — rewrite plans.
+            for item in normalized:
+                if is_termite_service(item['service']) or is_bed_bug_service(item['service']):
+                    item['plan'] = 'One Time Service'
+            data['service_items'] = normalized
+
             has_amc = any(
-                'amc' in i['plan'].lower() or i['plan'] == 'AMC 3 Services'
+                (
+                    'amc' in i['plan'].lower() or i['plan'] == 'AMC 3 Services'
+                ) and not is_fixed_visit_service(i['service'])
                 for i in normalized
             )
-            if has_amc:
+            only_fixed = bool(normalized) and all(
+                is_fixed_visit_service(i['service']) for i in normalized
+            )
+            if only_fixed:
+                data['service_category'] = JobCard.ServiceCategory.ONE_TIME
+            elif has_amc:
                 data['service_category'] = JobCard.ServiceCategory.AMC
             elif is_create or 'service_category' not in data:
                 data['service_category'] = JobCard.ServiceCategory.ONE_TIME
+
+            # Primary Termite-only bookings stay One-Time even if category was forced.
+            primary = str(data.get('service_type') or '')
+            if is_termite_service(primary) and only_fixed:
+                data['service_category'] = JobCard.ServiceCategory.ONE_TIME
+
             if not data.get('bhk_size') and normalized:
                 data['bhk_size'] = normalized[0]['area']
 
@@ -775,11 +801,34 @@ class JobCardSerializer(serializers.ModelSerializer):
                 instance.refresh_from_db()
                 try:
                     from core.payout_engine import try_apply_payout_after_completion
+                    from core.booking_schedule_engine import (
+                        BookingScheduleEngine,
+                        is_multi_service_booking,
+                    )
 
-                    try_apply_payout_after_completion(instance)
+                    if is_multi_service_booking(instance):
+                        # Shell holds customer payment; tech ledger is per-service day-1 rows.
+                        BookingScheduleEngine.sync_multi_service_day1_children(
+                            instance,
+                            completing=True,
+                        )
+                        try_apply_payout_after_completion(instance)
+                    else:
+                        try_apply_payout_after_completion(instance)
                     instance.refresh_from_db()
                 except Exception:
                     logger.exception('Payout after CRM Done failed for %s', instance.code)
+        else:
+            from core.booking_schedule_engine import (
+                BookingScheduleEngine,
+                is_multi_service_booking,
+            )
+
+            if is_multi_service_booking(instance):
+                BookingScheduleEngine.sync_multi_service_day1_children(
+                    instance,
+                    completing=False,
+                )
 
         return instance
 

@@ -31,7 +31,8 @@ class NextServiceDateRulesTests(TestCase):
             self.assertEqual(max_cycle, 2, msg=label)
             self.assertEqual(next_date, date(2026, 6, 16), msg=label)
 
-    def test_service_items_cockroach_amc_priority_over_bed_bug(self):
+    def test_service_items_earliest_next_across_mixed_lines(self):
+        """Next date is the earliest follow-up across lines; max_cycle is the max."""
         job = JobCard(
             service_type='Cockroach / Ants, Bed Bugs',
             service_category=JobCard.ServiceCategory.AMC,
@@ -43,7 +44,8 @@ class NextServiceDateRulesTests(TestCase):
         )
         next_date, max_cycle = JobCardService.calculate_next_service_date(job)
         self.assertEqual(max_cycle, 3)
-        self.assertEqual(next_date, date(2026, 10, 1))
+        # Bed Bugs follow-up (+15 days) is earlier than Cockroach AMC visit 2.
+        self.assertEqual(next_date, date(2026, 6, 16))
 
     def test_ensure_next_service_schedule_fills_missing_date(self):
         client = Client.objects.create(full_name='Test', mobile='9111111111')
