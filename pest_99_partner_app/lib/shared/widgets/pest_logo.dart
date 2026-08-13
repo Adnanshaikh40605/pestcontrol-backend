@@ -13,7 +13,7 @@ class PestLogo extends StatelessWidget {
       AppAssets.logo,
       height: height,
       fit: BoxFit.contain,
-      errorBuilder: (_, __, ___) => const Icon(Icons.shield, color: Colors.white),
+      errorBuilder: (_, _, _) => const Icon(Icons.shield, color: Colors.white),
     );
   }
 }

@@ -187,7 +187,7 @@ class _EndServiceSheetState extends State<_EndServiceSheet> {
           Text('Payment Mode', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
           DropdownButtonFormField<PaymentMode>(
-            value: _mode,
+            initialValue: _mode,
             items: const [
               DropdownMenuItem(value: PaymentMode.cash, child: Text('Cash')),
               DropdownMenuItem(value: PaymentMode.online, child: Text('Online')),

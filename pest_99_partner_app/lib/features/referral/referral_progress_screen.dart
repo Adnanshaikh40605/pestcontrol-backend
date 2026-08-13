@@ -101,7 +101,7 @@ class _ReferralProgressScreenState extends State<ReferralProgressScreen> {
                       : ListView.separated(
                           padding: const EdgeInsets.all(AppSpacing.screenEdge),
                           itemCount: _items.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          separatorBuilder: (_, _) => const SizedBox(height: 10),
                           itemBuilder: (context, index) {
                             final r = _items[index];
                             final highlighted = widget.highlightId == r.id;

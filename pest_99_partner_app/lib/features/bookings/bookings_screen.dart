@@ -84,6 +84,48 @@ class _BookingsScreenState extends State<BookingsScreen> {
         100,
       ),
       children: [
+        if (bookings.isSuspended) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF1F0),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFFFCCC7)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Account suspended',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: const Color(0xFFCF1322),
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  bookings.suspendMessage.isNotEmpty
+                      ? bookings.suspendMessage
+                      : 'New bookings are hidden until CRM reactivates your account.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFFA8071A),
+                      ),
+                ),
+                if (bookings.suspendReason.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Reason: ${bookings.suspendReason}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF820014),
+                        ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.elementGap),
+        ],
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -93,9 +135,15 @@ class _BookingsScreenState extends State<BookingsScreen> {
         ),
         const SizedBox(height: AppSpacing.elementGap),
         if (list.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(top: 48),
-            child: Center(child: Text('No new bookings right now')),
+          Padding(
+            padding: const EdgeInsets.only(top: 48),
+            child: Center(
+              child: Text(
+                bookings.isSuspended
+                    ? 'No bookings available while suspended'
+                    : 'No new bookings right now',
+              ),
+            ),
           )
         else
           ...list.map((b) {

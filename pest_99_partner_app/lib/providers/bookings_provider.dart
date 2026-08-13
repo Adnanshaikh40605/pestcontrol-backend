@@ -22,6 +22,9 @@ class BookingsProvider extends ChangeNotifier {
 
   bool loading = false;
   String? error;
+  bool isSuspended = false;
+  String suspendReason = '';
+  String suspendMessage = '';
 
   final Map<int, String> _processingLabels = {};
   final Set<int> _processingIds = {};
@@ -94,7 +97,11 @@ class BookingsProvider extends ChangeNotifier {
         _service.getCompleted(),
       ]);
       counts = results[0] as BookingCounts;
-      available = results[1] as List<PartnerBooking>;
+      final availableResult = results[1] as AvailableBookingsResult;
+      available = availableResult.bookings;
+      isSuspended = availableResult.isSuspended;
+      suspendReason = availableResult.suspendReason;
+      suspendMessage = availableResult.message;
       accepted = results[2] as List<PartnerBooking>;
       completed = results[3] as List<PartnerBooking>;
       if (!showGlobalLoader) error = null;

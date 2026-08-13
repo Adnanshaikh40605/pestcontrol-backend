@@ -173,7 +173,7 @@ class DebugLogStore extends ChangeNotifier {
       category: DebugLogCategory.navigation,
       title: message,
       message: to != null ? '→ $to' : null,
-      metadata: {if (from != null) 'from': from, if (to != null) 'to': to},
+      metadata: {'from': ?from, 'to': ?to},
     );
   }
 
@@ -211,7 +211,7 @@ class DebugLogStore extends ChangeNotifier {
       category: DebugLogCategory.error,
       title: title,
       message: message,
-      metadata: {if (statusCode != null) 'statusCode': statusCode},
+      metadata: {'statusCode': ?statusCode},
     );
   }
 

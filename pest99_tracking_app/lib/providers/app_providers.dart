@@ -11,6 +11,7 @@ class AuthProvider extends ChangeNotifier {
   AuthProvider(this._auth, this._session) {
     _session.onSessionExpired = () {
       _loggedIn = false;
+      _appMode = 'technician';
       notifyListeners();
     };
   }
@@ -21,24 +22,29 @@ class AuthProvider extends ChangeNotifier {
   bool _loading = false;
   String? _error;
   Map<String, dynamic>? _profile;
+  String _appMode = 'technician';
 
   bool get isLoggedIn => _loggedIn;
   bool get isLoading => _loading;
   String? get error => _error;
   Map<String, dynamic>? get profile => _profile;
+  String get appMode => _appMode;
+  bool get isAdminMode => _appMode == 'technician_admin';
 
   Future<void> init() async {
     _loggedIn = await _auth.hasSession();
+    _appMode = await _auth.getAppMode();
     notifyListeners();
   }
 
-  Future<bool> login(String mobile, String password) async {
+  Future<bool> login(String mobile, String password, {String appMode = 'technician'}) async {
     _loading = true;
     _error = null;
     notifyListeners();
     try {
-      await _auth.login(mobile, password);
+      final data = await _auth.login(mobile, password, appMode: appMode);
       _loggedIn = true;
+      _appMode = (data['app_mode'] as String?) ?? appMode;
       return true;
     } catch (e) {
       _error = e.toString();
@@ -54,6 +60,7 @@ class AuthProvider extends ChangeNotifier {
     await _auth.logout();
     _loggedIn = false;
     _profile = null;
+    _appMode = 'technician';
     notifyListeners();
   }
 }

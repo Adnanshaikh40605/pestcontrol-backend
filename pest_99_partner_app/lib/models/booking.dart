@@ -17,6 +17,9 @@ class PartnerBooking {
     this.priceDisplay,
     this.paymentStatus,
     this.paymentMode,
+    this.paymentModel,
+    this.visitPayoutAmount,
+    this.payoutStatus,
     this.bookingTag,
     this.canViewClientPhone = false,
     this.canStartJob = false,
@@ -42,6 +45,9 @@ class PartnerBooking {
   final String? priceDisplay;
   final String? paymentStatus;
   final String? paymentMode;
+  final String? paymentModel;
+  final String? visitPayoutAmount;
+  final String? payoutStatus;
   final String? bookingTag;
   final bool canViewClientPhone;
   final bool canStartJob;
@@ -60,6 +66,12 @@ class PartnerBooking {
 
   /// True when partner can complete (in service).
   bool get allowsComplete => canCompleteJob || partnerStatus == 'in_service';
+
+  bool get hasRevenuePayout {
+    final amt = visitPayoutAmount;
+    if (amt == null || amt.isEmpty || amt == '0' || amt == '0.00') return false;
+    return paymentModel == 'revenue_sharing' || payoutStatus == 'pending' || payoutStatus == 'approved' || payoutStatus == 'paid' || payoutStatus == 'held';
+  }
 
   factory PartnerBooking.fromJson(Map<String, dynamic> json) {
     final partnerStatus = json['partner_status'] as String?;
@@ -83,6 +95,9 @@ class PartnerBooking {
       priceDisplay: json['price_display'] as String?,
       paymentStatus: json['payment_status'] as String?,
       paymentMode: json['payment_mode'] as String?,
+      paymentModel: json['payment_model'] as String?,
+      visitPayoutAmount: json['visit_payout_amount']?.toString(),
+      payoutStatus: json['payout_status'] as String?,
       bookingTag: json['booking_tag'] as String?,
       canViewClientPhone: json['can_view_client_phone'] == true,
       canStartJob: canStart,

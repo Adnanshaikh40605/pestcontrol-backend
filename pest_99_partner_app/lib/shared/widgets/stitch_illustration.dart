@@ -24,7 +24,7 @@ class StitchIllustration extends StatelessWidget {
         height: height,
         width: double.infinity,
         fit: fit,
-        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+        errorBuilder: (_, _, _) => const SizedBox.shrink(),
       ),
     );
   }

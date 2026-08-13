@@ -1,4 +1,5 @@
 import '../config/api_config.dart';
+import 'partner_earnings.dart';
 
 class PartnerProfile {
   PartnerProfile({
@@ -9,6 +10,7 @@ class PartnerProfile {
     this.role = 'technician',
     this.isActive = true,
     this.isAppApproved = false,
+    this.presence,
     this.stats,
   });
 
@@ -19,9 +21,17 @@ class PartnerProfile {
   final String role;
   final bool isActive;
   final bool isAppApproved;
+  final PartnerPresence? presence;
   final PartnerStats? stats;
 
+  bool get isSuspended => presence?.isSuspended == true;
+
   factory PartnerProfile.fromJson(Map<String, dynamic> json) {
+    PartnerPresence? presence;
+    final rawPresence = json['presence'];
+    if (rawPresence is Map<String, dynamic>) {
+      presence = PartnerPresence.fromJson(rawPresence);
+    }
     return PartnerProfile(
       id: json['id'] as int,
       fullName: (json['full_name'] as String?)?.trim() ?? '',
@@ -30,6 +40,7 @@ class PartnerProfile {
       role: (json['role'] as String?) ?? 'technician',
       isActive: json['is_active'] as bool? ?? true,
       isAppApproved: json['is_app_approved'] == true,
+      presence: presence,
     );
   }
 
@@ -50,6 +61,7 @@ class PartnerProfile {
         role: profile.role,
         isActive: profile.isActive,
         isAppApproved: data['is_app_approved'] == true || profile.isAppApproved,
+        presence: profile.presence,
         stats: PartnerStats.fromJson(statsRaw),
       );
     }

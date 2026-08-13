@@ -35,7 +35,7 @@ class ProfileService {
         body: {
           'client_name': clientName,
           'mobile': mobile,
-          if (area != null) 'area': area,
+          'area': ?area,
         },
       );
 }

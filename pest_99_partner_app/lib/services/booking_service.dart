@@ -2,6 +2,20 @@ import '../config/api_config.dart';
 import '../core/api_client.dart';
 import '../models/booking.dart';
 
+class AvailableBookingsResult {
+  AvailableBookingsResult({
+    required this.bookings,
+    this.isSuspended = false,
+    this.suspendReason = '',
+    this.message = '',
+  });
+
+  final List<PartnerBooking> bookings;
+  final bool isSuspended;
+  final String suspendReason;
+  final String message;
+}
+
 class BookingService {
   BookingService(this._api);
 
@@ -12,7 +26,19 @@ class BookingService {
     return BookingCounts.fromJson(data);
   }
 
-  Future<List<PartnerBooking>> getAvailable() => _list(ApiConfig.availableBookings);
+  Future<AvailableBookingsResult> getAvailable() async {
+    final data = await _api.get(ApiConfig.availableBookings);
+    final results = data['results'] as List<dynamic>? ?? [];
+    return AvailableBookingsResult(
+      bookings: results
+          .map((e) => PartnerBooking.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      isSuspended: data['is_suspended'] == true,
+      suspendReason: (data['suspend_reason'] as String?) ?? '',
+      message: (data['message'] as String?) ?? '',
+    );
+  }
+
   Future<List<PartnerBooking>> getAccepted() => _list(ApiConfig.acceptedBookings);
   Future<List<PartnerBooking>> getCompleted() => _list(ApiConfig.completedBookings);
 

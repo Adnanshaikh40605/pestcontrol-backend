@@ -40,12 +40,21 @@ class ApiClient {
     required String access,
     required String refresh,
     required String authType,
+    String appMode = 'technician',
   }) async {
-    await _tokens.saveTokens(access: access, refresh: refresh, authType: authType);
+    await _tokens.saveTokens(
+      access: access,
+      refresh: refresh,
+      authType: authType,
+      appMode: appMode,
+    );
   }
 
   Future<void> clearSession() => _tokens.clearAll();
   Future<bool> hasSession() => _tokens.hasSession();
+  Future<String> getStoredAppMode() async {
+    return await _tokens.getAppMode() ?? 'technician';
+  }
 
   Future<Map<String, dynamic>> get(String path, {bool auth = true}) {
     return _request((options) => _dio.get(path, options: options), path: path, auth: auth);
@@ -58,6 +67,45 @@ class ApiClient {
   }) {
     return _request(
       (options) => _dio.post(path, data: body, options: options),
+      path: path,
+      method: 'POST',
+      auth: auth,
+    );
+  }
+
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    Map<String, dynamic>? body,
+    bool auth = true,
+  }) {
+    return _request(
+      (options) => _dio.patch(path, data: body, options: options),
+      path: path,
+      method: 'PATCH',
+      auth: auth,
+    );
+  }
+
+  Future<List<dynamic>> getList(String path, {bool auth = true}) async {
+    final result = await get(path, auth: auth);
+    final data = result['data'];
+    if (data is List) return data;
+    return [];
+  }
+
+  Future<Map<String, dynamic>> postMultipart(
+    String path, {
+    required String filePath,
+    String fieldName = 'image',
+    Map<String, dynamic>? fields,
+    bool auth = true,
+  }) async {
+    final map = <String, dynamic>{
+      fieldName: await MultipartFile.fromFile(filePath),
+      ...?fields,
+    };
+    return _request(
+      (options) => _dio.post(path, data: FormData.fromMap(map), options: options),
       path: path,
       method: 'POST',
       auth: auth,

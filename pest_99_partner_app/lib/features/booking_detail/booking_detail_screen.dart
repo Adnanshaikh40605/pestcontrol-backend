@@ -276,6 +276,23 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                 if (b.serviceCategory != null) Text(b.serviceCategory!),
                 const SizedBox(height: 8),
                 Text('Amount: ${b.priceDisplay ?? b.price ?? '—'}'),
+                if (b.hasRevenuePayout) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your payout: ₹${b.visitPayoutAmount}',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  if (b.payoutStatus != null)
+                    Text(
+                      'Payout status: ${b.payoutStatus}',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                    ),
+                ],
                 if (b.code != null && b.code!.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Text('Booking #${b.code}', style: Theme.of(context).textTheme.labelMedium),
@@ -429,7 +446,7 @@ class _SectionCard extends StatelessWidget {
           Row(
             children: [
               Expanded(child: Text(title, style: Theme.of(context).textTheme.headlineSmall)),
-              if (trailing != null) trailing!,
+              ?trailing,
             ],
           ),
           const SizedBox(height: AppSpacing.elementGap),

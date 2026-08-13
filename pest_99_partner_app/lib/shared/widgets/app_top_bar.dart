@@ -121,7 +121,7 @@ class _AvatarChip extends StatelessWidget {
         radius: 20,
         backgroundColor: AppColors.surfaceContainerHigh,
         backgroundImage: NetworkImage(url!),
-        onBackgroundImageError: (_, __) {},
+        onBackgroundImageError: (_, _) {},
         child: url!.isEmpty ? Text(initials) : null,
       );
     }

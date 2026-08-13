@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/api_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/user_error.dart';
+import '../../models/partner_earnings.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/bookings_provider.dart';
 import '../../providers/profile_provider.dart';
+import '../../services/earnings_service.dart';
 import '../../shared/widgets/app_top_bar.dart';
 import '../../shared/widgets/legal_support_card.dart';
 import 'delete_account_dialog.dart';
@@ -64,6 +68,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     avatarUrl: profile.avatarUrl,
                     isActive: p?.isActive ?? true,
                   ),
+                  if (p?.isSuspended == true) ...[
+                    const SizedBox(height: AppSpacing.elementGap),
+                    _SuspendedBanner(reason: p?.presence?.suspendReason ?? ''),
+                  ],
+                  const SizedBox(height: AppSpacing.sectionGap),
+                  _PresenceToggle(
+                    presence: p?.presence,
+                    onChanged: (online) => _setPresence(context, online),
+                  ),
                   const SizedBox(height: AppSpacing.sectionGap),
                   _StatsGrid(
                     available: available,
@@ -75,6 +88,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   const SizedBox(height: AppSpacing.sectionGap),
                   _MenuList(
                     onEditProfile: () => context.push('/profile/edit'),
+                    onEarnings: () => context.push('/earnings'),
+                    onLeave: () => context.push('/leave-requests'),
                     onDeleteAccount: () => _deleteAccount(context),
                     onLogout: () async {
                       context.read<ProfileProvider>().clear();
@@ -105,6 +120,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(auth.error ?? 'Account deletion failed')),
+      );
+    }
+  }
+
+  Future<void> _setPresence(BuildContext context, bool online) async {
+    try {
+      await EarningsService(context.read<ApiClient>()).setPresence(
+        online ? 'online' : 'offline',
+      );
+      if (!context.mounted) return;
+      await context.read<ProfileProvider>().loadProfile(force: true);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(userErrorMessage(e, fallback: 'Could not update presence.'))),
       );
     }
   }
@@ -262,14 +292,96 @@ class _StatsGrid extends StatelessWidget {
   }
 }
 
+class _SuspendedBanner extends StatelessWidget {
+  const _SuspendedBanner({required this.reason});
+
+  final String reason;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.cardPadding),
+      decoration: BoxDecoration(
+        color: AppColors.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Account suspended',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  color: AppColors.onErrorContainer,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            reason.isNotEmpty ? reason : 'Contact CRM admin to reactivate.',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: AppColors.onErrorContainer,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PresenceToggle extends StatelessWidget {
+  const _PresenceToggle({required this.presence, required this.onChanged});
+
+  final PartnerPresence? presence;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final suspended = presence?.isSuspended == true;
+    final status = presence?.presenceStatus ?? 'offline';
+    final locked = suspended ||
+        status == 'busy' ||
+        status == 'on_service' ||
+        status == 'on_leave';
+    final online = presence?.isOnline == true;
+    final label = suspended
+        ? 'Suspended'
+        : status.replaceAll('_', ' ');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Availability'),
+        subtitle: Text(
+          locked && !suspended
+              ? '$label — finish current job before changing'
+              : label,
+        ),
+        value: online && !locked,
+        onChanged: locked ? null : onChanged,
+      ),
+    );
+  }
+}
+
 class _MenuList extends StatelessWidget {
   const _MenuList({
     required this.onEditProfile,
+    required this.onEarnings,
+    required this.onLeave,
     required this.onDeleteAccount,
     required this.onLogout,
   });
 
   final VoidCallback onEditProfile;
+  final VoidCallback onEarnings;
+  final VoidCallback onLeave;
   final VoidCallback onDeleteAccount;
   final VoidCallback onLogout;
 
@@ -279,8 +391,9 @@ class _MenuList extends StatelessWidget {
       (Icons.person_outline, 'Edit Profile', onEditProfile),
       (Icons.card_giftcard_outlined, 'Refer Client', () => context.push('/refer-client')),
       (Icons.timeline_outlined, 'My Referrals', () => context.push('/referral-progress')),
+      (Icons.payments_outlined, 'Earnings History', onEarnings),
+      (Icons.event_busy_outlined, 'Leave Requests', onLeave),
       (Icons.account_balance_outlined, 'Bank Details', () {}),
-      (Icons.payments_outlined, 'Earnings History', () {}),
       (Icons.help_outline, 'Help & Support', () {}),
     ];
 

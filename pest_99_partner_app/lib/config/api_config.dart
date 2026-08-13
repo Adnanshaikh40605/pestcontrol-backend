@@ -7,9 +7,6 @@ class ApiConfig {
 
   static const String partnerPrefix = '/api/partner';
 
-  /// Public — no auth; checked on every app launch.
-  static const String appVersion = '/api/app/version/';
-
   static String get register => '$partnerPrefix/register/';
   static String get login => '$partnerPrefix/login/';
   static String get tokenRefresh => '$partnerPrefix/token/refresh/';
@@ -34,4 +31,10 @@ class ApiConfig {
   static String get notifications => '$partnerPrefix/notifications/';
   static String get markAllNotificationsRead => '$partnerPrefix/notifications/mark-all-read/';
   static String markNotificationRead(int id) => '$partnerPrefix/notifications/$id/read/';
+
+  static String get earnings => '$partnerPrefix/earnings/';
+  static String get presence => '$partnerPrefix/presence/';
+  static String get leaveRequests => '$partnerPrefix/leave-requests/';
+  static String leaveRequestCancel(int id) => '$partnerPrefix/leave-requests/$id/cancel/';
+  static String get settlements => '$partnerPrefix/settlements/';
 }

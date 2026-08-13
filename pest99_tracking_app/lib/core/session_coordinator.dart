@@ -1,4 +1,3 @@
-import 'dart:async';
 
 typedef SessionExpiredCallback = void Function();
 
