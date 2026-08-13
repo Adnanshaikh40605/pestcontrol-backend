@@ -683,3 +683,50 @@ curl -X POST http://localhost:8000/api/v1/jobcards/ \
 ```
 
 This comprehensive API provides all the functionality needed for a complete pest control management system with robust authentication, data management, and notification capabilities.
+---
+
+## Revenue Model v2 (Technician 40/60)
+
+**Feature flag:** `REVENUE_MODEL_V2` (default `false`). When off, payout calculator no-ops and CRM settlement UI is gated.
+
+**Locked constants:** technician **40%** / company **60%**; settlement cadence weekly|monthly; auto-suspend after **3** offline days (`AUTO_SUSPEND_OFFLINE_DAYS`).
+
+OpenAPI sketches: [`docs/revenue_model_openapi.md`](docs/revenue_model_openapi.md)  
+Living notes: [`REVENUE_MODEL_IMPLEMENTATION_PLAN.md`](REVENUE_MODEL_IMPLEMENTATION_PLAN.md)
+
+### CRM endpoints (`/api/v1/`)
+| Method | Path | Notes |
+|--------|------|--------|
+| GET | `/feature-flags/` | `{ REVENUE_MODEL_V2 }` |
+| GET/POST | `/jobcards/{id}/participants/` | Contractual crew |
+| PATCH/DELETE | `/jobcards/{id}/participants/{pid}/` | |
+| POST | `/jobcards/{id}/payout-recalculate/` | |
+| POST | `/jobcards/{id}/payout-hold/` | |
+| POST | `/jobcards/{id}/payout-approve/` | |
+| GET/POST | `/settlements/` | List / build batch |
+| POST | `/settlements/{id}/approve/` | |
+| POST | `/settlements/{id}/mark-paid/` | |
+| POST | `/settlements/{id}/cancel/` | |
+| GET | `/settlements/export/` | Excel |
+| GET | `/settlements/revenue-sharing-report/` | Excel |
+
+Additive JobCard fields: `package_tier`, `payment_model`, share %, visit amount snapshots, `payout_status` (`legacy_exempt` for pre-cutover rows).
+
+### Partner endpoints (`/api/partner/`)
+| Method | Path |
+|--------|------|
+| GET/POST | `/presence/` |
+| GET/POST | `/leave-requests/` |
+| POST | `/leave-requests/{id}/cancel/` |
+| GET | `/earnings/` |
+| GET | `/settlements/` |
+
+Suspended partners cannot accept/start (`code=suspended`).
+
+### Customer endpoints (`/api/customer/`)
+Register/login, catalog, bookings (create/track/pay stub/rate/invoice), history, AMC schedule.
+
+### Ops
+```bash
+python manage.py auto_suspend_inactive_technicians [--dry-run] [--days 3]
+```
