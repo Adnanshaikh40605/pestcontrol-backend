@@ -2297,6 +2297,15 @@ class JobCardViewSet(BaseModelViewSet):
             tomorrow = today + timezone.timedelta(days=1)
             qs = qs.filter(reminder_date__in=[today, tomorrow])
 
+        # City filter (Pune / Mumbai / …) — matches master city, free-text city, or client city
+        city = (self.request.query_params.get('city') or '').strip()
+        if city:
+            qs = qs.filter(
+                Q(master_city__name__iexact=city)
+                | Q(city__iexact=city)
+                | Q(client__city__iexact=city)
+            )
+
         logger.info(f"JobCard list returning {qs.count()} records for booking_type: {booking_type}")
         return qs
     

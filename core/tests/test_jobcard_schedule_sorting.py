@@ -246,3 +246,25 @@ class JobCardScheduleSortingAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         result_ids = [row['id'] for row in response.data['results'] if row['id'] in expected_order]
         self.assertEqual(result_ids, expected_order)
+
+    def test_api_done_tab_filters_by_city_and_returns_count(self):
+        mumbai = self._create_booking(
+            self.today, '10:00 AM', status=JobCard.JobStatus.DONE, city='Mumbai',
+        )
+        pune = self._create_booking(
+            self.today, '11:00 AM', status=JobCard.JobStatus.DONE, city='Pune',
+        )
+        pending_mumbai = self._create_booking(
+            self.today, '12:00 PM', status=JobCard.JobStatus.PENDING, city='Mumbai',
+        )
+
+        response = self.api_client.get(
+            '/api/v1/jobcards/',
+            {'booking_type': 'done', 'city': 'Mumbai', 'page_size': 50},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [row['id'] for row in response.data['results']]
+        self.assertIn(mumbai.id, ids)
+        self.assertNotIn(pune.id, ids)
+        self.assertNotIn(pending_mumbai.id, ids)
+        self.assertEqual(response.data['count'], 1)
