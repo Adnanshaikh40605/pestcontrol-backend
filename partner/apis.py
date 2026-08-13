@@ -1062,3 +1062,68 @@ class PartnerReferralDetailAPIView(PartnerAPIView):
         except PartnerReferral.DoesNotExist:
             return Response({'error': 'Referral not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(PartnerReferralPartnerSerializer(referral).data)
+
+
+class PartnerChemicalListAPIView(PartnerAPIView):
+    """GET /api/partner/chemicals/ — active chemicals for usage entry."""
+
+    permission_classes = [IsPartner]
+
+    def get(self, request):
+        from accounts.models import Chemical
+
+        rows = Chemical.objects.filter(is_active=True).order_by('name').values(
+            'id', 'name', 'unit',
+        )
+        return Response({'count': len(rows), 'results': list(rows)})
+
+
+class PartnerChemicalUsageAPIView(PartnerAPIView):
+    """POST /api/partner/bookings/<id>/chemical-usage/ — record chemicals used on a job."""
+
+    permission_classes = [IsPartner]
+
+    def post(self, request, id):
+        from accounts.models import Chemical
+        from accounts.services.stock import record_chemical_usage
+
+        partner = request.partner
+        try:
+            job = JobCard.objects.get(pk=id, partner=partner)
+        except JobCard.DoesNotExist:
+            return Response({'error': 'Booking not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        chemical_id = request.data.get('chemical_id')
+        quantity_ml = request.data.get('quantity_ml')
+        if not chemical_id or quantity_ml is None:
+            return Response(
+                {'error': 'chemical_id and quantity_ml are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            chemical = Chemical.objects.get(pk=chemical_id, is_active=True)
+        except Chemical.DoesNotExist:
+            return Response({'error': 'Chemical not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            usage = record_chemical_usage(
+                job=job,
+                chemical=chemical,
+                quantity_ml=quantity_ml,
+                source='app',
+                remarks=request.data.get('remarks') or '',
+                deduct_stock=True,
+            )
+        except Exception as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {
+                'id': usage.id,
+                'jobcard': usage.jobcard_id,
+                'chemical_id': usage.chemical_id,
+                'quantity_ml': str(usage.quantity_ml),
+                'line_cost': str(usage.line_cost),
+            },
+            status=status.HTTP_201_CREATED,
+        )

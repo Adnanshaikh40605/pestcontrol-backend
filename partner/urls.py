@@ -27,6 +27,8 @@ urlpatterns = [
     path('bookings/<int:id>/reject/', apis.RejectBookingAPIView.as_view(), name='reject-booking'),
     path('bookings/<int:id>/start/', apis.StartServiceAPIView.as_view(), name='start-service'),
     path('bookings/<int:id>/complete/', apis.CompleteBookingAPIView.as_view(), name='complete-booking'),
+    path('bookings/<int:id>/chemical-usage/', apis.PartnerChemicalUsageAPIView.as_view(), name='chemical-usage'),
+    path('chemicals/', apis.PartnerChemicalListAPIView.as_view(), name='chemicals'),
 
     # ──────────────── PROFILE ──────────────
     path('profile/', apis.ProfileAPIView.as_view(), name='profile'),

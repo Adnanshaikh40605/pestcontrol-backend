@@ -28,7 +28,19 @@ DEBUG = config('DJANGO_DEBUG', default=False, cast=bool)
 # Customer app passwordless OTP (4-digit). When DEBUG or CUSTOMER_OTP_FIXED is set,
 # send-OTP responses include `dev_otp` for local testing without SMS.
 CUSTOMER_OTP_TTL_SECONDS = config('CUSTOMER_OTP_TTL_SECONDS', default=300, cast=int)
+# Empty in production. Local DEBUG defaults to 1234 for easy testing.
 CUSTOMER_OTP_FIXED = config('CUSTOMER_OTP_FIXED', default='1234' if DEBUG else '')
+# Play Console reviewers: fixed OTP only for these mobiles (comma-separated 10-digit).
+CUSTOMER_OTP_REVIEWER_MOBILES = config('CUSTOMER_OTP_REVIEWER_MOBILES', default='')
+CUSTOMER_OTP_REVIEWER_CODE = config('CUSTOMER_OTP_REVIEWER_CODE', default='2468')
+# WhatsFlow / Meta template name whose first body param is the OTP code.
+CUSTOMER_OTP_WHATSAPP_TEMPLATE = config('CUSTOMER_OTP_WHATSAPP_TEMPLATE', default='')
+# Fake "mark paid" endpoint — keep OFF in production until Razorpay (etc.) is wired.
+CUSTOMER_ONLINE_PAYMENT_ENABLED = config(
+    'CUSTOMER_ONLINE_PAYMENT_ENABLED',
+    default=False,
+    cast=bool,
+)
 
 # URL configuration
 APPEND_SLASH = True  # Automatically append trailing slashes to URLs
@@ -93,6 +105,7 @@ INSTALLED_APPS = [
     'customer',
     'staff_tracking',
     'blog',
+    'accounts',
 ]
 
 # S3 media (django-storages) — appended when USE_AWS is enabled below

@@ -286,6 +286,14 @@ def review_expense(claim: ExpenseClaim, *, approved: bool, reviewer, comment: st
     claim.reviewer_comment = comment
     claim.status = ExpenseClaim.Status.APPROVED if approved else ExpenseClaim.Status.REJECTED
     claim.save()
+    if approved:
+        try:
+            from accounts.services.expense_bridge import bridge_expense_claim
+
+            bridge_expense_claim(claim)
+        except Exception:
+            # Accounts bridge must not block field expense approval.
+            pass
     return claim
 
 
