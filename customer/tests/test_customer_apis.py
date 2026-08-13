@@ -116,6 +116,7 @@ class CustomerApiTests(TestCase):
         self.assertEqual(Decimal(row['package_tiers']['standard']), Decimal('1000.00'))
         self.assertEqual(Decimal(row['package_tiers']['premium']), Decimal('1150.00'))
 
+    @override_settings(CUSTOMER_ONLINE_PAYMENT_ENABLED=True)
     def test_book_track_pay_rate_flow(self):
         self._register()
         book = self.api.post(
@@ -208,6 +209,28 @@ class CustomerApiTests(TestCase):
         self.assertEqual(job.package_tier, 'premium')
         self.assertEqual(Decimal(str(job.total_amount or job.price)), Decimal('1150.00'))
 
+    def test_pay_disabled_by_default(self):
+        self._register(mobile='9444555666')
+        book = self.api.post(
+            '/api/customer/bookings/',
+            {
+                'pricing_rate_id': self.rate.id,
+                'package_tier': 'standard',
+                'address': 'No Pay Lane',
+            },
+            format='json',
+        )
+        self.assertEqual(book.status_code, 201, book.data)
+        booking_id = book.data['booking']['id']
+        pay = self.api.post(
+            f'/api/customer/bookings/{booking_id}/pay/',
+            {'payment_reference': 'SHOULD-FAIL'},
+            format='json',
+        )
+        self.assertEqual(pay.status_code, 400)
+        self.assertEqual(pay.data.get('code'), 'payment_disabled')
+
+    @override_settings(CUSTOMER_ONLINE_PAYMENT_ENABLED=True)
     def test_pay_is_idempotent(self):
         self._register(mobile='9333444555')
         book = self.api.post(

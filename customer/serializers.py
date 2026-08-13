@@ -214,5 +214,25 @@ class CustomerRateSerializer(serializers.Serializer):
 
 
 class CustomerPaymentConfirmSerializer(serializers.Serializer):
-    """MVP stub — real gateway webhook comes later."""
+    """Gateway confirm — disabled in production until Razorpay (etc.) is wired."""
     payment_reference = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
+
+
+class CustomerComplaintSerializer(serializers.Serializer):
+    complaint_type = serializers.CharField(max_length=100)
+    note = serializers.CharField(max_length=2000)
+    booking_id = serializers.IntegerField(required=False, allow_null=True)
+    priority = serializers.ChoiceField(
+        choices=['Low', 'Medium', 'High'],
+        required=False,
+        default='Medium',
+    )
+
+
+class CustomerDeleteAccountSerializer(serializers.Serializer):
+    confirm = serializers.BooleanField()
+
+    def validate_confirm(self, value):
+        if value is not True:
+            raise serializers.ValidationError('You must confirm account deletion.')
+        return value

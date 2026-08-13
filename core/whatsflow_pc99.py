@@ -154,3 +154,29 @@ def notify_inquiry_received(
         customer_name=name,
         external_id=external,
     )
+
+
+def notify_customer_otp(
+    *,
+    mobile: str,
+    otp: str,
+    purpose: str = "login",
+    customer_name: str | None = None,
+) -> bool:
+    """
+    Deliver customer-app OTP via WhatsFlow template (soft-fail).
+
+    Configure Meta/WhatsFlow template name with settings.CUSTOMER_OTP_WHATSAPP_TEMPLATE.
+    Template body must accept OTP as the first body parameter.
+    """
+    template = (getattr(settings, "CUSTOMER_OTP_WHATSAPP_TEMPLATE", "") or "").strip()
+    if not template:
+        logger.warning("Customer OTP WhatsApp skipped (CUSTOMER_OTP_WHATSAPP_TEMPLATE unset).")
+        return False
+    return send_template_by_phone(
+        phone=mobile,
+        template_name=template,
+        body_params=[str(otp), purpose],
+        customer_name=customer_name or "Customer",
+        external_id=f"customer-otp:{normalize_whatsapp_phone(mobile)}",
+    )

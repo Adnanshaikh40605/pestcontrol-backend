@@ -18,12 +18,15 @@ from rest_framework.response import Response
 from core.models import JobCard, PricingRate, PricingRegion
 from core.staff_partner_sync import normalize_mobile
 
+from .account_deletion import CustomerAccountDeletionError, permanently_delete_customer_account
 from .models import CustomerAccount, CustomerOTPChallenge
 from .permissions import IsCustomer
 from .serializers import (
     CatalogRateSerializer,
     CustomerBookSerializer,
     CustomerBookingSerializer,
+    CustomerComplaintSerializer,
+    CustomerDeleteAccountSerializer,
     CustomerLoginSerializer,
     CustomerOTPSendSerializer,
     CustomerOTPVerifySerializer,
@@ -38,6 +41,7 @@ from .services import (
     CustomerAppError,
     confirm_customer_payment,
     create_customer_booking,
+    create_customer_complaint,
     customer_amc_schedule,
     rate_customer_booking,
 )
@@ -95,7 +99,16 @@ class LoginAPIView(CustomerPublicAPIView):
         )
 
 
-def _generate_customer_otp() -> str:
+def _reviewer_mobiles() -> set[str]:
+    raw = getattr(settings, 'CUSTOMER_OTP_REVIEWER_MOBILES', '') or ''
+    return {m.strip() for m in raw.split(',') if m.strip()}
+
+
+def _generate_customer_otp(mobile: str = '') -> str:
+    # Play Console reviewer mobiles get a stable OTP (not global for all users).
+    if mobile and mobile in _reviewer_mobiles():
+        code = getattr(settings, 'CUSTOMER_OTP_REVIEWER_CODE', None) or '2468'
+        return str(code).zfill(4)[:4]
     fixed = getattr(settings, 'CUSTOMER_OTP_FIXED', None)
     if fixed:
         return str(fixed).zfill(4)[:4]
@@ -128,8 +141,12 @@ class SendOTPAPIView(CustomerPublicAPIView):
                 status=400,
             )
 
-        otp = _generate_customer_otp()
+        otp = _generate_customer_otp(mobile)
+        is_reviewer = mobile in _reviewer_mobiles()
         ttl = int(getattr(settings, 'CUSTOMER_OTP_TTL_SECONDS', 300))
+        # Reviewer OTP stays valid longer for Play Console testing.
+        if is_reviewer:
+            ttl = max(ttl, 7 * 24 * 3600)
         challenge = CustomerOTPChallenge(
             mobile=mobile,
             purpose=purpose,
@@ -139,16 +156,47 @@ class SendOTPAPIView(CustomerPublicAPIView):
         challenge.set_otp(otp)
         challenge.save()
 
-        logger.info('Customer OTP generated mobile=%s purpose=%s otp=%s', mobile, purpose, otp)
+        # Never log plaintext OTP in production (except reviewer mobiles — ops need it).
+        if settings.DEBUG or is_reviewer:
+            logger.info('Customer OTP generated mobile=%s purpose=%s otp=%s reviewer=%s', mobile, purpose, otp, is_reviewer)
+        else:
+            logger.info('Customer OTP generated mobile=%s purpose=%s', mobile, purpose)
+
+        delivery = 'queued'
+        if is_reviewer:
+            delivery = 'reviewer_fixed'
+        elif not settings.DEBUG:
+            try:
+                from core.whatsflow_pc99 import notify_customer_otp
+
+                sent = notify_customer_otp(
+                    mobile=mobile,
+                    otp=otp,
+                    purpose=purpose,
+                    customer_name=full_name or None,
+                )
+                delivery = 'whatsapp' if sent else 'pending_channel'
+                if not sent:
+                    logger.error(
+                        'Customer OTP could not be delivered via WhatsApp mobile=%s — '
+                        'set CUSTOMER_OTP_WHATSAPP_TEMPLATE and WHATSFLOW_API_KEY',
+                        mobile,
+                    )
+            except Exception:
+                logger.exception('Customer OTP WhatsApp delivery failed mobile=%s', mobile)
+                delivery = 'pending_channel'
 
         payload = {
-            'message': 'OTP sent successfully.',
+            'message': 'OTP sent successfully.' if delivery != 'pending_channel' else (
+                'OTP generated. Delivery channel is not configured; contact support if you did not receive it.'
+            ),
             'mobile': mobile,
             'purpose': purpose,
             'expires_in': ttl,
+            'delivery': delivery,
         }
-        # Expose OTP only in local/debug so the app can be tested without SMS.
-        if settings.DEBUG or getattr(settings, 'CUSTOMER_OTP_FIXED', None):
+        # Expose OTP only in local DEBUG builds — never in production responses.
+        if settings.DEBUG:
             payload['dev_otp'] = otp
         return Response(payload)
 
@@ -254,6 +302,42 @@ class ProfileAPIView(CustomerAPIView):
         account.save()
         account.client.save(update_fields=['full_name', 'email', 'updated_at'])
         return Response({'customer': CustomerProfileSerializer(account).data})
+
+
+class DeleteAccountAPIView(CustomerAPIView):
+    permission_classes = [IsCustomer]
+
+    @extend_schema(tags=['Customer Profile'], summary='Permanently delete my customer account')
+    def post(self, request):
+        serializer = CustomerDeleteAccountSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'errors': serializer.errors}, status=400)
+        try:
+            permanently_delete_customer_account(request.customer)
+        except CustomerAccountDeletionError as exc:
+            return Response({'error': exc.message, 'code': exc.code}, status=400)
+        return Response({'message': 'Account deleted successfully.'})
+
+
+class ComplaintCreateAPIView(CustomerAPIView):
+    permission_classes = [IsCustomer]
+
+    @extend_schema(tags=['Customer Support'], summary='Submit complaint / re-service request')
+    def post(self, request):
+        serializer = CustomerComplaintSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'errors': serializer.errors}, status=400)
+        try:
+            job = create_customer_complaint(request.customer, serializer.validated_data)
+        except CustomerAppError as exc:
+            return Response({'error': exc.message, 'code': exc.code}, status=400)
+        return Response(
+            {
+                'message': 'Complaint submitted. Our team will contact you shortly.',
+                'booking': CustomerBookingSerializer(job).data,
+            },
+            status=201,
+        )
 
 
 class CatalogAPIView(CustomerPublicAPIView):

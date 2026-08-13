@@ -128,11 +128,33 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
     job.creation_source = 'customer_app'
     job.package_tier = package_tier
     job.save(update_fields=['creation_source', 'package_tier', 'updated_at'])
+
+    # Persist last service address on CRM client for future bookings.
+    client = account.client
+    if client and address:
+        updates = []
+        if address and client.address != address:
+            client.address = address
+            updates.append('address')
+        city = (data.get('city') or '').strip()
+        if city and getattr(client, 'city', None) != city:
+            if hasattr(client, 'city'):
+                client.city = city
+                updates.append('city')
+        if updates:
+            updates.append('updated_at')
+            client.save(update_fields=updates)
+
     return job
 
 
 @transaction.atomic
 def confirm_customer_payment(account: CustomerAccount, job: JobCard, payment_reference: str = '') -> JobCard:
+    if not getattr(settings, 'CUSTOMER_ONLINE_PAYMENT_ENABLED', False):
+        raise CustomerAppError(
+            'Online payment is not available yet. Please pay after service.',
+            code='payment_disabled',
+        )
     if job.client_id != account.client_id:
         raise CustomerAppError('Booking not found.', code='forbidden')
     if job.status == JobCard.JobStatus.CANCELLED:
@@ -153,9 +175,64 @@ def confirm_customer_payment(account: CustomerAccount, job: JobCard, payment_ref
         user=None,
         payment_mode=JobCard.PaymentMode.ONLINE,
         collection_type='full',
-        remarks=f'Customer app payment stub. Ref: {payment_reference or "n/a"}',
+        remarks=f'Customer app payment. Ref: {payment_reference or "n/a"}',
     )
     job.refresh_from_db()
+    return job
+
+
+@transaction.atomic
+def create_customer_complaint(account: CustomerAccount, data: dict) -> JobCard:
+    note = (data.get('note') or '').strip()
+    complaint_type = (data.get('complaint_type') or '').strip()
+    if len(note) < 5:
+        raise CustomerAppError('Please describe the issue.', code='note_required')
+    if not complaint_type:
+        raise CustomerAppError('Complaint type is required.', code='type_required')
+
+    parent = None
+    booking_id = data.get('booking_id')
+    if booking_id:
+        try:
+            parent = JobCard.objects.get(id=booking_id, client=account.client)
+        except JobCard.DoesNotExist as exc:
+            raise CustomerAppError('Booking not found.', code='booking_not_found') from exc
+
+    payload = {
+        'client': account.client_id,
+        'service_type': parent.service_type if parent else 'Complaint / Re-Service',
+        'service_category': JobCard.ServiceCategory.ONE_TIME,
+        'property_type': parent.property_type if parent else JobCard.PropertyType.HOME_FLAT,
+        'bhk_size': parent.bhk_size if parent else '',
+        'client_address': parent.client_address if parent else (account.client.address or ''),
+        'city': parent.city if parent else (getattr(account.client, 'city', '') or ''),
+        'notes': note,
+        'price': '0',
+        'total_amount': Decimal('0'),
+        'status': JobCard.JobStatus.PENDING,
+        'payment_status': JobCard.PaymentStatus.UNPAID,
+        'package_tier': JobCard.PackageTier.STANDARD,
+        'reference': 'Customer App Complaint',
+        'job_type': JobCard.JobType.CUSTOMER,
+        'commercial_type': JobCard.CommercialType.HOME,
+    }
+
+    try:
+        job = JobCardService.create_jobcard(payload, user=None)
+    except Exception as exc:
+        logger.exception('Customer complaint create failed: %s', exc)
+        raise CustomerAppError(str(exc), code='create_failed') from exc
+
+    job.creation_source = 'customer_app'
+    job.is_complaint_call = True
+    job.complaint_type = complaint_type
+    job.complaint_note = note
+    job.complaint_status = JobCard.ComplaintStatus.OPEN
+    if parent:
+        job.complaint_parent_booking = parent
+    job.booking_type = JobCard.BookingType.COMPLAINT_CALL
+    job.booking_category = JobCard.BookingCategory.COMPLAINT_CALL
+    job.save()
     return job
 
 
