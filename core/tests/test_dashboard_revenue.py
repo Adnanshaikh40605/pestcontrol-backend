@@ -82,3 +82,56 @@ class DashboardRevenueByServiceDateTests(TestCase):
 
         stats = DashboardService.get_dashboard_statistics()
         self.assertEqual(stats['last_month_revenue'], 2500)
+
+
+class DashboardTodayCitySplitTests(TestCase):
+    def setUp(self):
+        self.client_record = Client.objects.create(full_name='City Client', mobile='9000000099')
+        self.today = timezone.make_aware(datetime.combine(timezone.now().date(), datetime.min.time()))
+
+    def test_today_bookings_and_service_calls_split_by_city(self):
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='1000',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_service_call=False,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='0',
+            reference='Other',
+            status=JobCard.JobStatus.UPCOMING,
+            booking_type=JobCard.BookingType.SERVICE_CALL,
+            booking_category=JobCard.BookingCategory.SERVICE_CALL,
+            is_service_call=True,
+            service_cycle=2,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            city='Pune',
+            schedule_datetime=self.today,
+            price='0',
+            reference='Other',
+            status=JobCard.JobStatus.UPCOMING,
+            booking_type=JobCard.BookingType.AMC_FOLLOWUP,
+            booking_category=JobCard.BookingCategory.AMC_FOLLOWUP,
+            is_service_call=True,
+            service_cycle=2,
+        )
+
+        stats = DashboardService.get_dashboard_statistics()
+        self.assertEqual(stats['today_booking_count'], 1)
+        self.assertEqual(stats['today_service_call_count'], 2)
+        self.assertEqual(stats['today_city_stats'], [{'city': 'Mumbai', 'count': 1}])
+        service_by_city = {row['city']: row['count'] for row in stats['today_service_city_stats']}
+        self.assertEqual(service_by_city.get('Mumbai'), 1)
+        self.assertEqual(service_by_city.get('Pune'), 1)

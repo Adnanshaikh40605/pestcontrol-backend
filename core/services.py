@@ -1513,30 +1513,41 @@ class DashboardService:
                 for row in city_qs
             ]
 
-            # Always include today's city counts (even when date range is wider)
-            today_city_qs = (
-                JobCard.objects.filter(schedule_datetime__date=today)
-                .exclude(status=JobCard.JobStatus.CANCELLED)
-                .annotate(
-                    city_label=Coalesce(
-                        'master_city__name',
-                        'city',
-                        V(''),
-                        output_field=CharField(),
+            def _city_counts(qs):
+                rows = (
+                    qs.annotate(
+                        city_label=Coalesce(
+                            'master_city__name',
+                            'city',
+                            V(''),
+                            output_field=CharField(),
+                        )
                     )
+                    .exclude(city_label='')
+                    .values('city_label')
+                    .annotate(count=Count('id'))
+                    .order_by('-count')[:12]
                 )
-                .exclude(city_label='')
-                .values('city_label')
-                .annotate(count=Count('id'))
-                .order_by('-count')[:12]
-            )
-            today_city_stats = [
-                {'city': row['city_label'], 'count': row['count']}
-                for row in today_city_qs
-            ]
-            today_booking_count = JobCard.objects.filter(
+                return [
+                    {'city': row['city_label'], 'count': row['count']}
+                    for row in rows
+                ]
+
+            today_active = JobCard.objects.filter(
                 schedule_datetime__date=today,
-            ).exclude(status=JobCard.JobStatus.CANCELLED).count()
+            ).exclude(status=JobCard.JobStatus.CANCELLED)
+            today_service_q = (
+                Q(booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES)
+                | Q(is_service_call=True)
+            )
+            today_service_qs = today_active.filter(today_service_q)
+            today_booking_qs = today_active.exclude(today_service_q)
+
+            # Always include today's city counts (even when date range is wider)
+            today_city_stats = _city_counts(today_booking_qs)
+            today_service_city_stats = _city_counts(today_service_qs)
+            today_booking_count = today_booking_qs.count()
+            today_service_call_count = today_service_qs.count()
             
             # Property Type breakdown
             property_type_stats = list(JobCard.objects.filter(jobcard_filters)
@@ -1663,7 +1674,9 @@ class DashboardService:
                 'job_type_stats': job_type_stats,
                 'city_stats': city_stats,
                 'today_city_stats': today_city_stats,
+                'today_service_city_stats': today_service_city_stats,
                 'today_booking_count': today_booking_count,
+                'today_service_call_count': today_service_call_count,
                 'property_type_stats': property_type_stats,
             }
         except Exception as e:
