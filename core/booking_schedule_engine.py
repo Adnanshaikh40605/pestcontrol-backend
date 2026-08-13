@@ -177,6 +177,26 @@ def is_bed_bug_service(service: str) -> bool:
     return 'bed bug' in normalized or 'bedbug' in normalized
 
 
+_OTHER_PEST_MARKERS = (
+    'cockroach',
+    'ant',
+    'mosquito',
+    'rodent',
+    'bed bug',
+    'bedbug',
+    'lizard',
+    'general pest',
+)
+
+
+def is_termite_only_service(service: str) -> bool:
+    """True when the line is Termite alone (not a multi-pest package)."""
+    if not is_termite_service(service):
+        return False
+    normalized = (service or '').lower()
+    return not any(marker in normalized for marker in _OTHER_PEST_MARKERS)
+
+
 def is_fixed_visit_service(service: str) -> bool:
     """Services with hard-coded visit counts that must never become AMC packages."""
     return is_termite_service(service) or is_bed_bug_service(service)
@@ -193,7 +213,7 @@ def fixed_visit_count_for_service(service: str) -> Optional[int]:
 
 def enforce_fixed_service_rules_on_job(job) -> list[str]:
     """
-    Force Termite = One-Time (1 visit, never AMC) and Bed Bugs = 2 services max.
+    Force Termite-only = One-Time (1 visit, never AMC) and Bed Bugs = 2 services max.
 
     Returns list of field names that were changed (caller may save).
     """
@@ -209,15 +229,28 @@ def enforce_fixed_service_rules_on_job(job) -> list[str]:
         texts.append(str((item or {}).get('service') or ''))
 
     blob = ' '.join(texts)
+    # Prefer the dedicated line name so multi-pest shells are not forced to Termite rules.
+    primary = (job.source_service or job.service_type or blob or '').strip()
     changed: list[str] = []
 
-    if is_termite_service(blob):
+    if is_termite_only_service(primary) or (
+        is_termite_only_service(blob) and not any(m in blob.lower() for m in _OTHER_PEST_MARKERS)
+    ):
         if job.service_category != JobCard.ServiceCategory.ONE_TIME:
             job.service_category = JobCard.ServiceCategory.ONE_TIME
             changed.append('service_category')
         if job.is_amc_main_booking:
             job.is_amc_main_booking = False
             changed.append('is_amc_main_booking')
+        if job.included_in_amc:
+            job.included_in_amc = False
+            changed.append('included_in_amc')
+        if job.is_followup_visit:
+            job.is_followup_visit = False
+            changed.append('is_followup_visit')
+        if job.is_service_call:
+            job.is_service_call = False
+            changed.append('is_service_call')
         if (job.max_cycle or 0) != 1:
             job.max_cycle = 1
             changed.append('max_cycle')
@@ -227,11 +260,14 @@ def enforce_fixed_service_rules_on_job(job) -> list[str]:
         if (job.service_cycle or 0) not in (0, 1):
             job.service_cycle = 1
             changed.append('service_cycle')
+        if job.booking_type != JobCard.BookingType.NEW_BOOKING:
+            job.booking_type = JobCard.BookingType.NEW_BOOKING
+            changed.append('booking_type')
         if (job.visit_type or '').upper().find('CHECK') >= 0:
             job.visit_type = 'TERMITE TREATMENT'
             changed.append('visit_type')
 
-    if is_bed_bug_service(blob):
+    if is_bed_bug_service(blob) and not is_termite_service(blob):
         # Bed Bugs is a 2-service package, not an AMC subscription.
         if job.service_category == JobCard.ServiceCategory.AMC:
             job.service_category = JobCard.ServiceCategory.ONE_TIME

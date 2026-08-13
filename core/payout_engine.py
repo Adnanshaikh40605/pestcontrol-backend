@@ -185,7 +185,22 @@ def _visit_divisor(job, root) -> int:
 
 
 def is_amc_economics(job) -> bool:
+    from core.booking_schedule_engine import is_termite_only_service
     from core.models import JobCard
+
+    # Product rule: Termite-only is always One-Time (never AMC / service-call chain).
+    termite_text = ' '.join(
+        filter(
+            None,
+            [
+                job.source_service or '',
+                job.service_type or '',
+                job.visit_type or '',
+            ],
+        )
+    )
+    if is_termite_only_service(termite_text) or is_termite_only_service(job.source_service or ''):
+        return False
 
     # Per-service child of a multi-service package: use THIS line's flags only.
     if job.parent_job_id:

@@ -320,10 +320,11 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
 
     share_pct = job.technician_share_percent or 40
     service_number = None
-    if planned and cycle:
-        service_number = f'Service {cycle} of {planned}'
-    elif economics == 'one_time':
+    # Termite / true one-time must never show "Service 1 of 5" from stale max_cycle.
+    if economics == 'one_time':
         service_number = 'One-Time'
+    elif planned and cycle:
+        service_number = f'Service {cycle} of {planned}'
 
     return {
         'job_id': job.id,
