@@ -135,20 +135,20 @@ class TechnicianSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at', 'suspended_at', 'reactivated_at']
 
     def get_has_partner_app(self, obj):
-        partner = getattr(obj, 'partner_account', None)
-        return bool(partner and partner.is_active)
+        # Linked partner account exists (even if awaiting CRM approval).
+        return getattr(obj, 'partner_account', None) is not None
 
     def get_partner_app_approved(self, obj):
         partner = getattr(obj, 'partner_account', None)
-        return bool(partner and partner.is_active and partner.is_app_approved)
+        return bool(partner and partner.is_app_approved)
 
     def get_partner_id(self, obj):
         partner = getattr(obj, 'partner_account', None)
-        return partner.id if partner and partner.is_active else None
+        return partner.id if partner else None
 
     def get_partner_name(self, obj):
         partner = getattr(obj, 'partner_account', None)
-        return partner.full_name if partner and partner.is_active else None
+        return partner.full_name if partner else None
 
     def get_active_job_details(self, obj):
         # Return a list of basic info for current active jobs using values for efficiency

@@ -440,7 +440,7 @@ class TechnicianViewSet(BaseModelViewSet):
     ordering_fields = ['name', 'created_at']
 
     def get_queryset(self):
-        return Technician.objects.annotate(
+        return Technician.objects.select_related('partner_account').annotate(
             active_jobs=Count('jobcards', filter=Q(jobcards__status__iexact='On Process'))
         )
 
