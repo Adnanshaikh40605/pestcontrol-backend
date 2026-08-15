@@ -34,9 +34,10 @@ from core.payment_utils import parse_jobcard_price
 from core.payout_engine import calculate_and_apply_payout, is_bed_bug_multi_visit
 from core.technician_ledger import heal_stuck_payouts
 
-# Team-reported production IDs (Aug 2026 ledger audit).
+# Team-reported production IDs (Technician Ledger audits).
 REPORTED_BOOKING_IDS = (
     2171, 2252, 2088, 1940, 1925, 2255, 2241, 1965, 2067, 2153, 2122,
+    2085, 1928, 1895, 2034, 2213, 1909,
 )
 
 
@@ -382,6 +383,21 @@ class Command(BaseCommand):
                                 'service_type', 'source_service', 'service_items', 'updated_at',
                             ])
                 continue
+
+            # Clear false follow-up flag on Bed Bugs roots (e.g. #2034).
+            if (
+                not job.parent_job_id
+                and is_bed_bug_service(job.service_type or job.source_service or '')
+                and (job.is_followup_visit or job.included_in_amc)
+                and (job.service_cycle or 1) <= 1
+            ):
+                job.is_followup_visit = False
+                job.included_in_amc = False
+                if not dry:
+                    job.save(update_fields=[
+                        'is_followup_visit', 'included_in_amc', 'updated_at',
+                    ])
+                fixed += 1
 
             if job.status != JobCard.JobStatus.DONE:
                 # Still sync plan flags for open One-Time edits.

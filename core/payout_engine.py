@@ -257,45 +257,39 @@ def is_bed_bug_multi_visit(job) -> bool:
     """Bed Bugs is always 2 services — settle 40% of (line package ÷ 2) per completed visit."""
     from core.booking_schedule_engine import is_bed_bug_service, service_line_names
 
+    items = getattr(job, 'service_items', None) or []
+    names = service_line_names(items) if isinstance(items, list) else []
+
+    # Multi-service package shell is never itself a Bed Bugs visit row.
+    if len(names) > 1 and not job.parent_job_id:
+        return False
+
     # Prefer the dedicated line name (day-1 / follow-up children set source_service).
     source = (job.source_service or '').strip()
-    if source:
-        return is_bed_bug_service(source)
+    if source and (len(names) <= 1 or job.parent_job_id):
+        if is_bed_bug_service(source) and not any(
+            marker in source.lower()
+            for marker in ('cockroach', 'termite', 'mosquito', 'rodent', ',')
+        ):
+            return True
 
-    items = getattr(job, 'service_items', None) or []
-    if isinstance(items, list) and items:
-        names = service_line_names(items)
-        if len(names) == 1:
-            return is_bed_bug_service(names[0])
-        # Multi-service package shell is not itself a Bed Bugs visit.
-        if len(names) > 1 and not job.parent_job_id:
-            return False
+    if len(names) == 1:
+        return is_bed_bug_service(names[0])
 
     service_type = (job.service_type or '').strip()
     if service_type:
-        # Avoid treating "Termite, Bed Bugs" combined labels as Bed Bugs-only.
         if ',' in service_type or any(
             marker in service_type.lower()
-            for marker in ('cockroach', 'termite', 'mosquito', 'rodent', ' ant', '/ ant')
+            for marker in ('cockroach', 'termite', 'mosquito', 'rodent')
         ):
-            if not is_bed_bug_service(service_type):
-                return False
-            # Combined blob that mentions bed bugs plus other pests → not bed-bug-only.
-            other = (
-                'cockroach' in service_type.lower()
-                or 'termite' in service_type.lower()
-                or 'mosquito' in service_type.lower()
-                or 'rodent' in service_type.lower()
-            )
-            if other or ',' in service_type:
-                return False
+            return False
         return is_bed_bug_service(service_type)
 
-    # Last resort: package root labels only when this job has no own service name.
-    root = _package_root(job)
-    for text in (root.source_service, root.service_type):
-        if text and is_bed_bug_service(text) and ',' not in text:
-            return True
+    if not (job.service_type or job.source_service):
+        root = _package_root(job)
+        for text in (root.source_service, root.service_type):
+            if text and is_bed_bug_service(text) and ',' not in text:
+                return True
     return False
 
 

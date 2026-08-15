@@ -227,34 +227,125 @@ def apply_ledger_filters(queryset, params):
     return queryset
 
 
+def job_needs_payout_heal(job) -> bool:
+    """
+    True when a Done booking's stored Tech 40% does not match product rules.
+    Used by ledger GET auto-heal and cleanup so wrong positive payouts are fixed,
+    not only Held / ₹0 rows.
+    """
+    from core.booking_schedule_engine import (
+        is_multi_service_booking,
+        is_multi_service_package_shell,
+    )
+    from core.models import JobCard
+    from core.payout_engine import (
+        is_bed_bug_multi_visit,
+        service_line_package_amount,
+        quantize_money,
+    )
+
+    if job.status != JobCard.JobStatus.DONE:
+        return False
+    if job.payout_status in (
+        JobCard.PayoutStatus.APPROVED,
+        JobCard.PayoutStatus.PAID,
+        JobCard.PayoutStatus.CANCELLED,
+    ):
+        return False
+
+    # Legacy Done jobs with an assigned tech should enter revenue sharing.
+    if job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
+        return bool(job.technician_id or job.technician_participations.exists())
+
+    visit_pay = quantize_money(job.visit_payout_amount)
+    visit_rev = quantize_money(job.visit_revenue_amount)
+    package = service_line_package_amount(job)
+
+    if not job.payment_model or visit_pay <= 0:
+        # Shell packages store 0 on purpose once day-1 children exist.
+        if is_multi_service_package_shell(job) and visit_pay <= 0:
+            # Still heal if day-1 children are missing payouts.
+            kids = list(
+                JobCard.objects.filter(parent_job=job, service_cycle=1).exclude(
+                    status=JobCard.JobStatus.CANCELLED,
+                )
+            )
+            if not kids:
+                return True
+            return any(
+                (k.status == JobCard.JobStatus.DONE and (k.visit_payout_amount or 0) <= 0)
+                for k in kids
+            )
+        return True
+
+    # Multi-service package paid as one combined row (missing day-1 split).
+    if is_multi_service_booking(job) and not job.parent_job_id:
+        day1 = JobCard.objects.filter(parent_job=job, service_cycle=1).exclude(
+            status=JobCard.JobStatus.CANCELLED,
+        ).count()
+        if day1 < 2:
+            return True
+        if visit_pay > 0:
+            return True  # shell should be NOT_APPLICABLE with ₹0
+
+    # Bed Bugs: full package in visit_revenue instead of package ÷ 2.
+    if is_bed_bug_multi_visit(job) and package > 0:
+        expected = quantize_money(package / Decimal('2'))
+        if visit_rev >= package and package > expected:
+            return True
+        full_tech = quantize_money(package * Decimal('0.40'))
+        if visit_pay >= full_tech and expected < package:
+            return True
+
+    # Two+ assigned partner techs but only one got the pool (others ₹0).
+    parts = list(job.technician_participations.all())
+    if len(parts) >= 2 and (job.technician_pool_amount or 0) > 0:
+        positive = sum(1 for p in parts if (p.payout_amount_snapshot or 0) > 0)
+        eligible_like = sum(
+            1 for p in parts
+            if p.is_payout_eligible
+            and p.attendance_status in (
+                'assigned', 'checked_in', 'completed',
+            )
+        )
+        if eligible_like >= 2 and positive < eligible_like:
+            return True
+
+    return False
+
+
 def heal_stuck_payouts(jobs) -> int:
     """
-    Recalculate Done jobs stuck on Held / blank payment_model so Tech 40% fills in.
-    Safe no-op for approved/paid/legacy jobs (engine skips those unless force).
+    Recalculate Done jobs with wrong / missing Tech 40% so ledger stays correct.
+    Includes legacy_exempt migration, Bed Bugs ÷2, multi-service day-1 split,
+    and equal 40% across assigned partner technicians.
     """
+    from core.booking_schedule_engine import (
+        BookingScheduleEngine,
+        is_multi_service_booking,
+    )
     from core.payout_engine import calculate_and_apply_payout
 
     healed = 0
     for job in jobs:
-        if job.status != JobCard.JobStatus.DONE:
+        if not job_needs_payout_heal(job):
             continue
-        if job.payout_status not in (
-            JobCard.PayoutStatus.HELD,
-            JobCard.PayoutStatus.NOT_APPLICABLE,
-            JobCard.PayoutStatus.PENDING,
-        ):
-            continue
-        # Fix Held / never-applied / Tech share ₹0 rows (e.g. booking 1895).
-        visit_pay = job.visit_payout_amount or Decimal('0.00')
-        if (
-            job.payout_status == JobCard.PayoutStatus.HELD
-            or visit_pay <= 0
-            or not job.payment_model
-        ):
-            result = calculate_and_apply_payout(job, force=True)
-            if not result.skipped:
-                healed += 1
-                job.refresh_from_db()
+        if is_multi_service_booking(job) and not job.parent_job_id:
+            from core.models import JobCard as JC
+            BookingScheduleEngine.sync_multi_service_day1_children(
+                job, completing=job.status == JC.JobStatus.DONE,
+            )
+        result = calculate_and_apply_payout(job, force=True)
+        if is_multi_service_booking(job) and not job.parent_job_id:
+            from core.models import JobCard as JC
+            for child in JC.objects.filter(
+                parent_job=job, service_cycle=1,
+            ).exclude(status=JC.JobStatus.CANCELLED):
+                if child.status == JC.JobStatus.DONE:
+                    calculate_and_apply_payout(child, force=True)
+        if not result.skipped or is_multi_service_booking(job):
+            healed += 1
+            job.refresh_from_db()
     return healed
 
 

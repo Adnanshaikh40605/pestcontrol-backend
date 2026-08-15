@@ -2468,6 +2468,16 @@ class JobCardViewSet(BaseModelViewSet):
                 {'error': 'Technician already on this job crew'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Done jobs: re-split 40% across the full assigned crew immediately.
+        if job.status == JobCard.JobStatus.DONE:
+            try:
+                from core.payout_engine import calculate_and_apply_payout, is_revenue_model_enabled
+
+                if is_revenue_model_enabled():
+                    calculate_and_apply_payout(job, force=True)
+                    row.refresh_from_db()
+            except Exception:
+                logger.exception('Payout re-split after crew add failed for %s', job.code)
         return response.Response(
             JobCardTechnicianParticipationSerializer(row).data,
             status=status.HTTP_201_CREATED,

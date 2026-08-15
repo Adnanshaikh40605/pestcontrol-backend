@@ -284,6 +284,14 @@ def enforce_fixed_service_rules_on_job(job) -> list[str]:
         if not job.service_cycle:
             job.service_cycle = 1
             changed.append('service_cycle')
+        # Root / first visit must not stay flagged as a free follow-up.
+        if not job.parent_job_id and (job.service_cycle or 1) <= 1:
+            if job.is_followup_visit:
+                job.is_followup_visit = False
+                changed.append('is_followup_visit')
+            if job.included_in_amc:
+                job.included_in_amc = False
+                changed.append('included_in_amc')
 
     return list(dict.fromkeys(changed))
 
