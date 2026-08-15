@@ -745,6 +745,22 @@ class JobCardSerializer(serializers.ModelSerializer):
         sync_jobcard_amounts_from_price(instance)
         instance.refresh_from_db()
 
+        # Keep ledger/history in sync when service type / items / plan are edited.
+        from core.booking_schedule_engine import (
+            BookingScheduleEngine,
+            is_multi_service_booking,
+            sync_plan_flags_from_service_items,
+        )
+
+        plan_changed = sync_plan_flags_from_service_items(instance)
+        if plan_changed:
+            update_fields = list(dict.fromkeys(plan_changed + ['updated_at']))
+            instance.sync_booking_category()
+            if 'booking_category' not in update_fields:
+                update_fields.append('booking_category')
+            instance.save(update_fields=update_fields)
+            instance.refresh_from_db()
+
         completing = (
             new_status == JobCard.JobStatus.DONE
             and old_status != JobCard.JobStatus.DONE

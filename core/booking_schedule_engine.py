@@ -288,6 +288,78 @@ def enforce_fixed_service_rules_on_job(job) -> list[str]:
     return list(dict.fromkeys(changed))
 
 
+def sync_plan_flags_from_service_items(job) -> list[str]:
+    """
+    When CRM edits service_items (e.g. AMC → One-Time), clear stale AMC flags
+    and cancel leftover AMC follow-up children that no longer match the plan.
+    """
+    from core.models import JobCard
+
+    if job.parent_job_id:
+        return []
+
+    items = job.service_items if isinstance(getattr(job, 'service_items', None), list) else []
+    if not items:
+        return []
+
+    changed: list[str] = []
+    has_amc_line = False
+    for item in items:
+        svc = str((item or {}).get('service') or '').strip()
+        plan = str((item or {}).get('plan') or (item or {}).get('frequency') or '').strip()
+        if svc and is_amc_plan(plan) and not is_fixed_visit_service(svc):
+            has_amc_line = True
+            break
+
+    names = service_line_names(items)
+    if len(names) == 1 and names[0]:
+        if (job.source_service or '') != names[0]:
+            job.source_service = names[0]
+            changed.append('source_service')
+        if ',' in (job.service_type or '') or (
+            job.service_type and names[0].lower() not in (job.service_type or '').lower()
+            and len((job.service_type or '').split(',')) > 1
+        ):
+            job.service_type = names[0]
+            changed.append('service_type')
+
+    if not has_amc_line:
+        if job.is_amc_main_booking:
+            job.is_amc_main_booking = False
+            changed.append('is_amc_main_booking')
+        if job.service_category == JobCard.ServiceCategory.AMC:
+            job.service_category = JobCard.ServiceCategory.ONE_TIME
+            changed.append('service_category')
+        if job.booking_type in (
+            JobCard.BookingType.AMC_MAIN,
+            JobCard.BookingType.AMC_FOLLOWUP,
+        ):
+            job.booking_type = JobCard.BookingType.NEW_BOOKING
+            changed.append('booking_type')
+        if job.included_in_amc:
+            job.included_in_amc = False
+            changed.append('included_in_amc')
+
+        # Cancel leftover AMC follow-ups (cycle > 1) that no longer apply.
+        # Keep Bed Bugs service-2 children (cycle 2, not AMC).
+        qs = JobCard.objects.filter(
+            parent_job=job,
+            service_cycle__gt=1,
+            status__in=[JobCard.JobStatus.UPCOMING, JobCard.JobStatus.PENDING],
+        ).exclude(
+            Q(service_type__icontains='bed') | Q(source_service__icontains='bed')
+        ).filter(
+            Q(included_in_amc=True)
+            | Q(is_followup_visit=True)
+            | Q(booking_type=JobCard.BookingType.AMC_FOLLOWUP)
+            | Q(visit_type__icontains='AMC')
+        )
+        qs.update(status=JobCard.JobStatus.CANCELLED)
+
+    changed.extend(enforce_fixed_service_rules_on_job(job))
+    return list(dict.fromkeys(changed))
+
+
 def interval_months_for_package(visit_count: int) -> int:
     return AMC_INTERVAL_MONTHS.get(visit_count, 4)
 
@@ -471,6 +543,10 @@ class BookingScheduleEngine:
         if not is_multi_service_booking(main_job):
             return []
 
+        # Legacy multi packages often only generated follow-up cycles (2+) —
+        # create missing day-1 rows first so ledger can split per service.
+        BookingScheduleEngine.backfill_missing_day1_children(main_job)
+
         children = list(
             JobCard.objects.filter(parent_job=main_job, service_cycle=1).exclude(
                 status=JobCard.JobStatus.CANCELLED,
@@ -519,6 +595,170 @@ class BookingScheduleEngine:
                 try_apply_payout_after_completion(child)
             synced.append(child)
         return synced
+
+    @staticmethod
+    def backfill_missing_day1_children(main_job) -> list[Any]:
+        """
+        Create cycle-1 per-service JobCards when a multi-service package only has
+        follow-up children (legacy bug). Safe to call repeatedly.
+        """
+        from django.utils import timezone
+
+        from core.jobcard_schedule import schedule_datetime_from_service_date
+        from core.models import JobCard, JobCardTechnicianParticipation
+        from core.payment_utils import parse_jobcard_price
+        from core.payout_engine import revenue_fields_from_parent
+
+        if main_job.parent_job_id or not is_multi_service_booking(main_job):
+            return []
+        if not main_job.schedule_datetime:
+            return []
+
+        items = list(main_job.service_items or [])
+        if len(service_line_names(items)) < 2:
+            return []
+
+        start_date = main_job.schedule_datetime.date()
+        contract_months = parse_contract_months(getattr(main_job, 'contract_duration', None))
+        created: list[Any] = []
+
+        for item in items:
+            service = str(item.get('service') or '').strip()
+            plan = str(item.get('plan') or item.get('frequency') or '').strip()
+            if not service:
+                continue
+            if JobCard.objects.filter(
+                parent_job=main_job,
+                source_service=service,
+                service_cycle=1,
+            ).exclude(status=JobCard.JobStatus.CANCELLED).exists():
+                continue
+
+            preferred = None
+            preferred_visits = getattr(main_job, 'max_cycle', None) or None
+            if (
+                not is_fixed_visit_service(service)
+                and preferred_visits
+                and preferred_visits > 1
+            ):
+                preferred = preferred_visits
+
+            plans = build_visit_plans(
+                service,
+                plan,
+                start_date,
+                contract_months=contract_months,
+                preferred_visit_count=preferred,
+            )
+            if not plans:
+                # One-time line with empty plan — still need a day-1 ledger row.
+                plans = [
+                    VisitPlan(
+                        cycle=1,
+                        visit_date=start_date,
+                        visit_type=f'{service.upper()} SERVICE',
+                        total_visits=fixed_visit_count_for_service(service) or 1,
+                    )
+                ]
+            locked = fixed_visit_count_for_service(service)
+            if locked is not None:
+                plans = plans[:locked]
+            spec = plans[0]
+            is_amc = is_amc_plan(plan) and not is_fixed_visit_service(service)
+            line_amount = parse_jobcard_price(item.get('amount'))
+            sched_dt = schedule_datetime_from_service_date(
+                spec.visit_date,
+                reference_datetime=main_job.schedule_datetime,
+                time_slot=main_job.time_slot,
+            )
+            child_status = (
+                JobCard.JobStatus.DONE
+                if main_job.status == JobCard.JobStatus.DONE
+                else JobCard.JobStatus.PENDING
+            )
+            child = JobCard(
+                client=main_job.client,
+                service_type=service,
+                service_items=[item],
+                service_category=(
+                    JobCard.ServiceCategory.AMC if is_amc else JobCard.ServiceCategory.ONE_TIME
+                ),
+                schedule_datetime=sched_dt,
+                time_slot=main_job.time_slot,
+                service_cycle=1,
+                max_cycle=spec.total_visits,
+                planned_visit_count=spec.total_visits,
+                parent_job=main_job,
+                source_service=service,
+                visit_type=spec.visit_type,
+                is_auto_generated=True,
+                commercial_type=main_job.commercial_type,
+                property_type=main_job.property_type,
+                job_type=main_job.job_type,
+                society_billing_type=main_job.society_billing_type,
+                bhk_size=item.get('area') or main_job.bhk_size,
+                contract_duration=main_job.contract_duration,
+                price=str(line_amount) if line_amount > 0 else '0',
+                total_amount=line_amount if line_amount > 0 else 0,
+                paid_amount=line_amount if line_amount > 0 else 0,
+                pending_amount=0,
+                client_address=main_job.client_address,
+                state=main_job.state,
+                city=main_job.city,
+                master_country=main_job.master_country,
+                master_state=main_job.master_state,
+                master_city=main_job.master_city,
+                master_location=main_job.master_location,
+                full_address=main_job.full_address,
+                reference=main_job.reference,
+                technician=main_job.technician,
+                partner=main_job.partner,
+                assigned_to=main_job.assigned_to or '',
+                status=child_status,
+                completed_at=(
+                    main_job.completed_at or timezone.now()
+                    if child_status == JobCard.JobStatus.DONE
+                    else None
+                ),
+                payment_status=JobCard.PaymentStatus.PAID,
+                is_service_call=False,
+                is_followup_visit=False,
+                included_in_amc=False,
+                created_by=main_job.created_by,
+                creation_source=JobCard.CreationSource.AMC_AUTO,
+            )
+            rev = revenue_fields_from_parent(main_job)
+            rev.pop('planned_visit_count', None)
+            rev['payout_status'] = JobCard.PayoutStatus.NOT_APPLICABLE
+            for key, value in rev.items():
+                setattr(child, key, value)
+            enforce_fixed_service_rules_on_job(child)
+            child.save()
+            for part in main_job.technician_participations.all():
+                JobCardTechnicianParticipation.objects.update_or_create(
+                    jobcard=child,
+                    technician_id=part.technician_id,
+                    defaults={
+                        'partner_id': part.partner_id,
+                        'role': part.role,
+                        'attendance_status': part.attendance_status,
+                        'is_payout_eligible': part.is_payout_eligible,
+                        'checked_in_at': part.checked_in_at,
+                        'checked_out_at': part.checked_out_at,
+                    },
+                )
+            created.append(child)
+            logger.info(
+                'Backfilled day-1 visit %s for %s under package %s',
+                child.id,
+                service,
+                main_job.id,
+            )
+
+        if created and main_job.visit_type != 'MULTI SERVICE PACKAGE':
+            main_job.visit_type = 'MULTI SERVICE PACKAGE'
+            main_job.save(update_fields=['visit_type', 'updated_at'])
+        return created
 
     @staticmethod
     def generate_all_visits(main_job) -> list[Any]:
@@ -738,7 +978,11 @@ class BookingScheduleEngine:
             if first_plans and not main_job.visit_type:
                 main_job.visit_type = first_plans[0].visit_type
                 update_fields.append('visit_type')
-            if first_service and not main_job.source_service:
+            # Never overwrite a clean single-service name with a multi-pest blob.
+            if first_service and (
+                not main_job.source_service
+                or ',' in (main_job.source_service or '')
+            ):
                 main_job.source_service = first_service
                 update_fields.append('source_service')
 

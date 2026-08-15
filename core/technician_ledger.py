@@ -320,11 +320,33 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
 
     share_pct = job.technician_share_percent or 40
     service_number = None
+    booking_type_label = _booking_type_label(economics)
+
+    from core.payout_engine import is_bed_bug_multi_visit, service_line_package_amount
+
+    # Bed Bugs = always 2 services (not plain One-Time, not AMC subscription).
+    if is_bed_bug_multi_visit(job):
+        planned = max(int(planned or 0), 2)
+        cycle = int(cycle or 1)
+        service_number = f'Service {cycle} of {planned}'
+        booking_type_label = '2-Service Package'
+        # Follow-up / service-call must not re-bill full package as a new booking.
+        if job.is_followup_visit or job.parent_job_id or (job.service_cycle or 1) > 1:
+            booking_amount = service_line_package_amount(job)
     # Termite / true one-time must never show "Service 1 of 5" from stale max_cycle.
-    if economics == 'one_time':
+    elif economics == 'one_time':
         service_number = 'One-Time'
     elif planned and cycle:
         service_number = f'Service {cycle} of {planned}'
+
+    # Service calls / AMC follow-ups: booking column = package line, not a new sale.
+    if (
+        not is_bed_bug_multi_visit(job)
+        and (job.is_followup_visit or job.parent_job_id or (job.service_cycle or 1) > 1)
+    ):
+        line_pkg = service_line_package_amount(job)
+        if line_pkg > 0:
+            booking_amount = line_pkg
 
     return {
         'job_id': job.id,
@@ -335,7 +357,7 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
         'service_type': job.service_type or '',
         'city': job.master_city.name if job.master_city_id else (job.city or ''),
         'booking_type': economics,
-        'booking_type_label': _booking_type_label(economics),
+        'booking_type_label': booking_type_label,
         'status': job.status,
         'is_completed_visit': completed,
         'service_cycle': cycle,

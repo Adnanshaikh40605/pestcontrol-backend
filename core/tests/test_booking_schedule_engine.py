@@ -266,6 +266,59 @@ class AutoVisitGenerationTests(TestCase):
 class MultiServiceSeparateVisitTests(TestCase):
     """Cockroach + Bed Bugs + Mosquito → separate JobCards (not one combined ledger row)."""
 
+    def test_backfill_creates_day1_when_only_followups_exist(self):
+        """Legacy multi packages often only had cycle 2+ children — heal day-1 rows."""
+        client = Client.objects.create(
+            full_name='Legacy Multi', mobile='9876543400', city='Pune',
+        )
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Termite, Bed Bugs',
+            service_items=[
+                {'service': 'Termite', 'plan': 'One Time Service', 'area': '2 BHK', 'amount': 2500},
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'area': '2 BHK', 'amount': 2500},
+            ],
+            schedule_datetime=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            time_slot='10:00 AM',
+            price='5000',
+            total_amount=5000,
+            reference='Poster',
+            client_address='Test address',
+            status=JobCard.JobStatus.DONE,
+            payment_model=JobCard.PaymentModel.REVENUE_SHARING,
+        )
+        # Simulate legacy: only Bed Bugs cycle 2 exists (no day-1 rows).
+        JobCard.objects.create(
+            client=client,
+            parent_job=job,
+            service_type='Bed Bugs',
+            source_service='Bed Bugs',
+            service_cycle=2,
+            max_cycle=2,
+            planned_visit_count=2,
+            schedule_datetime=datetime(2026, 8, 15, 10, 0, tzinfo=dt_timezone.utc),
+            status=JobCard.JobStatus.UPCOMING,
+            is_followup_visit=True,
+            is_auto_generated=True,
+            price='0',
+            total_amount=0,
+        )
+        self.assertEqual(
+            JobCard.objects.filter(parent_job=job, service_cycle=1).count(),
+            0,
+        )
+        created = BookingScheduleEngine.backfill_missing_day1_children(job)
+        self.assertEqual(len(created), 2)
+        day1 = {
+            c.source_service: c
+            for c in JobCard.objects.filter(parent_job=job, service_cycle=1)
+        }
+        self.assertEqual(set(day1), {'Termite', 'Bed Bugs'})
+        self.assertEqual(day1['Termite'].status, JobCard.JobStatus.DONE)
+        self.assertEqual(day1['Bed Bugs'].planned_visit_count, 2)
+        from core.payment_utils import parse_jobcard_price
+        self.assertEqual(parse_jobcard_price(day1['Termite'].price), 2500)
+
     def test_multi_service_creates_day1_row_per_service(self):
         client = Client.objects.create(
             full_name='Multi User', mobile='9876543401', city='Pune',

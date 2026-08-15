@@ -185,7 +185,12 @@ def _visit_divisor(job, root) -> int:
 
 
 def is_amc_economics(job) -> bool:
-    from core.booking_schedule_engine import is_termite_only_service
+    from core.booking_schedule_engine import (
+        is_amc_plan,
+        is_fixed_visit_service,
+        is_termite_only_service,
+        service_line_names,
+    )
     from core.models import JobCard
 
     # Product rule: Termite-only is always One-Time (never AMC / service-call chain).
@@ -201,6 +206,27 @@ def is_amc_economics(job) -> bool:
     )
     if is_termite_only_service(termite_text) or is_termite_only_service(job.source_service or ''):
         return False
+
+    # Prefer live service_items plans over stale AMC flags (edit One-Time after AMC create).
+    items = job.service_items if isinstance(getattr(job, 'service_items', None), list) else []
+    if items:
+        names = service_line_names(items)
+        # Single-line (or this child's single item): trust that line's plan.
+        if len(names) == 1 or job.parent_job_id:
+            line = items[0] if job.parent_job_id or len(items) == 1 else None
+            if line is None and job.source_service:
+                for item in items:
+                    if str((item or {}).get('service') or '').strip().lower() == (
+                        job.source_service or ''
+                    ).strip().lower():
+                        line = item
+                        break
+            if line is not None:
+                svc = str((line or {}).get('service') or '')
+                plan = str((line or {}).get('plan') or (line or {}).get('frequency') or '')
+                if is_fixed_visit_service(svc):
+                    return False
+                return is_amc_plan(plan)
 
     # Per-service child of a multi-service package: use THIS line's flags only.
     if job.parent_job_id:
@@ -229,25 +255,47 @@ def is_amc_economics(job) -> bool:
 
 def is_bed_bug_multi_visit(job) -> bool:
     """Bed Bugs is always 2 services — settle 40% of (line package ÷ 2) per completed visit."""
-    from core.booking_schedule_engine import is_bed_bug_service
+    from core.booking_schedule_engine import is_bed_bug_service, service_line_names
 
-    for text in (
-        job.service_type,
-        job.source_service,
-    ):
-        if is_bed_bug_service(text or ''):
-            return True
+    # Prefer the dedicated line name (day-1 / follow-up children set source_service).
+    source = (job.source_service or '').strip()
+    if source:
+        return is_bed_bug_service(source)
+
     items = getattr(job, 'service_items', None) or []
-    if isinstance(items, list):
-        for item in items:
-            if is_bed_bug_service(str((item or {}).get('service') or '')):
-                return True
-    # Only fall back to package root labels when this job has no own service name
-    if not (job.service_type or job.source_service):
-        root = _package_root(job)
-        for text in (root.service_type, root.source_service):
-            if is_bed_bug_service(text or ''):
-                return True
+    if isinstance(items, list) and items:
+        names = service_line_names(items)
+        if len(names) == 1:
+            return is_bed_bug_service(names[0])
+        # Multi-service package shell is not itself a Bed Bugs visit.
+        if len(names) > 1 and not job.parent_job_id:
+            return False
+
+    service_type = (job.service_type or '').strip()
+    if service_type:
+        # Avoid treating "Termite, Bed Bugs" combined labels as Bed Bugs-only.
+        if ',' in service_type or any(
+            marker in service_type.lower()
+            for marker in ('cockroach', 'termite', 'mosquito', 'rodent', ' ant', '/ ant')
+        ):
+            if not is_bed_bug_service(service_type):
+                return False
+            # Combined blob that mentions bed bugs plus other pests → not bed-bug-only.
+            other = (
+                'cockroach' in service_type.lower()
+                or 'termite' in service_type.lower()
+                or 'mosquito' in service_type.lower()
+                or 'rodent' in service_type.lower()
+            )
+            if other or ',' in service_type:
+                return False
+        return is_bed_bug_service(service_type)
+
+    # Last resort: package root labels only when this job has no own service name.
+    root = _package_root(job)
+    for text in (root.source_service, root.service_type):
+        if text and is_bed_bug_service(text) and ',' not in text:
+            return True
     return False
 
 
@@ -341,13 +389,19 @@ def _eligible_partner_participations(job) -> list:
     A Partner app login is preferred (for PartnerEarning rows) but NOT required —
     CRM desk-assigned partner technicians still get the visit commission via
     participation.payout_amount_snapshot so the Technician Ledger shows Tech 40%.
+
+    When the job is already Done, desk-assigned crew (attendance=assigned) are
+    treated as completed so 40% splits equally across all assigned partner techs.
     """
-    from core.models import JobCardTechnicianParticipation, Technician
+    from core.models import JobCard, JobCardTechnicianParticipation, Technician
 
     attended = {
         JobCardTechnicianParticipation.AttendanceStatus.CHECKED_IN,
         JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
     }
+    if job.status == JobCard.JobStatus.DONE:
+        attended.add(JobCardTechnicianParticipation.AttendanceStatus.ASSIGNED)
+
     rows = list(
         job.technician_participations.select_related('technician', 'partner').filter(
             attendance_status__in=attended,
@@ -399,24 +453,33 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
     if not is_revenue_model_enabled() and not force:
         return PayoutResult(skipped=True, reason='feature_flag_off')
 
-    # Multi-service package shell: payment lives here, tech share is on per-service children.
-    if is_multi_service_package_shell(job):
-        job.visit_revenue_amount = Decimal('0.00')
-        job.technician_pool_amount = Decimal('0.00')
-        job.company_share_amount = Decimal('0.00')
-        job.visit_payout_amount = Decimal('0.00')
-        job.payout_status = JobCard.PayoutStatus.NOT_APPLICABLE
-        job.save(update_fields=[
-            'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
-            'visit_payout_amount', 'payout_status', 'updated_at',
-        ])
-        return PayoutResult(
-            skipped=True,
-            reason='multi_service_package_shell',
-            payout_status=job.payout_status,
-        )
+    # Multi-service package: ensure day-1 per-service children exist, then never
+    # pay 40% on the shell (tech share lives on those children).
+    from core.booking_schedule_engine import (
+        BookingScheduleEngine,
+        is_multi_service_booking,
+    )
 
-    if job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
+    if is_multi_service_booking(job) and not job.parent_job_id:
+        BookingScheduleEngine.backfill_missing_day1_children(job)
+        job.refresh_from_db()
+        if is_multi_service_package_shell(job):
+            job.visit_revenue_amount = Decimal('0.00')
+            job.technician_pool_amount = Decimal('0.00')
+            job.company_share_amount = Decimal('0.00')
+            job.visit_payout_amount = Decimal('0.00')
+            job.payout_status = JobCard.PayoutStatus.NOT_APPLICABLE
+            job.save(update_fields=[
+                'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
+                'visit_payout_amount', 'payout_status', 'updated_at',
+            ])
+            return PayoutResult(
+                skipped=True,
+                reason='multi_service_package_shell',
+                payout_status=job.payout_status,
+            )
+
+    if job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT and not force:
         return PayoutResult(skipped=True, reason='legacy_exempt', payout_status=job.payout_status)
 
     if job.payout_status in (
