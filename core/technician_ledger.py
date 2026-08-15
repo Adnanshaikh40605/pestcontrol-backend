@@ -239,9 +239,12 @@ def job_needs_payout_heal(job) -> bool:
     )
     from core.models import JobCard
     from core.payout_engine import (
+        is_amc_economics,
         is_bed_bug_multi_visit,
         service_line_package_amount,
         quantize_money,
+        _visit_divisor,
+        _package_root,
     )
 
     if job.status != JobCard.JobStatus.DONE:
@@ -296,6 +299,21 @@ def job_needs_payout_heal(job) -> bool:
         full_tech = quantize_money(package * Decimal('0.40'))
         if visit_pay >= full_tech and expected < package:
             return True
+
+    # AMC: full package credited on one visit instead of package ÷ N services.
+    if is_amc_economics(job) and package > 0 and not is_bed_bug_multi_visit(job):
+        divisor = max(_visit_divisor(job, _package_root(job)), 1)
+        if divisor > 1:
+            expected_rev = quantize_money(package / Decimal(str(divisor)))
+            # Wrong when stored visit revenue is ~full package (or far above per-visit).
+            if visit_rev >= package or (
+                expected_rev > 0 and visit_rev > expected_rev * Decimal('1.25')
+            ):
+                return True
+            expected_tech = quantize_money(expected_rev * Decimal('0.40'))
+            full_tech = quantize_money(package * Decimal('0.40'))
+            if visit_pay >= full_tech and expected_tech < full_tech:
+                return True
 
     # Two+ assigned partner techs but only one got the pool (others ₹0).
     parts = list(job.technician_participations.all())

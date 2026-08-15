@@ -31,13 +31,19 @@ from core.booking_schedule_engine import (
 )
 from core.models import JobCard
 from core.payment_utils import parse_jobcard_price
-from core.payout_engine import calculate_and_apply_payout, is_bed_bug_multi_visit
-from core.technician_ledger import heal_stuck_payouts
+from core.payout_engine import (
+    calculate_and_apply_payout,
+    is_amc_economics,
+    is_bed_bug_multi_visit,
+    service_line_package_amount,
+)
+from core.technician_ledger import heal_stuck_payouts, job_needs_payout_heal
 
 # Team-reported production IDs (Technician Ledger audits).
 REPORTED_BOOKING_IDS = (
     2171, 2252, 2088, 1940, 1925, 2255, 2241, 1965, 2067, 2153, 2122,
     2085, 1928, 1895, 2034, 2213, 1909,
+    1934, 2147, 2103,
 )
 
 
@@ -77,13 +83,14 @@ class Command(BaseCommand):
         multi = self._heal_multi_service_packages(dry, ids)
         plan_sync = self._heal_plan_sync(dry, ids)
         amount_sync = self._heal_amount_mismatches(dry, ids)
+        amc_full = self._heal_amc_full_package_visits(dry)
         targeted = self._heal_reported_bookings(dry, ids)
 
         self.stdout.write(self.style.SUCCESS(
             f"termite_checkups={cancelled}, termite_mains={healed_mains}, "
             f"zero_share={healed_zero}, bed_bug={healed_bed}, "
             f"multi_day1={multi}, plan_sync={plan_sync}, "
-            f"amount_sync={amount_sync}, reported={targeted}"
+            f"amount_sync={amount_sync}, amc_full={amc_full}, reported={targeted}"
             + (' (dry-run)' if dry else '')
         ))
 
@@ -178,6 +185,51 @@ class Command(BaseCommand):
                 job.save(update_fields=update_fields)
             if needs_payout:
                 calculate_and_apply_payout(job, force=True)
+        return fixed
+
+    def _heal_amc_full_package_visits(self, dry: bool) -> int:
+        """
+        AMC Done visits that stored full package × 40% instead of (package ÷ N) × 40%.
+        Example: #1934 AMC 3 Services ₹2500 → must be ₹333.33 tech, not ₹1000.
+        """
+        qs = JobCard.objects.filter(
+            status=JobCard.JobStatus.DONE,
+        ).filter(
+            Q(service_category=JobCard.ServiceCategory.AMC)
+            | Q(is_amc_main_booking=True)
+            | Q(included_in_amc=True)
+            | Q(is_followup_visit=True)
+            | Q(booking_type=JobCard.BookingType.AMC_MAIN)
+            | Q(booking_type=JobCard.BookingType.AMC_FOLLOWUP)
+            | Q(max_cycle__gt=1)
+            | Q(planned_visit_count__gt=1)
+        ).exclude(
+            payout_status__in=[
+                JobCard.PayoutStatus.APPROVED,
+                JobCard.PayoutStatus.PAID,
+                JobCard.PayoutStatus.CANCELLED,
+            ],
+        )
+        fixed = 0
+        for job in qs.iterator():
+            if is_bed_bug_multi_visit(job):
+                continue
+            if not is_amc_economics(job):
+                continue
+            if not job_needs_payout_heal(job):
+                continue
+            package = service_line_package_amount(job)
+            if package <= 0:
+                continue
+            fixed += 1
+            self.stdout.write(
+                f"  amc-fix #{job.id}: rev={job.visit_revenue_amount} "
+                f"pay={job.visit_payout_amount} max={job.max_cycle} "
+                f"planned={job.planned_visit_count}"
+            )
+            if dry:
+                continue
+            calculate_and_apply_payout(job, force=True)
         return fixed
 
     def _heal_zero_shares(self, dry: bool) -> int:

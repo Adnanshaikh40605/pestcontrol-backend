@@ -210,6 +210,55 @@ class TechnicianLedgerCrossCheckTests(TestCase):
         self.assertEqual(Decimal(str(job.visit_payout_amount)), Decimal('800.00'))
         self.assertFalse(job.is_amc_main_booking)
 
+    def test_amc_three_services_per_visit_not_full_package(self):
+        """AMC ₹2500 / 3 → Service ₹833.33, Tech ₹333.33 (not ₹1000 on visit 1)."""
+        job = JobCard.objects.create(
+            client=self.client_obj,
+            service_type='Cockroach / Ants',
+            source_service='Cockroach / Ants',
+            service_items=[
+                {
+                    'service': 'Cockroach / Ants',
+                    'plan': 'AMC 3 Services',
+                    'area': '2 BHK',
+                    'amount': 2500,
+                },
+            ],
+            schedule_datetime=datetime(2026, 8, 3, 10, 0, tzinfo=dt_timezone.utc),
+            price='2500',
+            total_amount=2500,
+            status=JobCard.JobStatus.DONE,
+            payment_model=JobCard.PaymentModel.REVENUE_SHARING,
+            technician_share_percent=Decimal('40.00'),
+            company_share_percent=Decimal('60.00'),
+            technician=self.tech,
+            partner=self.partner,
+            service_category=JobCard.ServiceCategory.AMC,
+            is_amc_main_booking=True,
+            max_cycle=3,
+            service_cycle=1,
+            # Simulate the production bug: full package already stored as visit revenue.
+            visit_revenue_amount=Decimal('2500.00'),
+            technician_pool_amount=Decimal('1000.00'),
+            visit_payout_amount=Decimal('1000.00'),
+            payout_status=JobCard.PayoutStatus.PENDING,
+            reference='Poster',
+            client_address='x',
+        )
+        self._part(job, self.tech, self.partner, 'completed')
+        from core.technician_ledger import job_needs_payout_heal
+
+        self.assertTrue(job_needs_payout_heal(job))
+        calculate_and_apply_payout(job, force=True)
+        job.refresh_from_db()
+        self.assertEqual(Decimal(str(job.visit_revenue_amount)), Decimal('833.33'))
+        self.assertEqual(Decimal(str(job.visit_payout_amount)), Decimal('333.33'))
+        row = serialize_ledger_row(job, self.tech)
+        self.assertEqual(row['booking_amount'], '2500.00')
+        self.assertEqual(row['visit_revenue'], '833.33')
+        self.assertEqual(row['technician_share'], '333.33')
+        self.assertEqual(row['service_number'], 'Service 1 of 3')
+
     def test_cockroach_child_not_treated_as_bed_bugs(self):
         """Multi shell items include Bed Bugs — Cockroach day-1 child must stay one-time."""
         from core.payout_engine import is_bed_bug_multi_visit

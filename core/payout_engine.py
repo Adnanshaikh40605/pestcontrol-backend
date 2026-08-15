@@ -172,16 +172,50 @@ def _package_root(job):
 
 
 def _visit_divisor(job, root) -> int:
-    # Prefer THIS visit's planned count (per-service child), not the multi package max.
+    """How many visits the package/line is split across for AMC economics."""
+    # Prefer explicit multi-visit counts first (planned / max / plan text).
     for candidate in (job.planned_visit_count, job.max_cycle):
-        if candidate and int(candidate) > 0:
+        if candidate and int(candidate) > 1:
             return int(candidate)
+
+    parsed = _amc_visits_from_service_items(job)
+    if parsed and parsed > 1:
+        return parsed
+
     if job.parent_job_id:
+        for candidate in (root.planned_visit_count, root.max_cycle):
+            if candidate and int(candidate) > 1:
+                return int(candidate)
+        parsed_root = _amc_visits_from_service_items(root)
+        if parsed_root and parsed_root > 1:
+            return parsed_root
         return 1
-    for candidate in (root.planned_visit_count, root.max_cycle):
+
+    for candidate in (job.planned_visit_count, job.max_cycle, root.planned_visit_count, root.max_cycle):
         if candidate and int(candidate) > 0:
             return int(candidate)
     return 1
+
+
+def _amc_visits_from_service_items(job) -> Optional[int]:
+    """Parse 'AMC 3 Services' (etc.) from this job's service_items / plan text."""
+    from core.booking_schedule_engine import parse_amc_visit_count
+
+    items = job.service_items if isinstance(getattr(job, 'service_items', None), list) else []
+    best = None
+    for item in items:
+        plan = str((item or {}).get('plan') or (item or {}).get('frequency') or '')
+        count = parse_amc_visit_count(plan)
+        if count and count > 1:
+            best = max(best or 0, count)
+    if best:
+        return best
+    # Fallback: visit_type / contract labels sometimes carry the count.
+    for text in (getattr(job, 'visit_type', None), getattr(job, 'contract_duration', None)):
+        count = parse_amc_visit_count(str(text or ''))
+        if count and count > 1:
+            return count
+    return None
 
 
 def is_amc_economics(job) -> bool:
@@ -525,7 +559,18 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
     if is_amc_economics(job):
         economics = 'amc'
         package_total = line_package
-        divisor = _visit_divisor(job, root)
+        divisor = max(_visit_divisor(job, root), 1)
+        # Persist visit count so ledger shows "Service X of N" and future heals stay stable.
+        if divisor > 1:
+            update_visit_fields: list[str] = []
+            if not job.planned_visit_count or int(job.planned_visit_count) < divisor:
+                job.planned_visit_count = divisor
+                update_visit_fields.append('planned_visit_count')
+            if not job.max_cycle or int(job.max_cycle) < divisor:
+                job.max_cycle = divisor
+                update_visit_fields.append('max_cycle')
+            if update_visit_fields:
+                job.save(update_fields=update_visit_fields + ['updated_at'])
         visit_revenue = quantize_money(package_total / Decimal(divisor))
     elif is_bed_bug_multi_visit(job):
         # Product rule: Bed Bugs = 2 services → per completed service value = line/2.
