@@ -164,7 +164,7 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
             'property_type', 'bhk_size',
             'price', 'payment_status', 'payment_mode',
             'payment_model', 'visit_payout_amount', 'payout_status',
-            'completed_at',
+            'started_at', 'completed_at',
         ]
 
     def _phone_visible(self, obj):

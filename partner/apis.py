@@ -730,6 +730,16 @@ class CompleteBookingAPIView(PartnerAPIView):
             return Response({"error": "Booking not found or not assigned to you."}, status=404)
         except PartnerBookingError as exc:
             return Response({"error": exc.message, "code": exc.code}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            # Surface unexpected failures as JSON so the app does not get HTML 500s.
+            logger.exception('Complete booking failed #%s: %s', id, exc)
+            return Response(
+                {
+                    "error": "Could not complete this booking. Please try again or contact support.",
+                    "code": "complete_failed",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         next_service_date = None
         try:

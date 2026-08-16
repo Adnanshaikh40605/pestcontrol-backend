@@ -555,11 +555,13 @@ class BookingScheduleEngine:
         # create missing day-1 rows first so ledger can split per service.
         BookingScheduleEngine.backfill_missing_day1_children(main_job)
 
-        children = list(
-            JobCard.objects.filter(parent_job=main_job, service_cycle=1).exclude(
-                status=JobCard.JobStatus.CANCELLED,
-            )
-        )
+        # When completing the shell, include Cancelled day-1 rows so we can
+        # revive them (CRM cancel often cascades to children while the tech
+        # is still finishing the visit). Otherwise skip Cancelled shells.
+        day1_qs = JobCard.objects.filter(parent_job=main_job, service_cycle=1)
+        if not completing:
+            day1_qs = day1_qs.exclude(status=JobCard.JobStatus.CANCELLED)
+        children = list(day1_qs)
         synced: list[Any] = []
         for child in children:
             update_fields: list[str] = []
@@ -635,11 +637,14 @@ class BookingScheduleEngine:
             plan = str(item.get('plan') or item.get('frequency') or '').strip()
             if not service:
                 continue
+            # UniqueConstraint(parent, source_service, service_cycle) applies
+            # even when the existing day-1 row is Cancelled — never insert a
+            # second row for the same key (that poisoned partner End Service).
             if JobCard.objects.filter(
                 parent_job=main_job,
                 source_service=service,
                 service_cycle=1,
-            ).exclude(status=JobCard.JobStatus.CANCELLED).exists():
+            ).exists():
                 continue
 
             preferred = None

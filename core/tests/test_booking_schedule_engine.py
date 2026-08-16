@@ -456,3 +456,113 @@ class MultiServiceSeparateVisitTests(TestCase):
             self.assertEqual(service_types, ['Bed Bugs', 'Cockroach', 'Mosquito'])
             self.assertNotIn('Cockroach, Bed Bugs, Mosquito', service_types)
 
+    def test_backfill_skips_when_cancelled_day1_already_exists(self):
+        """Regression: cancelled day-1 rows must not trigger UniqueViolation insert."""
+        client = Client.objects.create(
+            full_name='Cancel Multi', mobile='9876543403', city='Mumbai',
+        )
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Bed Bugs, Cockroach / Ants',
+            service_items=[
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'area': '4 BHK', 'amount': 4000},
+                {'service': 'Cockroach / Ants', 'plan': 'One Time Service', 'area': '4 BHK', 'amount': 2000},
+            ],
+            schedule_datetime=datetime(2026, 8, 18, 10, 0, tzinfo=dt_timezone.utc),
+            time_slot='10:00 AM',
+            price='6000',
+            total_amount=6000,
+            reference='Poster',
+            client_address='Malad',
+            status=JobCard.JobStatus.CANCELLED,
+        )
+        JobCard.objects.create(
+            client=client,
+            parent_job=job,
+            service_type='Bed Bugs',
+            source_service='Bed Bugs',
+            service_cycle=1,
+            max_cycle=2,
+            schedule_datetime=job.schedule_datetime,
+            status=JobCard.JobStatus.CANCELLED,
+            price='4000',
+            total_amount=4000,
+            is_auto_generated=True,
+        )
+        JobCard.objects.create(
+            client=client,
+            parent_job=job,
+            service_type='Cockroach / Ants',
+            source_service='Cockroach / Ants',
+            service_cycle=1,
+            max_cycle=1,
+            schedule_datetime=job.schedule_datetime,
+            status=JobCard.JobStatus.CANCELLED,
+            price='2000',
+            total_amount=2000,
+            is_auto_generated=True,
+        )
+        created = BookingScheduleEngine.backfill_missing_day1_children(job)
+        self.assertEqual(created, [])
+        self.assertEqual(
+            JobCard.objects.filter(parent_job=job, service_cycle=1).count(),
+            2,
+        )
+
+    def test_sync_completing_revives_cancelled_day1_children(self):
+        client = Client.objects.create(
+            full_name='Revive Multi', mobile='9876543404', city='Mumbai',
+        )
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Bed Bugs, Cockroach / Ants',
+            service_items=[
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'amount': 4000},
+                {'service': 'Cockroach / Ants', 'plan': 'One Time Service', 'amount': 2000},
+            ],
+            schedule_datetime=datetime(2026, 8, 18, 13, 0, tzinfo=dt_timezone.utc),
+            time_slot='01:00 PM',
+            price='6000',
+            total_amount=6000,
+            reference='Poster',
+            client_address='Malad',
+            status=JobCard.JobStatus.DONE,
+            completed_at=datetime(2026, 8, 18, 14, 0, tzinfo=dt_timezone.utc),
+            payment_model=JobCard.PaymentModel.REVENUE_SHARING,
+        )
+        bed = JobCard.objects.create(
+            client=client,
+            parent_job=job,
+            service_type='Bed Bugs',
+            source_service='Bed Bugs',
+            service_cycle=1,
+            max_cycle=2,
+            schedule_datetime=job.schedule_datetime,
+            status=JobCard.JobStatus.CANCELLED,
+            price='4000',
+            total_amount=4000,
+            is_auto_generated=True,
+        )
+        cock = JobCard.objects.create(
+            client=client,
+            parent_job=job,
+            service_type='Cockroach / Ants',
+            source_service='Cockroach / Ants',
+            service_cycle=1,
+            max_cycle=1,
+            schedule_datetime=job.schedule_datetime,
+            status=JobCard.JobStatus.CANCELLED,
+            price='2000',
+            total_amount=2000,
+            is_auto_generated=True,
+        )
+        synced = BookingScheduleEngine.sync_multi_service_day1_children(
+            job, completing=True
+        )
+        self.assertEqual(len(synced), 2)
+        bed.refresh_from_db()
+        cock.refresh_from_db()
+        self.assertEqual(bed.status, JobCard.JobStatus.DONE)
+        self.assertEqual(cock.status, JobCard.JobStatus.DONE)
+        self.assertIsNotNone(bed.completed_at)
+

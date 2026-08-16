@@ -244,6 +244,11 @@ def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCar
     ensure_partner_not_suspended(partner)
     if job.partner_id != partner.id:
         raise PartnerBookingError('Booking not assigned to you.', code='forbidden')
+    if job.status == JobCard.JobStatus.CANCELLED:
+        raise PartnerBookingError(
+            'This booking was already cancelled from CRM.',
+            code='cancelled_in_crm',
+        )
     if job.partner_status == JobCard.PartnerStatus.IN_SERVICE:
         raise PartnerBookingError('Job already started.', code='already_started')
     if job.partner_status == JobCard.PartnerStatus.COMPLETED:
@@ -340,16 +345,22 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
     elif normalized and job.payment_mode != normalized:
         job.payment_mode = normalized
         job.save(update_fields=['payment_mode', 'updated_at'])
+    # Nested atomic = savepoint. IntegrityError / other DB errors inside
+    # multi-service sync must not abort the outer complete transaction
+    # (status Done + payment already written above).
     try:
-        from core.payout_engine import try_apply_payout_after_completion
-        from core.booking_schedule_engine import (
-            BookingScheduleEngine,
-            is_multi_service_booking,
-        )
+        with transaction.atomic():
+            from core.payout_engine import try_apply_payout_after_completion
+            from core.booking_schedule_engine import (
+                BookingScheduleEngine,
+                is_multi_service_booking,
+            )
 
-        if is_multi_service_booking(job):
-            BookingScheduleEngine.sync_multi_service_day1_children(job, completing=True)
-        try_apply_payout_after_completion(job)
+            if is_multi_service_booking(job):
+                BookingScheduleEngine.sync_multi_service_day1_children(
+                    job, completing=True
+                )
+            try_apply_payout_after_completion(job)
     except Exception as exc:
         logger.exception('Payout after partner complete failed #%s: %s', job.id, exc)
     try:
