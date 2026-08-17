@@ -7,6 +7,8 @@ from django.test import TestCase
 from core.booking_schedule_engine import (
     BookingScheduleEngine,
     build_visit_plans,
+    heal_all_bed_bug_packages,
+    heal_bed_bug_package,
     parse_amc_visit_count,
     resolve_recurring_spec,
 )
@@ -261,6 +263,107 @@ class AutoVisitGenerationTests(TestCase):
         self.assertEqual(job.planned_visit_count, 2)
         self.assertEqual(job.service_category, JobCard.ServiceCategory.ONE_TIME)
         self.assertFalse(job.is_amc_main_booking)
+
+    def test_legacy_one_time_bed_bugs_is_healed_to_two_visits(self):
+        """Already-created Bed Bugs jobs saved as 1-visit One Time get visit 2."""
+        client = Client.objects.create(
+            full_name='Legacy BedBug', mobile='9876543303', city='Pune',
+        )
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Bed Bugs',
+            source_service='Bed Bugs',
+            service_items=[
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'area': '1 RK', 'amount': 1900},
+            ],
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            max_cycle=1,
+            planned_visit_count=1,
+            service_cycle=1,
+            schedule_datetime=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            time_slot='10:00 AM',
+            price='1900',
+            reference='Poster',
+            client_address='Test address',
+            status=JobCard.JobStatus.PENDING,
+        )
+        self.assertEqual(
+            JobCard.objects.filter(parent_job=job, service_cycle=2).count(),
+            0,
+        )
+        created = heal_bed_bug_package(job)
+        job.refresh_from_db()
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0].service_cycle, 2)
+        self.assertEqual(created[0].visit_type, 'BED BUG SERVICE')
+        self.assertEqual(job.max_cycle, 2)
+        self.assertEqual(job.planned_visit_count, 2)
+        self.assertTrue(
+            JobCard.objects.filter(parent_job=job, service_cycle=2).exists()
+        )
+        # Idempotent — opening the same booking again must not duplicate visit 2.
+        again = heal_bed_bug_package(job)
+        self.assertEqual(again, [])
+        self.assertEqual(
+            JobCard.objects.filter(parent_job=job, service_cycle=2).count(),
+            1,
+        )
+
+    def test_wrongly_flagged_followup_root_still_gets_second_visit(self):
+        client = Client.objects.create(
+            full_name='Flagged BedBug', mobile='9876543304', city='Pune',
+        )
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Bed Bugs',
+            service_items=[
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'area': '1 RK', 'amount': 1900},
+            ],
+            max_cycle=1,
+            planned_visit_count=1,
+            is_followup_visit=True,
+            included_in_amc=True,
+            schedule_datetime=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            time_slot='10:00 AM',
+            price='1900',
+            reference='Poster',
+            client_address='Test address',
+            status=JobCard.JobStatus.PENDING,
+        )
+        created = BookingScheduleEngine.generate_all_visits(job)
+        job.refresh_from_db()
+        self.assertEqual(len(created), 1)
+        self.assertFalse(job.is_followup_visit)
+        self.assertEqual(job.max_cycle, 2)
+
+    def test_heal_all_backfills_existing_bed_bug_bookings(self):
+        client = Client.objects.create(
+            full_name='Sweep BedBug', mobile='9876543305', city='Pune',
+        )
+        JobCard.objects.create(
+            client=client,
+            service_type='Bed Bugs',
+            service_items=[
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'area': '1 RK', 'amount': 1900},
+            ],
+            max_cycle=1,
+            planned_visit_count=1,
+            schedule_datetime=datetime(2026, 8, 1, 10, 0, tzinfo=dt_timezone.utc),
+            time_slot='10:00 AM',
+            price='1900',
+            reference='Poster',
+            client_address='Test address',
+            status=JobCard.JobStatus.PENDING,
+        )
+        result = heal_all_bed_bug_packages()
+        self.assertGreaterEqual(result['healed'], 1)
+        self.assertGreaterEqual(result['created_visits'], 1)
+        self.assertEqual(
+            JobCard.objects.filter(
+                client=client, parent_job__isnull=False, service_cycle=2,
+            ).count(),
+            1,
+        )
 
 
 class MultiServiceSeparateVisitTests(TestCase):

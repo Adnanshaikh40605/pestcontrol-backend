@@ -434,7 +434,15 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
     from core.payout_engine import is_bed_bug_multi_visit, service_line_package_amount
 
     # Bed Bugs = always 2 services (not plain One-Time, not AMC subscription).
-    if is_bed_bug_multi_visit(job):
+    bed_bug_line = is_bed_bug_multi_visit(job)
+    if not bed_bug_line:
+        primary = (job.source_service or job.service_type or '').strip()
+        from core.booking_schedule_engine import is_bed_bug_service
+
+        if primary and is_bed_bug_service(primary) and ',' not in primary:
+            bed_bug_line = True
+
+    if bed_bug_line:
         planned = max(int(planned or 0), 2)
         cycle = int(cycle or 1)
         service_number = f'Service {cycle} of {planned}'
@@ -450,7 +458,7 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
 
     # Service calls / AMC follow-ups: booking column = package line, not a new sale.
     if (
-        not is_bed_bug_multi_visit(job)
+        not bed_bug_line
         and (job.is_followup_visit or job.parent_job_id or (job.service_cycle or 1) > 1)
     ):
         line_pkg = service_line_package_amount(job)

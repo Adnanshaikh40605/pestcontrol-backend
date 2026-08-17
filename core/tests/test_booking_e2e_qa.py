@@ -299,6 +299,41 @@ class BookingFlowTests(BookingE2EBase):
         self.assertEqual(main.visit_type or 'TERMITE TREATMENT', 'TERMITE TREATMENT')
         self.assertLessEqual(main.planned_visit_count or 1, 1)
 
+    def test_opening_legacy_bed_bugs_booking_creates_second_visit(self):
+        """GET /jobcards/:id heals already-created Bed Bugs jobs that were 1-visit."""
+        client = Client.objects.create(
+            full_name='Legacy Open',
+            mobile=self._next_mobile(),
+            city='Pune',
+        )
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Bed Bugs',
+            source_service='Bed Bugs',
+            service_items=[
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'area': '1 RK', 'amount': 1900},
+            ],
+            max_cycle=1,
+            planned_visit_count=1,
+            service_cycle=1,
+            schedule_datetime=self.schedule_base,
+            time_slot='10:00 AM',
+            price='1900',
+            total_amount=1900,
+            reference='Poster',
+            client_address='Test address',
+            master_location=self.location,
+            status=JobCard.JobStatus.PENDING,
+        )
+        self.assertEqual(self._child_visits(job).count(), 0)
+
+        detail = self.api.get(f'/api/v1/jobcards/{job.id}/')
+        self.assertEqual(detail.status_code, 200, detail.data)
+        job.refresh_from_db()
+        self.assertEqual(job.max_cycle, 2)
+        self.assertEqual(job.planned_visit_count, 2)
+        self.assertEqual(self._child_visits(job).filter(service_cycle=2).count(), 1)
+
 
 class BookingValidationTests(BookingE2EBase):
     """Required fields, invalid inputs, idempotency."""

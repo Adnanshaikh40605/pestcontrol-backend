@@ -296,6 +296,120 @@ def enforce_fixed_service_rules_on_job(job) -> list[str]:
     return list(dict.fromkeys(changed))
 
 
+def job_includes_bed_bugs(job) -> bool:
+    """True when this JobCard is a Bed Bugs line or a package that includes one."""
+    if is_bed_bug_service(getattr(job, 'service_type', None) or ''):
+        return True
+    if is_bed_bug_service(getattr(job, 'source_service', None) or ''):
+        return True
+    if is_bed_bug_service(getattr(job, 'visit_type', None) or ''):
+        return True
+    items = getattr(job, 'service_items', None)
+    if isinstance(items, list):
+        for item in items:
+            if is_bed_bug_service(str((item or {}).get('service') or '')):
+                return True
+    return False
+
+
+def heal_bed_bug_package(job) -> list[Any]:
+    """
+    Repair an existing Bed Bugs booking saved as One-Time / 1 visit.
+
+    Locks max_cycle + planned_visit_count to 2 and creates the missing
+    ~15-day follow-up JobCard. Idempotent.
+    """
+    from core.models import JobCard
+    from core.payout_engine import calculate_and_apply_payout
+
+    if job is None:
+        return []
+
+    root = job.parent_job or job
+    if getattr(root, 'status', None) == JobCard.JobStatus.CANCELLED:
+        return []
+    if not job_includes_bed_bugs(root) and not job_includes_bed_bugs(job):
+        return []
+
+    changed = enforce_fixed_service_rules_on_job(root)
+    if changed:
+        root.save(update_fields=list(dict.fromkeys(changed + ['updated_at'])))
+
+    created = BookingScheduleEngine.generate_all_visits(root)
+    try:
+        root.refresh_from_db()
+    except Exception:
+        pass
+
+    children = JobCard.objects.filter(parent_job=root).exclude(
+        status=JobCard.JobStatus.CANCELLED,
+    )
+    for child in children:
+        if not job_includes_bed_bugs(child):
+            continue
+        child_changed = enforce_fixed_service_rules_on_job(child)
+        if child_changed:
+            child.save(update_fields=list(dict.fromkeys(child_changed + ['updated_at'])))
+
+    if (
+        changed
+        and root.status == JobCard.JobStatus.DONE
+        and root.payout_status != JobCard.PayoutStatus.LEGACY_EXEMPT
+        and job_includes_bed_bugs(root)
+        and not is_multi_service_booking(root)
+    ):
+        calculate_and_apply_payout(root, force=True)
+
+    return created
+
+
+def heal_all_bed_bug_packages(*, dry: bool = False) -> dict[str, int]:
+    """Sweep every non-cancelled Bed Bugs root booking and backfill visit 2."""
+    from core.models import JobCard
+
+    qs = (
+        JobCard.objects.filter(parent_job__isnull=True)
+        .exclude(status=JobCard.JobStatus.CANCELLED)
+        .filter(
+            Q(service_type__icontains='bed')
+            | Q(source_service__icontains='bed')
+            | Q(visit_type__icontains='bed')
+        )
+    )
+    scanned = 0
+    healed = 0
+    created_visits = 0
+    for job in qs.iterator():
+        if not job_includes_bed_bugs(job):
+            continue
+        scanned += 1
+        has_second = JobCard.objects.filter(
+            parent_job=job,
+            service_cycle=2,
+        ).exclude(status=JobCard.JobStatus.CANCELLED).filter(
+            Q(source_service__icontains='bed')
+            | Q(service_type__icontains='bed')
+            | Q(visit_type__icontains='bed')
+        ).exists()
+        single = not is_multi_service_booking(job)
+        flags_wrong = single and (
+            (job.max_cycle or 0) != 2 or (job.planned_visit_count or 0) != 2
+        )
+        needs_followup = bool(job.schedule_datetime) and not has_second
+        if not flags_wrong and not needs_followup:
+            continue
+        healed += 1
+        if dry:
+            continue
+        created = heal_bed_bug_package(job)
+        created_visits += len(created)
+    return {
+        'scanned': scanned,
+        'healed': healed,
+        'created_visits': created_visits,
+    }
+
+
 def sync_plan_flags_from_service_items(job) -> list[str]:
     """
     When CRM edits service_items (e.g. AMC → One-Time), clear stale AMC flags
@@ -780,15 +894,17 @@ class BookingScheduleEngine:
         from core.jobcard_schedule import schedule_datetime_from_service_date
         from core.payment_utils import parse_jobcard_price
 
+        # Lock Termite / Bed Bugs fields first so a root wrongly flagged as a
+        # follow-up still gets its 2nd visit generated.
+        if not getattr(main_job, 'parent_job_id', None):
+            fixed_fields = enforce_fixed_service_rules_on_job(main_job)
+            if fixed_fields:
+                main_job.save(update_fields=list(dict.fromkeys(fixed_fields + ['updated_at'])))
+
         if main_job.is_followup_visit or main_job.is_complaint_call:
             return []
         if not main_job.schedule_datetime:
             return []
-
-        # Lock Termite / Bed Bugs fields before generating children.
-        fixed_fields = enforce_fixed_service_rules_on_job(main_job)
-        if fixed_fields:
-            main_job.save(update_fields=list(dict.fromkeys(fixed_fields + ['updated_at'])))
 
         start_date = main_job.schedule_datetime.date()
         contract_months = parse_contract_months(getattr(main_job, 'contract_duration', None))

@@ -2793,6 +2793,23 @@ class JobCardViewSet(BaseModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    def retrieve(self, request, *args, **kwargs):
+        """Open booking: backfill Bed Bugs 2nd visit on already-created jobs."""
+        instance = self.get_object()
+        try:
+            from core.booking_schedule_engine import heal_bed_bug_package, job_includes_bed_bugs
+
+            if job_includes_bed_bugs(instance):
+                heal_bed_bug_package(instance)
+                instance.refresh_from_db()
+        except Exception:
+            logger.exception(
+                'Bed Bugs heal failed on retrieve for %s',
+                getattr(instance, 'code', instance.pk),
+            )
+        serializer = self.get_serializer(instance)
+        return response.Response(serializer.data)
+
     def update(self, request, *args, **kwargs):
         """Update job card and generate renewals if relevant fields changed."""
         partial = kwargs.pop('partial', False)
@@ -2859,6 +2876,17 @@ class JobCardViewSet(BaseModelViewSet):
                     instance.save(update_fields=['done_by'])
             
             logger.info(f"✅ JobCard {instance.code} updated. New Price in DB: {instance.price}")
+
+            try:
+                from core.booking_schedule_engine import heal_bed_bug_package
+
+                heal_bed_bug_package(instance)
+                instance.refresh_from_db()
+            except Exception:
+                logger.exception(
+                    'Bed Bugs visit generation failed after update for %s',
+                    instance.code,
+                )
 
             newly_completed = (
                 instance.status == JobCard.JobStatus.DONE

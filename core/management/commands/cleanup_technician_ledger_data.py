@@ -23,6 +23,7 @@ from django.db.models import Q
 from core.booking_schedule_engine import (
     BookingScheduleEngine,
     enforce_fixed_service_rules_on_job,
+    heal_all_bed_bug_packages,
     is_bed_bug_service,
     is_multi_service_booking,
     is_termite_only_service,
@@ -74,10 +75,19 @@ class Command(BaseCommand):
         reported_only = options['reported_only']
 
         cancelled = healed_mains = healed_zero = healed_bed = 0
+        bed_packages = {'scanned': 0, 'healed': 0, 'created_visits': 0}
         if not reported_only:
             cancelled = self._cancel_termite_checkups(dry)
             healed_mains = self._heal_termite_mains(dry)
             healed_zero = self._heal_zero_shares(dry)
+            bed_packages = heal_all_bed_bug_packages(dry=dry)
+            self.stdout.write(
+                '  bed-bug packages: '
+                f"scanned={bed_packages['scanned']} "
+                f"healed={bed_packages['healed']} "
+                f"created_visits={bed_packages['created_visits']}"
+                + (' (dry-run)' if dry else '')
+            )
             healed_bed = self._heal_bed_bug_shares(dry)
 
         multi = self._heal_multi_service_packages(dry, ids)
@@ -88,7 +98,10 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f"termite_checkups={cancelled}, termite_mains={healed_mains}, "
-            f"zero_share={healed_zero}, bed_bug={healed_bed}, "
+            f"zero_share={healed_zero}, "
+            f"bed_bug_packages={bed_packages['healed']}/"
+            f"{bed_packages['created_visits']}, "
+            f"bed_bug_payout={healed_bed}, "
             f"multi_day1={multi}, plan_sync={plan_sync}, "
             f"amount_sync={amount_sync}, amc_full={amc_full}, reported={targeted}"
             + (' (dry-run)' if dry else '')
