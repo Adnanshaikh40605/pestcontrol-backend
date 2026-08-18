@@ -409,6 +409,72 @@ def ensure_lead_participation(job) -> Optional[object]:
     return row
 
 
+def replace_stale_lead_participation(job, previous_technician_id) -> None:
+    """When the assigned technician changes, drop the old lead row (keep extra crew)."""
+    from core.models import JobCardTechnicianParticipation
+
+    if not previous_technician_id or previous_technician_id == job.technician_id:
+        return
+    JobCardTechnicianParticipation.objects.filter(
+        jobcard=job,
+        technician_id=previous_technician_id,
+        role=JobCardTechnicianParticipation.Role.LEAD,
+    ).delete()
+
+
+def reassign_job_technician(job, technician) -> dict:
+    """
+    Move a completed (or open) visit onto a different technician and rebuild ledger.
+
+    Used to repair package-sync overwrites (e.g. VAMA #2260 Cockroach → Akshay
+    while #2263 Termite stays Mustafa). Does not change sibling service lines.
+    """
+    from core.models import JobCardTechnicianParticipation
+    from partner.models import PartnerEarning
+
+    previous_id = job.technician_id
+    previous_name = job.technician.name if job.technician_id else (job.assigned_to or '')
+    partner = getattr(technician, 'partner_account', None)
+
+    job.technician = technician
+    job.assigned_to = technician.name
+    update_fields = ['technician', 'assigned_to', 'updated_at']
+    if partner is not None:
+        job.partner = partner
+        update_fields.append('partner')
+    job.save(update_fields=update_fields)
+
+    replace_stale_lead_participation(job, previous_id)
+    ensure_lead_participation(job)
+
+    payout = None
+    if job.status == job.JobStatus.DONE:
+        payout = calculate_and_apply_payout(job, force=True)
+        job.refresh_from_db()
+        keep_partner_ids = set()
+        for row in job.technician_participations.select_related('partner', 'technician').all():
+            resolved = row.partner or getattr(row.technician, 'partner_account', None)
+            if resolved:
+                keep_partner_ids.add(resolved.id)
+        stale = PartnerEarning.objects.filter(
+            job=job,
+            earning_type=PartnerEarning.EarningType.REVENUE_SHARE,
+        )
+        if keep_partner_ids:
+            stale = stale.exclude(partner_id__in=keep_partner_ids)
+        stale.delete()
+
+    return {
+        'job_id': job.id,
+        'previous_technician_id': previous_id,
+        'previous_technician_name': previous_name,
+        'technician_id': technician.id,
+        'technician_name': technician.name,
+        'payout_status': job.payout_status,
+        'payout_reason': getattr(payout, 'reason', None),
+    }
+
+
 def _eligible_partner_participations(job) -> list:
     """
     Partner-type technicians who attended the visit earn from the 40% pool.

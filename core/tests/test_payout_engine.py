@@ -318,3 +318,48 @@ class PayoutEngineTests(TestCase):
         self.assertEqual(job.visit_payout_amount, Decimal('1000.00'))
         earning = PartnerEarning.objects.get(job=job, partner=partner)
         self.assertEqual(earning.amount, Decimal('1000.00'))
+
+    def test_reassign_completed_visit_moves_ledger_to_new_technician(self):
+        from core.payout_engine import reassign_job_technician
+        from core.technician_ledger import serialize_ledger_row
+
+        mustafa, p_m = self._make_partner_tech('9000000011', 'Mustafa')
+        akshay, p_a = self._make_partner_tech('9000000012', 'Akshay')
+        job = self._base_job(
+            technician=mustafa,
+            partner=p_m,
+            service_type='Cockroach / Ants',
+            service_category=JobCard.ServiceCategory.AMC,
+            price='7000',
+            total_amount=Decimal('7000.00'),
+            planned_visit_count=3,
+            max_cycle=3,
+            service_cycle=1,
+        )
+        JobCardTechnicianParticipation.objects.create(
+            jobcard=job,
+            technician=mustafa,
+            partner=p_m,
+            role=JobCardTechnicianParticipation.Role.LEAD,
+            attendance_status=JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
+        )
+        calculate_and_apply_payout(job, force=True)
+        self.assertTrue(PartnerEarning.objects.filter(job=job, partner=p_m).exists())
+
+        result = reassign_job_technician(job, akshay)
+        job.refresh_from_db()
+        self.assertEqual(job.technician_id, akshay.id)
+        self.assertEqual(job.assigned_to, 'Akshay')
+        self.assertEqual(result['previous_technician_id'], mustafa.id)
+        self.assertFalse(
+            JobCardTechnicianParticipation.objects.filter(jobcard=job, technician=mustafa).exists()
+        )
+        self.assertTrue(
+            JobCardTechnicianParticipation.objects.filter(jobcard=job, technician=akshay).exists()
+        )
+        self.assertFalse(PartnerEarning.objects.filter(job=job, partner=p_m).exists())
+        self.assertTrue(PartnerEarning.objects.filter(job=job, partner=p_a).exists())
+        row_a = serialize_ledger_row(job, akshay)
+        row_m = serialize_ledger_row(job, mustafa)
+        self.assertGreater(Decimal(row_a['technician_share']), Decimal('0.00'))
+        self.assertEqual(Decimal(row_m['technician_share']), Decimal('0.00'))

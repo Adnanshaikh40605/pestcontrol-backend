@@ -559,6 +559,125 @@ class MultiServiceSeparateVisitTests(TestCase):
             self.assertEqual(service_types, ['Bed Bugs', 'Cockroach', 'Mosquito'])
             self.assertNotIn('Cockroach, Bed Bugs, Mosquito', service_types)
 
+    def test_complete_package_preserves_per_service_technicians(self):
+        """VAMA case: Cockroach by Akshay + Termite by Mustafa must not both become Mustafa."""
+        from core.models import JobCardTechnicianParticipation, Technician
+
+        client = Client.objects.create(
+            full_name='Vama Events', mobile='9833401652', city='Mumbai',
+        )
+        mustafa = Technician.objects.create(
+            name='Mustafa',
+            mobile='9000000001',
+            technician_type=Technician.TechnicianType.PARTNER,
+        )
+        akshay = Technician.objects.create(
+            name='Akshay',
+            mobile='9000000002',
+            technician_type=Technician.TechnicianType.PARTNER,
+        )
+        shell = JobCard.objects.create(
+            client=client,
+            service_type='Cockroach / Ants, Termite',
+            service_items=[
+                {'service': 'Cockroach / Ants', 'plan': 'AMC 3 Services', 'area': 'Commercial', 'amount': 3250},
+                {'service': 'Termite', 'plan': 'One Time Service', 'area': 'Commercial', 'amount': 3250},
+            ],
+            schedule_datetime=datetime(2026, 8, 14, 8, 30, tzinfo=dt_timezone.utc),
+            time_slot='02:00 PM',
+            price='6500',
+            technician=mustafa,
+            assigned_to='Mustafa',
+            reference='Poster',
+            client_address='Dadar West',
+            status=JobCard.JobStatus.PENDING,
+        )
+        BookingScheduleEngine.generate_all_visits(shell)
+        cockroach = JobCard.objects.get(
+            parent_job=shell, source_service='Cockroach / Ants', service_cycle=1,
+        )
+        termite = JobCard.objects.get(
+            parent_job=shell, source_service='Termite', service_cycle=1,
+        )
+        cockroach.technician = akshay
+        cockroach.assigned_to = 'Akshay'
+        cockroach.save(update_fields=['technician', 'assigned_to', 'updated_at'])
+        JobCardTechnicianParticipation.objects.create(
+            jobcard=cockroach,
+            technician=akshay,
+            role=JobCardTechnicianParticipation.Role.LEAD,
+            attendance_status=JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
+        )
+        termite.technician = mustafa
+        termite.assigned_to = 'Mustafa'
+        termite.save(update_fields=['technician', 'assigned_to', 'updated_at'])
+        JobCardTechnicianParticipation.objects.create(
+            jobcard=shell,
+            technician=mustafa,
+            role=JobCardTechnicianParticipation.Role.LEAD,
+            attendance_status=JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
+        )
+
+        shell.status = JobCard.JobStatus.DONE
+        shell.save(update_fields=['status', 'updated_at'])
+        BookingScheduleEngine.sync_multi_service_day1_children(shell, completing=True)
+
+        cockroach.refresh_from_db()
+        termite.refresh_from_db()
+        self.assertEqual(cockroach.technician_id, akshay.id)
+        self.assertEqual(cockroach.assigned_to, 'Akshay')
+        self.assertEqual(termite.technician_id, mustafa.id)
+        self.assertFalse(
+            JobCardTechnicianParticipation.objects.filter(
+                jobcard=cockroach, technician=mustafa,
+            ).exists()
+        )
+        self.assertTrue(
+            JobCardTechnicianParticipation.objects.filter(
+                jobcard=cockroach, technician=akshay,
+            ).exists()
+        )
+
+    def test_unassigned_service_line_inherits_package_technician(self):
+        from core.models import Technician
+
+        client = Client.objects.create(
+            full_name='Inherit Client', mobile='9833401653', city='Mumbai',
+        )
+        mustafa = Technician.objects.create(
+            name='Mustafa',
+            mobile='9000000003',
+            technician_type=Technician.TechnicianType.PARTNER,
+        )
+        shell = JobCard.objects.create(
+            client=client,
+            service_type='Cockroach / Ants, Termite',
+            service_items=[
+                {'service': 'Cockroach / Ants', 'plan': 'One Time Service', 'amount': 2000},
+                {'service': 'Termite', 'plan': 'One Time Service', 'amount': 2000},
+            ],
+            schedule_datetime=datetime(2026, 8, 14, 8, 30, tzinfo=dt_timezone.utc),
+            time_slot='02:00 PM',
+            price='4000',
+            technician=mustafa,
+            assigned_to='Mustafa',
+            reference='Poster',
+            client_address='Dadar West',
+            status=JobCard.JobStatus.PENDING,
+        )
+        BookingScheduleEngine.generate_all_visits(shell)
+        cockroach = JobCard.objects.get(
+            parent_job=shell, source_service='Cockroach / Ants', service_cycle=1,
+        )
+        cockroach.technician = None
+        cockroach.assigned_to = ''
+        cockroach.save(update_fields=['technician', 'assigned_to', 'updated_at'])
+
+        BookingScheduleEngine.sync_multi_service_day1_children(shell, completing=False)
+        cockroach.refresh_from_db()
+        self.assertEqual(cockroach.technician_id, mustafa.id)
+        self.assertEqual(cockroach.assigned_to, 'Mustafa')
+
     def test_backfill_skips_when_cancelled_day1_already_exists(self):
         """Regression: cancelled day-1 rows must not trigger UniqueViolation insert."""
         client = Client.objects.create(

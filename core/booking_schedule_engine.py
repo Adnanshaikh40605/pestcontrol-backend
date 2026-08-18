@@ -655,12 +655,16 @@ class BookingScheduleEngine:
     @staticmethod
     def sync_multi_service_day1_children(main_job, *, completing: bool = False) -> list[Any]:
         """
-        Copy crew from the package shell onto day-1 per-service visits.
-        When completing the shell, mark those day-1 visits Done and run payouts.
+        Keep day-1 per-service visits in sync with the package shell.
+
+        Crew rule: each service line keeps its own technician. The package
+        technician is copied only onto lines that were never assigned. Completing
+        the shell must not overwrite Akshay on Cockroach with Mustafa from Termite.
         """
         from django.utils import timezone
 
         from core.models import JobCard, JobCardTechnicianParticipation
+        from core.payout_engine import ensure_lead_participation
 
         if not is_multi_service_booking(main_job):
             return []
@@ -675,19 +679,26 @@ class BookingScheduleEngine:
         day1_qs = JobCard.objects.filter(parent_job=main_job, service_cycle=1)
         if not completing:
             day1_qs = day1_qs.exclude(status=JobCard.JobStatus.CANCELLED)
-        children = list(day1_qs)
+        children = list(day1_qs.prefetch_related('technician_participations'))
+        shell_parts = list(main_job.technician_participations.all())
         synced: list[Any] = []
         for child in children:
             update_fields: list[str] = []
-            if main_job.technician_id and child.technician_id != main_job.technician_id:
-                child.technician_id = main_job.technician_id
-                update_fields.append('technician')
-            if main_job.partner_id and child.partner_id != main_job.partner_id:
-                child.partner_id = main_job.partner_id
-                update_fields.append('partner')
-            if main_job.assigned_to and child.assigned_to != main_job.assigned_to:
-                child.assigned_to = main_job.assigned_to
-                update_fields.append('assigned_to')
+            has_own_crew = bool(child.technician_id) or any(
+                True for _ in child.technician_participations.all()
+            )
+
+            if not has_own_crew:
+                if main_job.technician_id:
+                    child.technician_id = main_job.technician_id
+                    update_fields.append('technician')
+                if main_job.partner_id:
+                    child.partner_id = main_job.partner_id
+                    update_fields.append('partner')
+                if main_job.assigned_to:
+                    child.assigned_to = main_job.assigned_to
+                    update_fields.append('assigned_to')
+
             if completing and child.status != JobCard.JobStatus.DONE:
                 child.status = JobCard.JobStatus.DONE
                 child.completed_at = main_job.completed_at or timezone.now()
@@ -698,20 +709,23 @@ class BookingScheduleEngine:
             if update_fields:
                 child.save(update_fields=list(dict.fromkeys(update_fields + ['updated_at'])))
 
-            # Mirror shell crew participations onto the child (idempotent).
-            for part in main_job.technician_participations.all():
-                JobCardTechnicianParticipation.objects.update_or_create(
-                    jobcard=child,
-                    technician_id=part.technician_id,
-                    defaults={
-                        'partner_id': part.partner_id,
-                        'role': part.role,
-                        'attendance_status': part.attendance_status,
-                        'is_payout_eligible': part.is_payout_eligible,
-                        'checked_in_at': part.checked_in_at,
-                        'checked_out_at': part.checked_out_at,
-                    },
-                )
+            if has_own_crew:
+                ensure_lead_participation(child)
+            else:
+                for part in shell_parts:
+                    JobCardTechnicianParticipation.objects.update_or_create(
+                        jobcard=child,
+                        technician_id=part.technician_id,
+                        defaults={
+                            'partner_id': part.partner_id,
+                            'role': part.role,
+                            'attendance_status': part.attendance_status,
+                            'is_payout_eligible': part.is_payout_eligible,
+                            'checked_in_at': part.checked_in_at,
+                            'checked_out_at': part.checked_out_at,
+                        },
+                    )
+                ensure_lead_participation(child)
 
             if completing and child.status == JobCard.JobStatus.DONE:
                 from core.payout_engine import try_apply_payout_after_completion

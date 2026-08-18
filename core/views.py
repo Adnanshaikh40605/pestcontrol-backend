@@ -2370,6 +2370,7 @@ class JobCardViewSet(BaseModelViewSet):
                 and instance.partner_status == JobCard.PartnerStatus.PENDING
             )
 
+            previous_technician_id = instance.technician_id
             instance.technician = technician
             instance.assigned_to = technician.name
             instance.status = JobCard.JobStatus.ON_PROCESS
@@ -2397,6 +2398,24 @@ class JobCardViewSet(BaseModelViewSet):
                     ]
                 )
             instance.save(update_fields=update_fields)
+
+            from core.booking_schedule_engine import (
+                BookingScheduleEngine,
+                is_multi_service_booking,
+            )
+            from core.payout_engine import (
+                ensure_lead_participation,
+                replace_stale_lead_participation,
+            )
+
+            replace_stale_lead_participation(instance, previous_technician_id)
+            ensure_lead_participation(instance)
+            # Package assign fills only unassigned service lines — never overwrites
+            # a technician already set on Cockroach / Termite / etc.
+            if is_multi_service_booking(instance):
+                BookingScheduleEngine.sync_multi_service_day1_children(
+                    instance, completing=False,
+                )
             
             serializer = self.get_serializer(instance)
             data = serializer.data
