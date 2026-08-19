@@ -7,6 +7,7 @@ from django.test import TestCase
 from core.booking_schedule_engine import (
     BookingScheduleEngine,
     build_visit_plans,
+    enforce_fixed_service_rules_on_job,
     heal_all_bed_bug_packages,
     heal_bed_bug_package,
     parse_amc_visit_count,
@@ -263,6 +264,40 @@ class AutoVisitGenerationTests(TestCase):
         self.assertEqual(job.planned_visit_count, 2)
         self.assertEqual(job.service_category, JobCard.ServiceCategory.ONE_TIME)
         self.assertFalse(job.is_amc_main_booking)
+
+    def test_enforce_bed_bug_followup_flags_on_cycle_two(self):
+        client = Client.objects.create(full_name='Cycle2 User', mobile='9876543309', city='Pune')
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Bed Bugs',
+            source_service='Bed Bugs',
+            service_items=[
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'area': '1 RK', 'amount': 2500},
+            ],
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            service_cycle=2,
+            max_cycle=1,
+            planned_visit_count=1,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_followup_visit=False,
+            is_service_call=False,
+            included_in_amc=True,
+            schedule_datetime=datetime(2026, 8, 10, 10, 0, tzinfo=dt_timezone.utc),
+            price='2500',
+            total_amount=2500,
+            status=JobCard.JobStatus.DONE,
+        )
+        changed = enforce_fixed_service_rules_on_job(job)
+        self.assertIn('booking_type', changed)
+        self.assertIn('is_followup_visit', changed)
+        self.assertIn('planned_visit_count', changed)
+        self.assertIn('max_cycle', changed)
+        self.assertEqual(job.booking_type, JobCard.BookingType.SERVICE_CALL)
+        self.assertTrue(job.is_followup_visit)
+        self.assertTrue(job.is_service_call)
+        self.assertFalse(job.included_in_amc)
+        self.assertEqual(job.max_cycle, 2)
+        self.assertEqual(job.planned_visit_count, 2)
 
     def test_legacy_one_time_bed_bugs_is_healed_to_two_visits(self):
         """Already-created Bed Bugs jobs saved as 1-visit One Time get visit 2."""

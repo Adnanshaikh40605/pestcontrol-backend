@@ -214,6 +214,43 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(labels[amc.id], 'AMC')
         self.assertEqual(labels[contract_amc.id], 'Contract AMC')
 
+
+    def test_bed_bugs_followup_booking_amount_is_half_package(self):
+        root = self._job(
+            amount='2500',
+            service_type='Bed Bugs',
+            source_service='Bed Bugs',
+            service_items=[
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'area': '1 RK', 'amount': 2500},
+            ],
+            max_cycle=2,
+            planned_visit_count=2,
+            service_cycle=1,
+            status='Done',
+        )
+        followup = self._job(
+            amount='2500',
+            service_type='Bed Bugs',
+            source_service='Bed Bugs',
+            service_items=[
+                {'service': 'Bed Bugs', 'plan': 'One Time Service', 'area': '1 RK', 'amount': 2500},
+            ],
+            parent_job=root,
+            max_cycle=2,
+            planned_visit_count=2,
+            service_cycle=2,
+            is_followup_visit=True,
+            is_service_call=True,
+            status='Done',
+        )
+        res = self.api.get(f'/api/v1/technicians/{self.tech.id}/ledger/')
+        self.assertEqual(res.status_code, 200, res.data)
+        row = next(r for r in res.data['results'] if r['job_id'] == followup.id)
+        self.assertEqual(row['booking_type_label'], '2-Service Package')
+        self.assertEqual(row['service_number'], 'Service 2 of 2')
+        # Bed Bugs follow-up should show per-visit value, not full package.
+        self.assertEqual(Decimal(row['booking_amount']), Decimal('1250.00'))
+
     def test_bed_bugs_ledger_is_two_service_package_not_one_time(self):
         job = self._job(
             amount='1900',

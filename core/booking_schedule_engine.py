@@ -284,8 +284,23 @@ def enforce_fixed_service_rules_on_job(job) -> list[str]:
         if not job.service_cycle:
             job.service_cycle = 1
             changed.append('service_cycle')
+        cycle = job.service_cycle or 1
+        if cycle > 1:
+            # Bed Bugs visit 2+ is always an included follow-up service call.
+            if not job.is_followup_visit:
+                job.is_followup_visit = True
+                changed.append('is_followup_visit')
+            if not job.is_service_call:
+                job.is_service_call = True
+                changed.append('is_service_call')
+            if job.included_in_amc:
+                job.included_in_amc = False
+                changed.append('included_in_amc')
+            if job.booking_type != JobCard.BookingType.SERVICE_CALL:
+                job.booking_type = JobCard.BookingType.SERVICE_CALL
+                changed.append('booking_type')
         # Root / first visit must not stay flagged as a free follow-up.
-        if not job.parent_job_id and (job.service_cycle or 1) <= 1:
+        if cycle <= 1 and not job.parent_job_id:
             if job.is_followup_visit:
                 job.is_followup_visit = False
                 changed.append('is_followup_visit')

@@ -453,8 +453,17 @@ class JobCardSerializer(serializers.ModelSerializer):
             return "Included in AMC"
         if obj.booking_type == JobCard.BookingType.COMPLAINT_CALL:
             return "Free (Complaint)"
+        from core.booking_schedule_engine import is_bed_bug_service
+
+        # Even if legacy rows carry stale booking_type/price, Bed Bugs visit 2 is
+        # never a fresh payable booking in Done/On Process tables.
+        if (
+            (obj.service_cycle or 1) > 1
+            and is_bed_bug_service(obj.source_service or obj.service_type or '')
+        ):
+            return "Included in Service"
         if obj.booking_type == JobCard.BookingType.SERVICE_CALL and obj.service_cycle > 1:
-             return "Included in Service"
+            return "Included in Service"
         return obj.price
     
     def validate(self, data):

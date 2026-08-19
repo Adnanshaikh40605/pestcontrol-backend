@@ -447,9 +447,11 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
         cycle = int(cycle or 1)
         service_number = f'Service {cycle} of {planned}'
         booking_type_label = '2-Service Package'
-        # Follow-up / service-call must not re-bill full package as a new booking.
-        if job.is_followup_visit or job.parent_job_id or (job.service_cycle or 1) > 1:
-            booking_amount = service_line_package_amount(job)
+        line_pkg = service_line_package_amount(job)
+        if line_pkg > 0:
+            # Ledger should show per-visit value for Bed Bugs (package/2),
+            # not the full package amount on both service rows.
+            booking_amount = quantize_money(line_pkg / Decimal(planned))
     # Termite / true one-time must never show "Service 1 of 5" from stale max_cycle.
     elif economics == 'one_time':
         service_number = 'One-Time'
