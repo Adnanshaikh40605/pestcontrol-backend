@@ -80,11 +80,38 @@ def _service_items_total(jobcard) -> Decimal:
     return quantize_money(total)
 
 
+def is_bed_bug_included_visit(jobcard) -> bool:
+    """Bed Bugs visit 2+ is prepaid with visit 1 — never collect again at completion."""
+    from core.booking_schedule_engine import is_bed_bug_service
+
+    cycle = jobcard.service_cycle or 1
+    if cycle <= 1:
+        return False
+
+    for text in (
+        getattr(jobcard, 'source_service', None) or '',
+        getattr(jobcard, 'service_type', None) or '',
+    ):
+        if text and is_bed_bug_service(text) and ',' not in text:
+            return True
+
+    items = getattr(jobcard, 'service_items', None) or []
+    if isinstance(items, list):
+        for item in items:
+            svc = str((item or {}).get('service') or '').strip()
+            if svc and is_bed_bug_service(svc):
+                return True
+    return False
+
+
 def effective_service_total(jobcard) -> Decimal:
     """
     Service amount due for payment UI and completion.
     Prefers current price / line items over stale total_amount when unpaid.
     """
+    if is_bed_bug_included_visit(jobcard):
+        return Decimal('0.00')
+
     price_total = parse_jobcard_price(jobcard.price)
     items_total = _service_items_total(jobcard)
     stored_total = quantize_money(jobcard.total_amount or 0)
@@ -237,6 +264,9 @@ def requires_payment_on_completion(jobcard) -> bool:
     if jobcard.booking_category == JobCard.BookingCategory.COMPLAINT_CALL:
         return False
     if jobcard.booking_type == JobCard.BookingType.COMPLAINT_CALL:
+        return False
+
+    if is_bed_bug_included_visit(jobcard):
         return False
 
     if jobcard.included_in_amc:

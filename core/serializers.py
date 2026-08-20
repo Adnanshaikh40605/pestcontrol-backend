@@ -386,7 +386,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'job_type', 'commercial_type', 'is_price_estimated', 'service_category', 'property_type', 'bhk_size', 'contract_duration', 'society_billing_type', 'status', 'service_type', 'service_items', 'schedule_datetime',
             'time_slot', 'state', 'city',
             'master_country', 'master_country_name', 'master_state', 'master_state_name', 'master_city', 'master_city_name', 'master_location', 'master_location_name', 'full_address',
-            'price', 'price_display', 'client_address',
+            'price', 'price_display', 'requires_payment_on_completion', 'client_address',
             'payment_status', 'payment_status_display', 'payment_mode',
             'total_amount', 'paid_amount', 'pending_amount',
             'assigned_to', 'technician', 'technician_name', 'technician_mobile', 
@@ -421,6 +421,7 @@ class JobCardSerializer(serializers.ModelSerializer):
 
     price_display = serializers.SerializerMethodField()
     payment_status_display = serializers.SerializerMethodField()
+    requires_payment_on_completion = serializers.SerializerMethodField()
     payment_collection_type = serializers.CharField(write_only=True, required=False, allow_blank=True)
     completion_paid_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, write_only=True, required=False, allow_null=True,
@@ -432,6 +433,11 @@ class JobCardSerializer(serializers.ModelSerializer):
 
     def get_payment_status_display(self, obj):
         return payment_status_label(obj.payment_status, obj.pending_amount)
+
+    def get_requires_payment_on_completion(self, obj):
+        from .payment_utils import requires_payment_on_completion as requires_payment
+
+        return requires_payment(obj)
 
     def get_created_by_name(self, obj):
         if obj.created_by:

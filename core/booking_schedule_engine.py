@@ -10,6 +10,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any, Optional
 
 from dateutil.relativedelta import relativedelta
@@ -299,6 +300,23 @@ def enforce_fixed_service_rules_on_job(job) -> list[str]:
             if job.booking_type != JobCard.BookingType.SERVICE_CALL:
                 job.booking_type = JobCard.BookingType.SERVICE_CALL
                 changed.append('booking_type')
+            from core.payment_utils import parse_jobcard_price, quantize_money
+
+            if parse_jobcard_price(job.price) > 0:
+                job.price = '0'
+                changed.append('price')
+            if quantize_money(job.total_amount or 0) > 0:
+                job.total_amount = Decimal('0.00')
+                changed.append('total_amount')
+            if quantize_money(job.paid_amount or 0) > 0:
+                job.paid_amount = Decimal('0.00')
+                changed.append('paid_amount')
+            if quantize_money(job.pending_amount or 0) > 0:
+                job.pending_amount = Decimal('0.00')
+                changed.append('pending_amount')
+            if job.payment_status != JobCard.PaymentStatus.PAID:
+                job.payment_status = JobCard.PaymentStatus.PAID
+                changed.append('payment_status')
         # Root / first visit must not stay flagged as a free follow-up.
         if cycle <= 1 and not job.parent_job_id:
             if job.is_followup_visit:

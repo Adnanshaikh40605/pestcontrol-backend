@@ -367,6 +367,73 @@ class PaymentCollectionSkipTests(TestCase):
         self.assertEqual(pending_main.status, JobCard.JobStatus.PENDING)
 
 
+class BedBugIncludedVisitPaymentTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='staff_bb', password='pass1234')
+        self.client_record = Client.objects.create(full_name='BedBug Client', mobile='9876543299')
+        self.main = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Bed Bugs',
+            source_service='Bed Bugs',
+            schedule_datetime=datetime(2026, 6, 11, 10, 0, tzinfo=dt_timezone.utc),
+            price='2200',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            service_cycle=1,
+            max_cycle=2,
+            paid_amount=Decimal('2200.00'),
+            pending_amount=Decimal('0.00'),
+            payment_status=JobCard.PaymentStatus.PAID,
+        )
+        self.visit_two = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Bed Bugs',
+            source_service='Bed Bugs',
+            schedule_datetime=datetime(2026, 6, 26, 10, 0, tzinfo=dt_timezone.utc),
+            price='2200',
+            reference='Other',
+            status=JobCard.JobStatus.ON_PROCESS,
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            parent_job=self.main,
+            service_cycle=2,
+            max_cycle=2,
+            is_followup_visit=False,
+            is_service_call=False,
+            payment_status=JobCard.PaymentStatus.PENDING,
+        )
+        self.api = APIClient()
+        self.api.force_authenticate(user=self.user)
+
+    def test_bed_bug_visit_two_does_not_require_payment_even_with_stale_price(self):
+        from core.payment_utils import effective_service_total, requires_payment_on_completion
+
+        self.assertFalse(requires_payment_on_completion(self.visit_two))
+        self.assertEqual(effective_service_total(self.visit_two), Decimal('0.00'))
+
+    def test_complete_bed_bug_visit_two_without_payment_payload(self):
+        response = self.api.patch(
+            f'/api/v1/jobcards/{self.visit_two.id}/',
+            {'status': 'Done'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertFalse(response.data['requires_payment_on_completion'])
+        self.visit_two.refresh_from_db()
+        self.assertEqual(self.visit_two.status, JobCard.JobStatus.DONE)
+        self.assertEqual(BookingPayment.objects.filter(jobcard=self.visit_two).count(), 0)
+
+    def test_retrieve_heals_stale_bed_bug_visit_two_amounts(self):
+        response = self.api.get(f'/api/v1/jobcards/{self.visit_two.id}/')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data['price_display'], 'Included in Service')
+        self.assertFalse(response.data['requires_payment_on_completion'])
+        self.visit_two.refresh_from_db()
+        self.assertEqual(self.visit_two.price, '0')
+        self.assertTrue(self.visit_two.is_followup_visit)
+        self.assertTrue(self.visit_two.is_service_call)
+
+
 class PendingPaymentReportTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='staff3', password='pass1234')
