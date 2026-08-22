@@ -123,22 +123,43 @@ def service_line_package_amount(job) -> Decimal:
     - Follow-up child (price 0) → amount from parent.service_items matching source_service
     - Classic single-service AMC child → full parent package
     - Multi-service package shell → full package (caller should not pay tech on shell)
+    - Multi-service day-1 / follow-up child → NEVER fall back to full parent total
+      (that double-bills Cockroach + Rodent the same package amount in the ledger)
     """
+    from core.booking_schedule_engine import is_multi_service_booking, service_line_names
     from core.payment_utils import parse_jobcard_price
 
     own_price = parse_jobcard_price(getattr(job, 'price', None))
     own_total = quantize_money(getattr(job, 'total_amount', None) or 0)
+    root = _package_root(job)
+    multi_parent = bool(job.parent_job_id) and is_multi_service_booking(root)
+
+    # Own price is trusted only when it is not a stale copy of the whole package.
     if own_price > 0:
-        return own_price
+        if multi_parent:
+            items_sum = Decimal('0.00')
+            root_items = getattr(root, 'service_items', None) or []
+            if isinstance(root_items, list):
+                for item in root_items:
+                    items_sum += parse_jobcard_price((item or {}).get('amount'))
+            # Child price equal to (or above) combined package → ignore; use line match.
+            if items_sum > 0 and own_price >= items_sum:
+                pass
+            else:
+                return own_price
+        else:
+            return own_price
     if own_total > 0 and not job.parent_job_id:
         return own_total
 
     source = (job.source_service or job.service_type or '').strip()
-    root = _package_root(job)
     items = []
     if isinstance(getattr(job, 'service_items', None), list) and job.service_items:
-        items = job.service_items
-    elif isinstance(getattr(root, 'service_items', None), list):
+        # Prefer single-line child items; ignore multi-item copies of the shell.
+        child_names = service_line_names(job.service_items)
+        if len(child_names) <= 1:
+            items = job.service_items
+    if not items and isinstance(getattr(root, 'service_items', None), list):
         items = root.service_items or []
 
     if source and items:
@@ -148,12 +169,19 @@ def service_line_package_amount(job) -> Decimal:
                 amt = parse_jobcard_price((item or {}).get('amount'))
                 if amt > 0:
                     return amt
+                # Explicit ₹0 line under a multi package — do not inherit shell total.
+                if multi_parent:
+                    return Decimal('0.00')
 
     # Single-item child / parent carrying its line in service_items
     if len(items) == 1:
         amt = parse_jobcard_price((items[0] or {}).get('amount'))
         if amt > 0:
             return amt
+
+    # Multi-service children must never inherit the full shell billable.
+    if multi_parent:
+        return Decimal('0.00')
 
     # Classic AMC follow-up (price 0, no line items) → parent package total
     if job.parent_job_id:
@@ -546,6 +574,25 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
 
     if not is_revenue_model_enabled() and not force:
         return PayoutResult(skipped=True, reason='feature_flag_off')
+
+    # Complaint / revisit calls are free for the customer and have no tech visit ledger.
+    if getattr(job, 'is_complaint_call', False) or (
+        getattr(job, 'booking_type', None) == JobCard.BookingType.COMPLAINT_CALL
+    ):
+        job.visit_revenue_amount = Decimal('0.00')
+        job.technician_pool_amount = Decimal('0.00')
+        job.company_share_amount = Decimal('0.00')
+        job.visit_payout_amount = Decimal('0.00')
+        job.payout_status = JobCard.PayoutStatus.NOT_APPLICABLE
+        job.save(update_fields=[
+            'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
+            'visit_payout_amount', 'payout_status', 'updated_at',
+        ])
+        return PayoutResult(
+            skipped=True,
+            reason='complaint_call',
+            payout_status=job.payout_status,
+        )
 
     # Multi-service package: ensure day-1 per-service children exist, then never
     # pay 40% on the shell (tech share lives on those children).

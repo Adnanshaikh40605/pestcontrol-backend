@@ -45,6 +45,15 @@ REPORTED_BOOKING_IDS = (
     2171, 2252, 2088, 1940, 1925, 2255, 2241, 1965, 2067, 2153, 2122,
     2085, 1928, 1895, 2034, 2213, 1909,
     1934, 2147, 2103,
+    # Aug 2026 — Rajendra / Sohail ledger: old 2nd services + multi-service doubles
+    1243, 1145, 2258, 1176, 2069, 2389, 2159, 1151, 1921, 2550, 2540,
+    2558, 2618, 2566, 1415, 1817, 2211, 2548, 2388, 2549,
+)
+
+# Old follow-up / 2nd service rows that were force-migrated into unsettled payables.
+# Restore to legacy_exempt so they stay "Old record" and do not pay again.
+OLD_FOLLOWUP_LEGACY_IDS = (
+    1145, 1151, 1176, 1243, 1415, 1921, 2069, 2159, 2558, 2566,
 )
 
 
@@ -90,10 +99,14 @@ class Command(BaseCommand):
             )
             healed_bed = self._heal_bed_bug_shares(dry)
 
-        multi = self._heal_multi_service_packages(dry, ids)
+        multi = self._heal_multi_service_packages(dry, ids, ids_only=reported_only)
         plan_sync = self._heal_plan_sync(dry, ids)
         amount_sync = self._heal_amount_mismatches(dry, ids)
-        amc_full = self._heal_amc_full_package_visits(dry)
+        amc_full = 0 if reported_only else self._heal_amc_full_package_visits(dry)
+        legacy = self._restore_old_followups_to_legacy(dry, ids)
+        multi_lines = self._heal_multi_service_line_amounts(dry, ids)
+        dupes = self._cancel_duplicate_bed_bug_followups(dry, ids)
+        complaints = self._zero_complaint_payouts(dry, ids)
         targeted = self._heal_reported_bookings(dry, ids)
 
         self.stdout.write(self.style.SUCCESS(
@@ -103,7 +116,9 @@ class Command(BaseCommand):
             f"{bed_packages['created_visits']}, "
             f"bed_bug_payout={healed_bed}, "
             f"multi_day1={multi}, plan_sync={plan_sync}, "
-            f"amount_sync={amount_sync}, amc_full={amc_full}, reported={targeted}"
+            f"amount_sync={amount_sync}, amc_full={amc_full}, "
+            f"legacy_followups={legacy}, multi_lines={multi_lines}, "
+            f"dup_bedbug={dupes}, complaints={complaints}, reported={targeted}"
             + (' (dry-run)' if dry else '')
         ))
 
@@ -296,17 +311,22 @@ class Command(BaseCommand):
                     calculate_and_apply_payout(job, force=True)
         return fixed
 
-    def _heal_multi_service_packages(self, dry: bool, ids: tuple[int, ...]) -> int:
+    def _heal_multi_service_packages(self, dry: bool, ids: tuple[int, ...], *, ids_only: bool = False) -> int:
         """
         Backfill missing day-1 children for Done multi-service packages and
         recalculate per-service technician share.
         """
+        root_ids = set(ids)
+        for job in JobCard.objects.filter(pk__in=ids).exclude(parent_job_id=None):
+            root_ids.add(job.parent_job_id)
         qs = JobCard.objects.filter(
             parent_job__isnull=True,
             status=JobCard.JobStatus.DONE,
-        ).filter(
-            Q(pk__in=ids) | Q(visit_type='MULTI SERVICE PACKAGE')
         )
+        if ids_only:
+            qs = qs.filter(pk__in=root_ids)
+        else:
+            qs = qs.filter(Q(pk__in=root_ids) | Q(visit_type='MULTI SERVICE PACKAGE'))
         fixed = 0
         for job in qs.iterator():
             if not is_multi_service_booking(job):
@@ -474,6 +494,11 @@ class Command(BaseCommand):
                     fixed += 1
                 continue
 
+            if job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
+                continue
+            if job.id in OLD_FOLLOWUP_LEGACY_IDS:
+                continue
+
             fixed += 1
             if dry:
                 self.stdout.write(f"  recalc #{job.id}")
@@ -487,5 +512,222 @@ class Command(BaseCommand):
                 status=JobCard.JobStatus.CANCELLED,
             ):
                 if child.status == JobCard.JobStatus.DONE:
+                    if child.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
+                        continue
+                    if child.id in OLD_FOLLOWUP_LEGACY_IDS:
+                        continue
                     calculate_and_apply_payout(child, force=True)
+        return fixed
+
+    def _restore_old_followups_to_legacy(self, dry: bool, ids: tuple[int, ...]) -> int:
+        """
+        Mark reported old 2nd/3rd service visits as legacy_exempt with ₹0 ledger.
+        Staff want these as Old record — not unsettled payables after auto-heal migrated them.
+        """
+        target = set(OLD_FOLLOWUP_LEGACY_IDS) | {
+            i for i in ids
+            if i in OLD_FOLLOWUP_LEGACY_IDS
+        }
+        fixed = 0
+        for job in JobCard.objects.filter(pk__in=target):
+            cycle = job.service_cycle or 1
+            is_followup = (
+                cycle > 1
+                or job.is_followup_visit
+                or job.is_service_call
+                or job.included_in_amc
+                or job.booking_type in (
+                    JobCard.BookingType.AMC_FOLLOWUP,
+                    JobCard.BookingType.SERVICE_CALL,
+                )
+            )
+            if not is_followup and cycle <= 1:
+                continue
+            already = (
+                job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT
+                and Decimal(str(job.visit_payout_amount or 0)) <= 0
+                and Decimal(str(job.visit_revenue_amount or 0)) <= 0
+            )
+            if already:
+                continue
+            fixed += 1
+            self.stdout.write(
+                f"  legacy-followup #{job.id} cycle={cycle} "
+                f"was_pay={job.visit_payout_amount} → Old record"
+            )
+            if dry:
+                continue
+            job.price = '0'
+            job.total_amount = Decimal('0.00')
+            job.paid_amount = Decimal('0.00')
+            job.pending_amount = Decimal('0.00')
+            job.visit_revenue_amount = Decimal('0.00')
+            job.technician_pool_amount = Decimal('0.00')
+            job.company_share_amount = Decimal('0.00')
+            job.visit_payout_amount = Decimal('0.00')
+            job.payout_status = JobCard.PayoutStatus.LEGACY_EXEMPT
+            job.is_followup_visit = True
+            if not job.is_service_call and cycle > 1:
+                job.is_service_call = True
+            job.save(update_fields=[
+                'price', 'total_amount', 'paid_amount', 'pending_amount',
+                'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
+                'visit_payout_amount', 'payout_status', 'is_followup_visit',
+                'is_service_call', 'updated_at',
+            ])
+            # Clear partner earnings so settlement cannot pick them up again.
+            from partner.models import PartnerEarning
+            PartnerEarning.objects.filter(job=job).delete()
+            for part in job.technician_participations.all():
+                part.payout_amount_snapshot = Decimal('0.00')
+                part.save(update_fields=['payout_amount_snapshot', 'updated_at'])
+        return fixed
+
+    def _heal_multi_service_line_amounts(self, dry: bool, ids: tuple[int, ...]) -> int:
+        """
+        Day-1 children must carry their own line amount — never the full shell total.
+        Fixes Cockroach+Rodent both showing the same ₹2500 / same tech share (#2389, #2550).
+        """
+        roots = set()
+        for job in JobCard.objects.filter(pk__in=ids).select_related('parent_job'):
+            roots.add(job.parent_job_id or job.id)
+        fixed = 0
+        for root in JobCard.objects.filter(pk__in=roots, parent_job__isnull=True):
+            if not is_multi_service_booking(root):
+                continue
+            items = root.service_items if isinstance(root.service_items, list) else []
+            if len(items) < 2:
+                continue
+            by_service = {
+                str((item or {}).get('service') or '').strip(): parse_jobcard_price(
+                    (item or {}).get('amount')
+                )
+                for item in items
+                if str((item or {}).get('service') or '').strip()
+            }
+            day1 = JobCard.objects.filter(parent_job=root, service_cycle=1).exclude(
+                status=JobCard.JobStatus.CANCELLED,
+            )
+            changed_any = False
+            for child in day1:
+                key = (child.source_service or child.service_type or '').strip()
+                amt = by_service.get(key)
+                if amt is None:
+                    continue
+                cur = parse_jobcard_price(child.price)
+                tot = Decimal(str(child.total_amount or 0))
+                items_sum = sum(by_service.values())
+                # Parent line sometimes stores ₹0 while the child already has the
+                # correct line price (Cafe Holiday Rodent #2550). Keep child amount.
+                if amt <= 0 and cur > 0 and (items_sum <= 0 or cur < items_sum):
+                    amt = cur
+                if amt < 0:
+                    continue
+                full_tech = (items_sum * Decimal('0.40')).quantize(Decimal('0.01')) if items_sum > 0 else Decimal('0.00')
+                line_tech = (amt * Decimal('0.40')).quantize(Decimal('0.01')) if amt > 0 else Decimal('0.00')
+                cur_pay = Decimal(str(child.visit_payout_amount or 0))
+                cur_rev = Decimal(str(child.visit_revenue_amount or 0))
+                bad = (
+                    cur != amt
+                    or tot != amt
+                    or (items_sum > 0 and cur >= items_sum and len(by_service) > 1)
+                    or (amt > 0 and cur_rev > amt)
+                    or (full_tech > 0 and cur_pay >= full_tech and line_tech < full_tech)
+                )
+                if not bad:
+                    continue
+                fixed += 1
+                changed_any = True
+                self.stdout.write(
+                    f"  multi-line #{child.id} ({key}): price {cur}/{tot} → {amt}"
+                )
+                if dry:
+                    continue
+                child.price = str(amt)
+                child.total_amount = amt
+                child.service_items = [
+                    item for item in items
+                    if str((item or {}).get('service') or '').strip() == key
+                ] or [{
+                    'service': key,
+                    'plan': 'One Time Service',
+                    'area': child.bhk_size or '',
+                    'amount': float(amt),
+                }]
+                # Keep matching parent line amount in sync when child had the truth.
+                if by_service.get(key, Decimal('0')) <= 0 and amt > 0:
+                    for item in items:
+                        if str((item or {}).get('service') or '').strip() == key:
+                            item['amount'] = float(amt)
+                    root.service_items = items
+                    root.save(update_fields=['service_items', 'updated_at'])
+                    by_service[key] = amt
+                child.source_service = key
+                child.save(update_fields=[
+                    'price', 'total_amount', 'service_items', 'source_service', 'updated_at',
+                ])
+                if child.status == JobCard.JobStatus.DONE:
+                    calculate_and_apply_payout(child, force=True)
+            if changed_any and not dry:
+                calculate_and_apply_payout(root, force=True)
+        return fixed
+
+    def _cancel_duplicate_bed_bug_followups(self, dry: bool, ids: tuple[int, ...]) -> int:
+        """Cancel extra cycle-2 Bed Bugs rows when a parent already has one active follow-up."""
+        roots = set()
+        for job in JobCard.objects.filter(pk__in=ids).select_related('parent_job'):
+            root = job.parent_job_id or job.id
+            roots.add(root)
+        fixed = 0
+        for root_id in roots:
+            kids = list(
+                JobCard.objects.filter(
+                    parent_job_id=root_id,
+                    service_cycle=2,
+                ).exclude(status=JobCard.JobStatus.CANCELLED).order_by('id')
+            )
+            if len(kids) < 2:
+                continue
+            # Keep the earliest Done, else earliest Upcoming.
+            keep = next((k for k in kids if k.status == JobCard.JobStatus.DONE), kids[0])
+            for kid in kids:
+                if kid.id == keep.id:
+                    continue
+                fixed += 1
+                self.stdout.write(
+                    f"  dup-bedbug cancel #{kid.id} (keep #{keep.id} under parent #{root_id})"
+                )
+                if dry:
+                    continue
+                kid.status = JobCard.JobStatus.CANCELLED
+                kid.visit_revenue_amount = Decimal('0.00')
+                kid.technician_pool_amount = Decimal('0.00')
+                kid.company_share_amount = Decimal('0.00')
+                kid.visit_payout_amount = Decimal('0.00')
+                kid.payout_status = JobCard.PayoutStatus.CANCELLED
+                kid.save(update_fields=[
+                    'status', 'visit_revenue_amount', 'technician_pool_amount',
+                    'company_share_amount', 'visit_payout_amount', 'payout_status',
+                    'updated_at',
+                ])
+        return fixed
+
+    def _zero_complaint_payouts(self, dry: bool, ids: tuple[int, ...]) -> int:
+        fixed = 0
+        for job in JobCard.objects.filter(pk__in=ids):
+            if not (
+                job.is_complaint_call
+                or job.booking_type == JobCard.BookingType.COMPLAINT_CALL
+            ):
+                continue
+            if (
+                job.payout_status == JobCard.PayoutStatus.NOT_APPLICABLE
+                and Decimal(str(job.visit_payout_amount or 0)) <= 0
+            ):
+                continue
+            fixed += 1
+            self.stdout.write(f"  complaint-zero #{job.id}")
+            if dry:
+                continue
+            calculate_and_apply_payout(job, force=True)
         return fixed

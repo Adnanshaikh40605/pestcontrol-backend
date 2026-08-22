@@ -256,9 +256,9 @@ def job_needs_payout_heal(job) -> bool:
     ):
         return False
 
-    # Legacy Done jobs with an assigned tech should enter revenue sharing.
+    # Historical cutover rows stay Old record forever — never auto-migrate on ledger GET.
     if job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
-        return bool(job.technician_id or job.technician_participations.exists())
+        return False
 
     visit_pay = quantize_money(job.visit_payout_amount)
     visit_rev = quantize_money(job.visit_revenue_amount)
@@ -335,27 +335,28 @@ def job_needs_payout_heal(job) -> bool:
 def heal_stuck_payouts(jobs) -> int:
     """
     Recalculate Done jobs with wrong / missing Tech 40% so ledger stays correct.
-    Includes legacy_exempt migration, Bed Bugs ÷2, multi-service day-1 split,
-    and equal 40% across assigned partner technicians.
+    Never migrates legacy_exempt history into unsettled payables.
+    Handles Bed Bugs ÷2, multi-service day-1 split, and equal 40% across techs.
     """
     from core.booking_schedule_engine import (
         BookingScheduleEngine,
         is_multi_service_booking,
     )
+    from core.models import JobCard as JC
     from core.payout_engine import calculate_and_apply_payout
 
     healed = 0
     for job in jobs:
+        if job.payout_status == JC.PayoutStatus.LEGACY_EXEMPT:
+            continue
         if not job_needs_payout_heal(job):
             continue
         if is_multi_service_booking(job) and not job.parent_job_id:
-            from core.models import JobCard as JC
             BookingScheduleEngine.sync_multi_service_day1_children(
                 job, completing=job.status == JC.JobStatus.DONE,
             )
         result = calculate_and_apply_payout(job, force=True)
         if is_multi_service_booking(job) and not job.parent_job_id:
-            from core.models import JobCard as JC
             for child in JC.objects.filter(
                 parent_job=job, service_cycle=1,
             ).exclude(status=JC.JobStatus.CANCELLED):
@@ -370,24 +371,69 @@ def heal_stuck_payouts(jobs) -> int:
 def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
     economics = _economics(job)
     completed = job.status == JobCard.JobStatus.DONE
+    is_legacy = job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT
+
+    from core.payout_engine import is_bed_bug_multi_visit, service_line_package_amount, _visit_divisor, _package_root
+
+    line_pkg = service_line_package_amount(job)
+    planned = job.planned_visit_count or job.max_cycle
+    cycle = job.service_cycle or (1 if completed else None)
+
+    # Booking column: per-visit for AMC / Bed Bugs / follow-ups — never the full
+    # package total on every visit row (that is what staff call "same charges").
     booking_amount = quantize_money(effective_service_total(job))
-    visit_revenue = quantize_money(job.visit_revenue_amount) if completed else Decimal('0.00')
-    if visit_revenue <= 0 and completed and economics == 'one_time':
-        visit_revenue = booking_amount
-    tech_share = _technician_share(job, technician)
-    company_share = quantize_money(job.company_share_amount) if completed else Decimal('0.00')
+    bed_bug_line = is_bed_bug_multi_visit(job)
+    if not bed_bug_line:
+        primary = (job.source_service or job.service_type or '').strip()
+        from core.booking_schedule_engine import is_bed_bug_service
+
+        if primary and is_bed_bug_service(primary) and ',' not in primary:
+            bed_bug_line = True
+
+    if bed_bug_line and line_pkg > 0:
+        planned_bb = max(int(planned or 0), 2)
+        booking_amount = quantize_money(line_pkg / Decimal(planned_bb))
+    elif (
+        economics in ('amc', 'contract_amc')
+        or job.is_followup_visit
+        or job.included_in_amc
+        or (job.service_cycle or 1) > 1
+    ) and line_pkg > 0:
+        divisor = max(_visit_divisor(job, _package_root(job)), 1)
+        booking_amount = quantize_money(line_pkg / Decimal(divisor))
+    elif job.parent_job_id and line_pkg > 0:
+        booking_amount = line_pkg
+
+    visit_revenue = Decimal('0.00')
+    if completed and not is_legacy:
+        visit_revenue = quantize_money(job.visit_revenue_amount)
+        # Invent revenue only for real one-time v2 rows with missing snapshots —
+        # never for legacy, follow-ups, or multi children that should be ₹0.
+        if (
+            visit_revenue <= 0
+            and economics == 'one_time'
+            and not job.is_followup_visit
+            and (job.service_cycle or 1) <= 1
+            and not job.parent_job_id
+        ):
+            visit_revenue = booking_amount
+
+    tech_share = Decimal('0.00') if is_legacy else _technician_share(job, technician)
+    company_share = (
+        Decimal('0.00')
+        if is_legacy
+        else (quantize_money(job.company_share_amount) if completed else Decimal('0.00'))
+    )
     # Prefer stored company share. Only synthesize when payout snapshots exist
     # (visit_revenue was set by the engine) so we don't invent company money
     # on legacy jobs that never ran 40/60.
     if company_share <= 0 and completed and visit_revenue > 0 and (job.technician_pool_amount or 0) > 0:
         company_share = quantize_money(max(visit_revenue - tech_share, Decimal('0.00')))
-    bonus, penalty, paid = _line_totals(job, technician)
+    bonus, penalty, paid = (Decimal('0.00'), Decimal('0.00'), Decimal('0.00')) if is_legacy else _line_totals(job, technician)
     net = quantize_money(max(tech_share + bonus - penalty, Decimal('0.00')))
-    pending = quantize_money(max(net - paid, Decimal('0.00')))
+    pending = Decimal('0.00') if is_legacy else quantize_money(max(net - paid, Decimal('0.00')))
     feedbacks = list(job.feedbacks.all())
     rating = feedbacks[0].rating if feedbacks else None
-    planned = job.planned_visit_count or job.max_cycle
-    cycle = job.service_cycle or (1 if completed else None)
 
     settlement_date = None
     tech_has_paid_share = False
@@ -406,7 +452,7 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
     if not completed:
         settlement_status = 'n_a'
         settlement_status_label = 'N/A'
-    elif job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
+    elif is_legacy:
         settlement_status = 'legacy'
         settlement_status_label = 'Old record'
     elif tech_has_paid_share or (net > 0 and pending <= 0 and paid > 0):
@@ -431,41 +477,16 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
     service_number = None
     booking_type_label = _booking_type_label(economics)
 
-    from core.payout_engine import is_bed_bug_multi_visit, service_line_package_amount
-
-    # Bed Bugs = always 2 services (not plain One-Time, not AMC subscription).
-    bed_bug_line = is_bed_bug_multi_visit(job)
-    if not bed_bug_line:
-        primary = (job.source_service or job.service_type or '').strip()
-        from core.booking_schedule_engine import is_bed_bug_service
-
-        if primary and is_bed_bug_service(primary) and ',' not in primary:
-            bed_bug_line = True
-
     if bed_bug_line:
         planned = max(int(planned or 0), 2)
         cycle = int(cycle or 1)
         service_number = f'Service {cycle} of {planned}'
         booking_type_label = '2-Service Package'
-        line_pkg = service_line_package_amount(job)
-        if line_pkg > 0:
-            # Ledger should show per-visit value for Bed Bugs (package/2),
-            # not the full package amount on both service rows.
-            booking_amount = quantize_money(line_pkg / Decimal(planned))
     # Termite / true one-time must never show "Service 1 of 5" from stale max_cycle.
     elif economics == 'one_time':
         service_number = 'One-Time'
     elif planned and cycle:
         service_number = f'Service {cycle} of {planned}'
-
-    # Service calls / AMC follow-ups: booking column = package line, not a new sale.
-    if (
-        not bed_bug_line
-        and (job.is_followup_visit or job.parent_job_id or (job.service_cycle or 1) > 1)
-    ):
-        line_pkg = service_line_package_amount(job)
-        if line_pkg > 0:
-            booking_amount = line_pkg
 
     return {
         'job_id': job.id,

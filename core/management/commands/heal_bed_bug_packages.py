@@ -21,6 +21,8 @@ def heal_completed_bed_bug_followups() -> tuple[int, int]:
         service_cycle__gte=2,
     ).filter(
         service_type__icontains='bed',
+    ).exclude(
+        payout_status=JobCard.PayoutStatus.LEGACY_EXEMPT,
     )
     from core.booking_schedule_engine import enforce_fixed_service_rules_on_job
 

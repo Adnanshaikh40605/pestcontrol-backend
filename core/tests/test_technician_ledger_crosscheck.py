@@ -254,10 +254,109 @@ class TechnicianLedgerCrossCheckTests(TestCase):
         self.assertEqual(Decimal(str(job.visit_revenue_amount)), Decimal('833.33'))
         self.assertEqual(Decimal(str(job.visit_payout_amount)), Decimal('333.33'))
         row = serialize_ledger_row(job, self.tech)
-        self.assertEqual(row['booking_amount'], '2500.00')
+        # Ledger booking column shows per-visit value, not full package on every row.
+        self.assertEqual(row['booking_amount'], '833.33')
         self.assertEqual(row['visit_revenue'], '833.33')
         self.assertEqual(row['technician_share'], '333.33')
         self.assertEqual(row['service_number'], 'Service 1 of 3')
+
+    def test_cockroach_rodent_children_do_not_share_full_package(self):
+        """#2389 / #2550: multi day-1 lines must not both inherit shell ₹2500."""
+        from core.payout_engine import service_line_package_amount
+        from core.technician_ledger import job_needs_payout_heal
+
+        shell = JobCard.objects.create(
+            client=self.client_obj,
+            service_type='Cockroach / Ants, Rodent',
+            service_items=[
+                {'service': 'Cockroach / Ants', 'plan': 'One Time Service', 'area': 'Commercial', 'amount': 0},
+                {'service': 'Rodent', 'plan': 'One Time Service', 'area': 'Windows', 'amount': 2500},
+            ],
+            schedule_datetime=datetime(2026, 8, 10, 10, 0, tzinfo=dt_timezone.utc),
+            price='2500',
+            total_amount=2500,
+            status=JobCard.JobStatus.DONE,
+            payment_model=JobCard.PaymentModel.REVENUE_SHARING,
+            technician=self.tech,
+            partner=self.partner,
+            reference='Poster',
+            client_address='x',
+        )
+        self._part(shell, self.tech, self.partner, 'completed')
+        BookingScheduleEngine.sync_multi_service_day1_children(shell, completing=True)
+        cockroach = JobCard.objects.get(
+            parent_job=shell, source_service='Cockroach / Ants', service_cycle=1,
+        )
+        rodent = JobCard.objects.get(
+            parent_job=shell, source_service='Rodent', service_cycle=1,
+        )
+        # Stale bug: child price 0 previously fell back to full shell total.
+        cockroach.price = '0'
+        cockroach.total_amount = Decimal('0.00')
+        cockroach.save(update_fields=['price', 'total_amount', 'updated_at'])
+
+        self.assertEqual(service_line_package_amount(cockroach), Decimal('0.00'))
+        self.assertEqual(service_line_package_amount(rodent), Decimal('2500.00'))
+
+        calculate_and_apply_payout(shell, force=True)
+        calculate_and_apply_payout(cockroach, force=True)
+        calculate_and_apply_payout(rodent, force=True)
+        cockroach.refresh_from_db()
+        rodent.refresh_from_db()
+        shell.refresh_from_db()
+
+        self.assertEqual(Decimal(str(shell.visit_payout_amount)), Decimal('0.00'))
+        self.assertEqual(Decimal(str(cockroach.visit_payout_amount)), Decimal('0.00'))
+        self.assertEqual(Decimal(str(rodent.visit_revenue_amount)), Decimal('2500.00'))
+        self.assertEqual(Decimal(str(rodent.visit_payout_amount)), Decimal('1000.00'))
+        self.assertNotEqual(
+            Decimal(str(cockroach.visit_payout_amount)),
+            Decimal(str(rodent.visit_payout_amount)),
+        )
+        self.assertFalse(job_needs_payout_heal(
+            JobCard.objects.create(
+                client=self.client_obj,
+                service_type='Cockroach / Ants',
+                schedule_datetime=datetime(2026, 1, 1, 10, 0, tzinfo=dt_timezone.utc),
+                price='0',
+                status=JobCard.JobStatus.DONE,
+                payout_status=JobCard.PayoutStatus.LEGACY_EXEMPT,
+                technician=self.tech,
+                reference='Poster',
+                client_address='x',
+                service_cycle=2,
+                is_followup_visit=True,
+            )
+        ))
+
+    def test_legacy_followup_serializes_as_old_record_zero(self):
+        job = JobCard.objects.create(
+            client=self.client_obj,
+            service_type='Cockroach / Ants',
+            schedule_datetime=datetime(2026, 2, 1, 10, 0, tzinfo=dt_timezone.utc),
+            price='2500',
+            total_amount=2500,
+            status=JobCard.JobStatus.DONE,
+            payout_status=JobCard.PayoutStatus.LEGACY_EXEMPT,
+            visit_revenue_amount=Decimal('833.33'),
+            visit_payout_amount=Decimal('333.33'),
+            technician=self.tech,
+            partner=self.partner,
+            service_cycle=2,
+            max_cycle=3,
+            is_followup_visit=True,
+            is_service_call=True,
+            included_in_amc=True,
+            service_category=JobCard.ServiceCategory.AMC,
+            reference='Poster',
+            client_address='x',
+        )
+        self._part(job, self.tech, self.partner, 'completed')
+        row = serialize_ledger_row(job, self.tech)
+        self.assertEqual(row['settlement_status'], 'legacy')
+        self.assertEqual(row['technician_share'], '0.00')
+        self.assertEqual(row['pending_amount'], '0.00')
+        self.assertEqual(row['visit_revenue'], '0.00')
 
     def test_cockroach_child_not_treated_as_bed_bugs(self):
         """Multi shell items include Bed Bugs — Cockroach day-1 child must stay one-time."""
