@@ -15,19 +15,24 @@ Usage:
 """
 from __future__ import annotations
 
+from datetime import date, datetime, time
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 from django.db.models import Q
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from core.booking_schedule_engine import (
     BookingScheduleEngine,
     enforce_fixed_service_rules_on_job,
     heal_all_bed_bug_packages,
+    heal_bed_bug_package,
     is_bed_bug_service,
     is_multi_service_booking,
     is_termite_only_service,
     is_termite_service,
+    job_includes_bed_bugs,
     sync_plan_flags_from_service_items,
 )
 from core.models import JobCard
@@ -77,15 +82,35 @@ class Command(BaseCommand):
             action='store_true',
             help='Only heal --ids / reported booking IDs (skip global Termite/Bed Bugs sweeps).',
         )
+        parser.add_argument(
+            '--since',
+            type=str,
+            default='',
+            help='Heal all bookings on/after this date (YYYY-MM-DD), e.g. 2026-08-01.',
+        )
 
     def handle(self, *args, **options):
         dry = options['dry_run']
-        ids = self._parse_ids(options.get('ids') or '')
+        since = self._parse_since(options.get('since') or '')
         reported_only = options['reported_only']
+        ids = self._parse_ids(options.get('ids') or '')
+
+        if since:
+            ids = self._ids_since(since)
+            self.stdout.write(
+                f"Since {since.isoformat()}: {len(ids)} booking IDs in window "
+                f"(+ parents/children will be included by heal steps)."
+            )
+            # Date-scoped full heal — do not expand into unrelated historical IDs.
+            reported_only = False
 
         cancelled = healed_mains = healed_zero = healed_bed = 0
         bed_packages = {'scanned': 0, 'healed': 0, 'created_visits': 0}
-        if not reported_only:
+        since_fixed = 0
+
+        if since:
+            since_fixed = self._heal_window_since(dry, since, ids)
+        elif not reported_only:
             cancelled = self._cancel_termite_checkups(dry)
             healed_mains = self._heal_termite_mains(dry)
             healed_zero = self._heal_zero_shares(dry)
@@ -99,10 +124,12 @@ class Command(BaseCommand):
             )
             healed_bed = self._heal_bed_bug_shares(dry)
 
-        multi = self._heal_multi_service_packages(dry, ids, ids_only=reported_only)
+        multi = self._heal_multi_service_packages(dry, ids, ids_only=bool(since) or reported_only)
         plan_sync = self._heal_plan_sync(dry, ids)
         amount_sync = self._heal_amount_mismatches(dry, ids)
-        amc_full = 0 if reported_only else self._heal_amc_full_package_visits(dry)
+        amc_full = 0 if (reported_only and not since) else self._heal_amc_full_package_visits(
+            dry, ids if since else None,
+        )
         legacy = self._restore_old_followups_to_legacy(dry, ids)
         multi_lines = self._heal_multi_service_line_amounts(dry, ids)
         dupes = self._cancel_duplicate_bed_bug_followups(dry, ids)
@@ -110,6 +137,7 @@ class Command(BaseCommand):
         targeted = self._heal_reported_bookings(dry, ids)
 
         self.stdout.write(self.style.SUCCESS(
+            f"since_window={since_fixed}, "
             f"termite_checkups={cancelled}, termite_mains={healed_mains}, "
             f"zero_share={healed_zero}, "
             f"bed_bug_packages={bed_packages['healed']}/"
@@ -121,6 +149,108 @@ class Command(BaseCommand):
             f"dup_bedbug={dupes}, complaints={complaints}, reported={targeted}"
             + (' (dry-run)' if dry else '')
         ))
+
+    def _parse_since(self, raw: str):
+        raw = (raw or '').strip()
+        if not raw:
+            return None
+        parsed = parse_date(raw)
+        if not parsed:
+            raise SystemExit(f'Invalid --since date: {raw!r} (use YYYY-MM-DD)')
+        return parsed
+
+    def _ids_since(self, since: date) -> tuple[int, ...]:
+        """All job IDs whose schedule / completion / create date is on or after since."""
+        start = timezone.make_aware(datetime.combine(since, time.min))
+        qs = JobCard.objects.filter(
+            Q(schedule_datetime__gte=start)
+            | Q(completed_at__gte=start)
+            | Q(created_at__gte=start)
+        ).exclude(status=JobCard.JobStatus.CANCELLED)
+        ids = list(qs.values_list('id', flat=True))
+        # Include parents of children in the window so package shells heal too.
+        parent_ids = list(
+            JobCard.objects.filter(pk__in=ids, parent_job_id__isnull=False)
+            .values_list('parent_job_id', flat=True)
+            .distinct()
+        )
+        child_ids = list(
+            JobCard.objects.filter(parent_job_id__in=ids)
+            .exclude(status=JobCard.JobStatus.CANCELLED)
+            .values_list('id', flat=True)
+        )
+        return tuple(sorted(set(ids) | set(parent_ids) | set(child_ids)))
+
+    def _heal_window_since(self, dry: bool, since: date, ids: tuple[int, ...]) -> int:
+        """
+        Full pass for every booking in the date window:
+        - Bed Bugs 2-visit lock + flags
+        - Multi-service day-1 split
+        - Wrong / stuck Tech 40% recalculation
+        - Follow-up price zeroing via enforce_fixed_service_rules
+        """
+        fixed = 0
+        roots_seen: set[int] = set()
+        qs = (
+            JobCard.objects.filter(pk__in=ids)
+            .select_related('parent_job')
+            .order_by('id')
+        )
+        for job in qs.iterator():
+            root = job.parent_job or job
+            if root.id not in roots_seen and job_includes_bed_bugs(root):
+                roots_seen.add(root.id)
+                if dry:
+                    fixed += 1
+                    self.stdout.write(f"  since-bedbug-package #{root.id}")
+                else:
+                    created = heal_bed_bug_package(root)
+                    if created:
+                        fixed += 1
+                        self.stdout.write(
+                            f"  since-bedbug-package #{root.id} +{len(created)} visits"
+                        )
+
+            changed = enforce_fixed_service_rules_on_job(job)
+            if changed:
+                fixed += 1
+                self.stdout.write(f"  since-flags #{job.id}: {changed}")
+                if not dry:
+                    job.save(update_fields=list(dict.fromkeys(changed + ['updated_at'])))
+
+            if (
+                not dry
+                and job.status == JobCard.JobStatus.DONE
+                and job.payout_status != JobCard.PayoutStatus.LEGACY_EXEMPT
+                and job_needs_payout_heal(job)
+            ):
+                if is_multi_service_booking(job) and not job.parent_job_id:
+                    BookingScheduleEngine.sync_multi_service_day1_children(
+                        job, completing=True,
+                    )
+                calculate_and_apply_payout(job, force=True)
+                fixed += 1
+                self.stdout.write(f"  since-payout #{job.id}")
+            elif dry and job.status == JobCard.JobStatus.DONE and job_needs_payout_heal(job):
+                if job.payout_status != JobCard.PayoutStatus.LEGACY_EXEMPT:
+                    fixed += 1
+                    self.stdout.write(f"  since-payout #{job.id} (would recalc)")
+
+        # Batch heal stuck payouts in the window (non-legacy Done).
+        done_jobs = list(
+            JobCard.objects.filter(
+                pk__in=ids,
+                status=JobCard.JobStatus.DONE,
+            ).exclude(payout_status=JobCard.PayoutStatus.LEGACY_EXEMPT)
+        )
+        if dry:
+            need = sum(1 for j in done_jobs if job_needs_payout_heal(j))
+            self.stdout.write(f"  since-stuck-candidates={need}")
+        else:
+            healed = heal_stuck_payouts(done_jobs)
+            fixed += healed
+            self.stdout.write(f"  since-stuck-healed={healed}")
+        return fixed
 
     def _parse_ids(self, raw: str) -> tuple[int, ...]:
         if not raw.strip():
@@ -215,7 +345,7 @@ class Command(BaseCommand):
                 calculate_and_apply_payout(job, force=True)
         return fixed
 
-    def _heal_amc_full_package_visits(self, dry: bool) -> int:
+    def _heal_amc_full_package_visits(self, dry: bool, ids: tuple[int, ...] | None = None) -> int:
         """
         AMC Done visits that stored full package × 40% instead of (package ÷ N) × 40%.
         Example: #1934 AMC 3 Services ₹2500 → must be ₹333.33 tech, not ₹1000.
@@ -236,8 +366,11 @@ class Command(BaseCommand):
                 JobCard.PayoutStatus.APPROVED,
                 JobCard.PayoutStatus.PAID,
                 JobCard.PayoutStatus.CANCELLED,
+                JobCard.PayoutStatus.LEGACY_EXEMPT,
             ],
         )
+        if ids is not None:
+            qs = qs.filter(pk__in=ids)
         fixed = 0
         for job in qs.iterator():
             if is_bed_bug_multi_visit(job):
