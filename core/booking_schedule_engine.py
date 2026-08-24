@@ -684,6 +684,29 @@ def is_multi_service_package_shell(job) -> bool:
     return JobCard.objects.filter(parent_job_id=job.id, service_cycle=1).exists()
 
 
+def is_day1_package_service_line(job) -> bool:
+    """
+    Auto day-1 child under a multi-service package (Cockroach line, Bed Bugs line).
+
+    These are ledger/ops rows, not customer bookings. CRM Job Cards list should
+    hide them so staff see one package (#2732), not three cards.
+    Cycle 2+ follow-ups (Bed Bugs visit 2) stay visible as real next visits.
+    """
+    if not getattr(job, 'parent_job_id', None):
+        return False
+    if (getattr(job, 'service_cycle', 1) or 1) != 1:
+        return False
+    if getattr(job, 'is_complaint_call', False):
+        return False
+    parent = getattr(job, 'parent_job', None)
+    if parent is not None:
+        return is_multi_service_booking(parent)
+    from core.models import JobCard
+
+    parent = JobCard.objects.filter(pk=job.parent_job_id).first()
+    return bool(parent and is_multi_service_booking(parent))
+
+
 class BookingScheduleEngine:
     @staticmethod
     def sync_multi_service_day1_children(main_job, *, completing: bool = False) -> list[Any]:

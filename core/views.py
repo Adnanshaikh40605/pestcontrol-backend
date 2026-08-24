@@ -2208,6 +2208,21 @@ class JobCardViewSet(BaseModelViewSet):
         qs = super().get_queryset()
         if not self.request or self.action != 'list':
             return qs
+
+        # CRM list: one customer booking, not parent + Cockroach + Bed Bugs day-1 clones.
+        # ?include_service_lines=1 keeps the internal rows. Cycle 2+ follow-ups stay.
+        include_lines = str(
+            self.request.query_params.get('include_service_lines') or ''
+        ).lower() in ('1', 'true', 'yes')
+        if not include_lines:
+            # Day-1 auto children of Cockroach+Bed Bugs packages (#2733/#2734).
+            # Keep parent (#2732) and Bed Bugs visit 2 (#2735).
+            qs = qs.exclude(
+                parent_job_id__isnull=False,
+                service_cycle=1,
+                is_auto_generated=True,
+                is_complaint_call=False,
+            )
         
         # 1. Handle Booking Type Categories (Tabs)
         booking_type = self.request.query_params.get('booking_type', '').lower()
@@ -4681,6 +4696,10 @@ class QuotationViewSet(BaseModelViewSet):
                 'Converted Quotation to Booking',
                 booking_id=main_job.code,
             )
+
+            from partner.services import schedule_auto_send_new_booking_to_partner_app
+
+            schedule_auto_send_new_booking_to_partner_app(main_job, sent_by_user=request.user)
 
             return response.Response(
                 {
