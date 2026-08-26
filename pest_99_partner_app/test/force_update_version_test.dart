@@ -6,14 +6,6 @@ import 'package:pest_99_partner_app/core/utils/version_utils.dart';
 import 'package:pest_99_partner_app/providers/app_update_provider.dart';
 import 'package:pest_99_partner_app/services/app_version_service.dart';
 
-bool requiresForceUpdate({
-  required String currentVersion,
-  required AppVersionInfo server,
-}) {
-  if (!server.forceUpdate) return false;
-  return isVersionBelow(currentVersion, server.minimumSupportedVersion);
-}
-
 class _FakeVersionService extends AppVersionService {
   _FakeVersionService()
       : super(
@@ -45,9 +37,17 @@ void main() {
   });
 
   group('force update policy', () {
-    AppVersionInfo policy({required bool force, required String min}) {
+    final service = AppVersionService(
+      ApiClient(dio: Dio(BaseOptions(baseUrl: 'http://127.0.0.1'))),
+    );
+
+    AppVersionInfo policy({
+      required bool force,
+      required String min,
+      String? latest,
+    }) {
       return AppVersionInfo(
-        latestVersion: min,
+        latestVersion: latest ?? min,
         minimumSupportedVersion: min,
         forceUpdate: force,
         updateTitle: 'Please update the app.',
@@ -56,23 +56,30 @@ void main() {
       );
     }
 
-    test('blocks only when force_update and below minimum', () {
+    test('blocks when force_update and below minimum or latest', () {
       expect(
-        requiresForceUpdate(
+        service.requiresForceUpdate(
           currentVersion: '2.0.7',
           server: policy(force: true, min: '2.0.8'),
         ),
         isTrue,
       );
       expect(
-        requiresForceUpdate(
+        service.requiresForceUpdate(
           currentVersion: '2.0.8',
           server: policy(force: true, min: '2.0.8'),
         ),
         isFalse,
       );
       expect(
-        requiresForceUpdate(
+        service.requiresForceUpdate(
+          currentVersion: '2.0.9',
+          server: policy(force: true, min: '2.0.8', latest: '2.1.0'),
+        ),
+        isTrue,
+      );
+      expect(
+        service.requiresForceUpdate(
           currentVersion: '2.0.7',
           server: policy(force: false, min: '2.0.8'),
         ),
@@ -81,28 +88,28 @@ void main() {
     });
 
     test('network failure after block does not unlock app', () async {
-      final service = _FakeVersionService();
-      final provider = AppUpdateProvider(service);
+      final fake = _FakeVersionService();
+      final provider = AppUpdateProvider(fake);
 
-      service.nextServer = policy(force: true, min: '2.0.8');
+      fake.nextServer = policy(force: true, min: '2.0.8');
       await provider.checkForUpdate();
       expect(provider.forceUpdateRequired, isTrue);
 
-      service.nextError = Exception('offline');
+      fake.nextError = Exception('offline');
       await provider.checkForUpdate(silent: true);
       expect(provider.forceUpdateRequired, isTrue);
       expect(provider.isChecking, isFalse);
     });
 
     test('successful allow response can unlock after block', () async {
-      final service = _FakeVersionService();
-      final provider = AppUpdateProvider(service);
+      final fake = _FakeVersionService();
+      final provider = AppUpdateProvider(fake);
 
-      service.nextServer = policy(force: true, min: '2.0.8');
+      fake.nextServer = policy(force: true, min: '2.0.8');
       await provider.checkForUpdate();
       expect(provider.forceUpdateRequired, isTrue);
 
-      service.nextServer = policy(force: false, min: '2.0.8');
+      fake.nextServer = policy(force: false, min: '2.0.8');
       await provider.checkForUpdate(silent: true);
       expect(provider.forceUpdateRequired, isFalse);
     });

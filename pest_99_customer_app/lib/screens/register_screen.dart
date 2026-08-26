@@ -11,7 +11,9 @@ import '../shared/widgets/pc99_widgets.dart';
 
 /// Register — name + mobile only, then OTP (no password).
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key});
+  const RegisterScreen({super.key, this.initialMobile = ''});
+
+  final String initialMobile;
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -19,8 +21,17 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _name = TextEditingController();
-  final _mobile = TextEditingController();
+  late final TextEditingController _mobile;
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final digits = widget.initialMobile.replaceAll(RegExp(r'\D'), '');
+    _mobile = TextEditingController(
+      text: digits.length > 10 ? digits.substring(digits.length - 10) : digits,
+    );
+  }
 
   @override
   void dispose() {

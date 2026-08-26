@@ -25,8 +25,6 @@ class AppVersionService {
     required AppVersionInfo server,
   }) {
     if (!server.forceUpdate) return false;
-    // Block when below the configured minimum OR below the published latest.
-    // Admin typically sets both to the current Play Store version when forcing.
     if (isVersionBelow(currentVersion, server.minimumSupportedVersion)) {
       return true;
     }

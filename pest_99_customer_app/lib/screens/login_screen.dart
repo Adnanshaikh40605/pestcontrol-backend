@@ -40,8 +40,42 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     setState(() => _busy = false);
     if (!result.ok) {
+      final err = result.error ?? 'Could not send OTP';
+      final lower = err.toLowerCase();
+      final looksUnregistered = lower.contains('no account') ||
+          lower.contains('not registered') ||
+          lower.contains('register first') ||
+          lower.contains('register to continue');
+      if (looksUnregistered) {
+        final goRegister = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('No account found'),
+            content: Text(
+              err.contains('register')
+                  ? err
+                  : 'No account found with this mobile number. Please register to continue.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Register'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        if (goRegister == true) {
+          context.go('/register', extra: {'mobile': mobile});
+        }
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.error ?? 'Could not send OTP'), backgroundColor: AppColors.danger),
+        SnackBar(content: Text(err), backgroundColor: AppColors.danger),
       );
       return;
     }
@@ -232,7 +266,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
       return;
     }
     setState(() => _busy = true);
-    final ok = await context.read<AuthProvider>().verifyOtp(
+    final result = await context.read<AuthProvider>().verifyOtp(
           mobile: widget.mobile,
           otp: _otp,
           purpose: widget.purpose,
@@ -240,17 +274,53 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
         );
     if (!mounted) return;
     setState(() => _busy = false);
-    if (ok) {
+    if (result.ok) {
       final next = context.read<AuthProvider>().takePendingRoute();
       context.go(next ?? '/home');
+      return;
+    }
+
+    if (result.needsRegistration) {
+      await _showRegisterRequiredDialog(result);
+      return;
+    }
+
+    _clearOtp();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(result.error ?? 'Invalid OTP'),
+        backgroundColor: AppColors.danger,
+      ),
+    );
+  }
+
+  Future<void> _showRegisterRequiredDialog(OtpVerifyResult result) async {
+    final message = (result.error != null && result.error!.trim().isNotEmpty)
+        ? result.error!.trim()
+        : 'No account found with this mobile number. Please register to continue.';
+    final goRegister = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('No account found'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Stay on login'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Register'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (goRegister == true) {
+      context.go('/register', extra: {'mobile': widget.mobile});
     } else {
       _clearOtp();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(context.read<AuthProvider>().error ?? 'Invalid OTP'),
-          backgroundColor: AppColors.danger,
-        ),
-      );
     }
   }
 

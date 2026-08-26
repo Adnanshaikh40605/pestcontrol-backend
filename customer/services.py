@@ -125,9 +125,20 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         logger.exception('Customer booking create failed: %s', exc)
         raise CustomerAppError(str(exc), code='create_failed') from exc
 
-    job.creation_source = 'customer_app'
+    job.creation_source = JobCard.CreationSource.CUSTOMER_APP
     job.package_tier = package_tier
     job.save(update_fields=['creation_source', 'package_tier', 'updated_at'])
+
+    # Always push into the Partner App open pool (CRM Action not required).
+    try:
+        from partner.services import schedule_auto_send_new_booking_to_partner_app
+
+        schedule_auto_send_new_booking_to_partner_app(job, sent_by_user=None)
+    except Exception:
+        logger.exception(
+            'Failed to schedule partner-app auto-send for customer booking #%s',
+            job.id,
+        )
 
     # Persist last service address on CRM client for future bookings.
     client = account.client

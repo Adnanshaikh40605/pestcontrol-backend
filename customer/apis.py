@@ -130,11 +130,8 @@ class SendOTPAPIView(CustomerPublicAPIView):
         full_name = serializer.validated_data.get('full_name') or ''
 
         exists = CustomerAccount.objects.filter(mobile=mobile).exists()
-        if purpose == CustomerOTPChallenge.PURPOSE_LOGIN and not exists:
-            return Response(
-                {'error': 'No account found for this mobile. Please register first.', 'code': 'not_registered'},
-                status=400,
-            )
+        # Allow login OTP even when no account exists — verify step returns
+        # not_registered with a clear register CTA (better UX than blocking send).
         if purpose == CustomerOTPChallenge.PURPOSE_REGISTER and exists:
             return Response(
                 {'error': 'An account with this mobile already exists. Please login.', 'code': 'already_registered'},
@@ -249,7 +246,18 @@ class VerifyOTPAPIView(CustomerPublicAPIView):
             try:
                 account = CustomerAccount.objects.select_related('client').get(mobile=mobile)
             except CustomerAccount.DoesNotExist:
-                return Response({'error': 'No account found for this mobile.', 'code': 'not_registered'}, status=400)
+                return Response(
+                    {
+                        'error': (
+                            'No account found with this mobile number. '
+                            'Please register to continue.'
+                        ),
+                        'code': 'not_registered',
+                        'mobile': mobile,
+                        'action': 'register',
+                    },
+                    status=404,
+                )
             if not account.is_active:
                 return Response({'error': 'Account deactivated.', 'code': 'inactive'}, status=403)
             message = 'Login successful.'

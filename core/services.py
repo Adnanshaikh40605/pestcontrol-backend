@@ -707,6 +707,20 @@ class JobCardService:
                                 f"DUPLICATE CREATION BLOCKED for client {client.id}, "
                                 f"service {jobcard_data.get('service_type')}"
                             )
+                            # Still ensure the existing Pending booking is in the partner pool.
+                            try:
+                                from partner.services import (
+                                    schedule_auto_send_new_booking_to_partner_app,
+                                )
+
+                                schedule_auto_send_new_booking_to_partner_app(
+                                    duplicate_check, sent_by_user=user,
+                                )
+                            except Exception:
+                                logger.exception(
+                                    'Auto-send on duplicate booking #%s failed',
+                                    duplicate_check.id,
+                                )
                             return duplicate_check
                 except Exception as e:
                     logger.warning(f"Error checking for duplicate: {e}")

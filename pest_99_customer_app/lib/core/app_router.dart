@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart' show Listenable;
 import 'package:go_router/go_router.dart';
 
 import '../core/auth_gate.dart';
+import '../features/force_update/force_update_screen.dart';
+import '../providers/app_update_provider.dart';
 import '../providers/auth_provider.dart';
 import '../screens/account_hub_screens.dart';
 import '../screens/booking_detail_screen.dart';
@@ -13,13 +16,21 @@ import '../screens/login_screen.dart';
 import '../screens/register_screen.dart';
 
 class AppRouter {
-  AppRouter(this._auth) {
+  AppRouter(this._auth, this._appUpdate) {
     router = GoRouter(
       initialLocation: '/home',
-      refreshListenable: _auth,
+      refreshListenable: Listenable.merge([_auth, _appUpdate]),
       redirect: (context, state) {
-        if (!_auth.ready) return null;
         final loc = state.matchedLocation;
+
+        if (_appUpdate.forceUpdateRequired) {
+          return loc == '/force-update' ? null : '/force-update';
+        }
+        if (loc == '/force-update') {
+          return '/home';
+        }
+
+        if (!_auth.ready) return null;
         final onAuth = loc == '/login' || loc == '/register' || loc == '/otp';
 
         // Guests may browse Home; any other feature requires login.
@@ -35,8 +46,26 @@ class AppRouter {
         return null;
       },
       routes: [
+        GoRoute(
+          path: '/force-update',
+          builder: (_, _) => ForceUpdateScreen(
+            storeUrl: _appUpdate.serverInfo?.storeUrl,
+          ),
+        ),
         GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
-        GoRoute(path: '/register', builder: (_, _) => const RegisterScreen()),
+        GoRoute(
+          path: '/register',
+          builder: (_, state) {
+            final extra = state.extra;
+            String mobile = '';
+            if (extra is Map) {
+              mobile = '${extra['mobile'] ?? ''}';
+            } else if (extra is String) {
+              mobile = extra;
+            }
+            return RegisterScreen(initialMobile: mobile);
+          },
+        ),
         GoRoute(
           path: '/otp',
           builder: (_, state) {
@@ -102,5 +131,6 @@ class AppRouter {
   }
 
   final AuthProvider _auth;
+  final AppUpdateProvider _appUpdate;
   late final GoRouter router;
 }

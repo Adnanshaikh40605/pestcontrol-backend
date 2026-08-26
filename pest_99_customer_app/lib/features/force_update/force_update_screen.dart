@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/models/app_version_info.dart';
 import '../../core/theme/app_colors.dart';
 import '../../providers/app_update_provider.dart';
-import '../../shared/widgets/primary_button.dart';
+import '../../shared/widgets/pc99_widgets.dart';
 
 /// Blocking mandatory-update gate. No dismiss / skip / later.
 class ForceUpdateScreen extends StatelessWidget {
@@ -15,7 +15,9 @@ class ForceUpdateScreen extends StatelessWidget {
 
   Future<void> _openPlayStore(String url) async {
     final https = Uri.parse(url);
-    final market = Uri.parse('market://details?id=com.pestcontrol99.partner');
+    final market = Uri.parse(
+      'market://details?id=com.pestcontrol99.pest_99_customer_app',
+    );
 
     if (await canLaunchUrl(market)) {
       final ok = await launchUrl(market, mode: LaunchMode.externalApplication);
@@ -29,16 +31,16 @@ class ForceUpdateScreen extends StatelessWidget {
     final info = context.watch<AppUpdateProvider>().serverInfo;
     final title = (info?.updateTitle.trim().isNotEmpty ?? false)
         ? info!.updateTitle.trim()
-        : 'Please update the app.';
+        : 'Update required';
     final message = (info?.updateMessage.trim().isNotEmpty ?? false)
         ? info!.updateMessage.trim()
-        : 'A newer version is required to continue. Tap Update to open the Play Store.';
+        : 'A newer version of Pest Control 99 is required. Tap Update to continue.';
     final url = storeUrl ?? info?.storeUrl ?? AppVersionInfo.defaultStoreUrl;
 
     return PopScope(
       canPop: false,
       child: Scaffold(
-        backgroundColor: AppColors.surface,
+        backgroundColor: AppColors.background,
         body: SafeArea(
           child: Center(
             child: Padding(
@@ -47,38 +49,39 @@ class ForceUpdateScreen extends StatelessWidget {
                 constraints: const BoxConstraints(maxWidth: 360),
                 child: Material(
                   color: Colors.white,
-                  elevation: 8,
-                  shadowColor: const Color(0x33000000),
+                  elevation: 6,
                   borderRadius: BorderRadius.circular(16),
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
+                        const Icon(
                           Icons.system_update_alt_rounded,
                           size: 48,
-                          color: AppColors.primary.withValues(alpha: 0.95),
+                          color: AppColors.primary,
                         ),
                         const SizedBox(height: 20),
                         Text(
                           title,
                           textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.textPrimary,
-                              ),
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                          ),
                         ),
                         const SizedBox(height: 12),
                         Text(
                           message,
                           textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: AppColors.textMuted,
+                          ),
                         ),
                         const SizedBox(height: 24),
-                        PrimaryButton(
+                        Pc99PrimaryButton(
                           label: 'Update',
                           onPressed: () => _openPlayStore(url),
                         ),

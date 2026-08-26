@@ -106,6 +106,28 @@ class CustomerApiTests(TestCase):
         self.assertEqual(login.status_code, 200, login.data)
         self.assertIn('access', login.data)
 
+    @override_settings(DEBUG=True, CUSTOMER_OTP_FIXED='1234')
+    def test_login_otp_unregistered_mobile_can_verify_then_register(self):
+        """Login OTP is allowed without an account; verify returns not_registered."""
+        send = self.api.post(
+            '/api/customer/otp/send/',
+            {'mobile': '9000999888', 'purpose': 'login'},
+            format='json',
+        )
+        self.assertEqual(send.status_code, 200, send.data)
+
+        verify = self.api.post(
+            '/api/customer/otp/verify/',
+            {'mobile': '9000999888', 'otp': '1234', 'purpose': 'login'},
+            format='json',
+        )
+        self.assertEqual(verify.status_code, 404, verify.data)
+        self.assertEqual(verify.data.get('code'), 'not_registered')
+        self.assertEqual(verify.data.get('action'), 'register')
+        self.assertEqual(verify.data.get('mobile'), '9000999888')
+        self.assertIn('No account found', verify.data.get('error', ''))
+        self.assertIn('register', verify.data.get('error', '').lower())
+
     def test_catalog_lists_rates_with_package_tiers(self):
         res = self.api.get('/api/customer/catalog/')
         self.assertEqual(res.status_code, 200, res.data)
@@ -119,18 +141,19 @@ class CustomerApiTests(TestCase):
     @override_settings(CUSTOMER_ONLINE_PAYMENT_ENABLED=True)
     def test_book_track_pay_rate_flow(self):
         self._register()
-        book = self.api.post(
-            '/api/customer/bookings/',
-            {
-                'service_type': 'General Pest Control',
-                'pricing_rate_id': self.rate.id,
-                'package_tier': 'standard',
-                'address': '12 Test Lane',
-                'city': 'Mumbai',
-                'bhk_size': '1 BHK',
-            },
-            format='json',
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            book = self.api.post(
+                '/api/customer/bookings/',
+                {
+                    'service_type': 'General Pest Control',
+                    'pricing_rate_id': self.rate.id,
+                    'package_tier': 'standard',
+                    'address': '12 Test Lane',
+                    'city': 'Mumbai',
+                    'bhk_size': '1 BHK',
+                },
+                format='json',
+            )
         self.assertEqual(book.status_code, 201, book.data)
         booking_id = book.data['booking']['id']
 
@@ -138,6 +161,11 @@ class CustomerApiTests(TestCase):
         self.assertEqual(job.creation_source, 'customer_app')
         self.assertEqual(job.reference, 'Customer App')
         self.assertEqual(Decimal(str(job.total_amount or job.price)), Decimal('1000.00'))
+        self.assertIsNotNone(job.sent_to_app_at)
+        self.assertEqual(job.partner_status, JobCard.PartnerStatus.PENDING)
+        # Customer bookings must land in the Partner App open pool.
+        job.refresh_from_db()
+        self.assertIsNotNone(job.sent_to_app_at)
 
         detail = self.api.get(f'/api/customer/bookings/{booking_id}/')
         self.assertEqual(detail.status_code, 200)

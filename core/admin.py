@@ -11,6 +11,7 @@ from .models import (
     ECardWhatsAppSend,
 )
 from .partner_app_version import PartnerAppVersionConfig
+from .customer_app_version import CustomerAppVersionConfig
 
 
 @admin.register(PartnerAppVersionConfig)
@@ -27,8 +28,8 @@ class PartnerAppVersionConfigAdmin(admin.ModelAdmin):
             {
                 'fields': ('latest_version', 'minimum_supported_version', 'force_update'),
                 'description': (
-                    'When Force update is enabled, partner apps with version lower than '
-                    'Minimum supported version cannot open the app and are sent to the Play Store.'
+                    'When Force update is enabled, partner apps below Minimum supported '
+                    'version OR Latest version cannot continue and must update from Play Store.'
                 ),
             },
         ),
@@ -36,7 +37,7 @@ class PartnerAppVersionConfigAdmin(admin.ModelAdmin):
             'Update screen text',
             {
                 'fields': ('update_title', 'update_message'),
-                'description': 'Partner app shows a fixed popup: “Please update the app.” with Update → Play Store.',
+                'description': 'Shown on the blocking update screen in the Partner App.',
             },
         ),
         ('Meta', {'fields': ('updated_at',)}),
@@ -45,6 +46,42 @@ class PartnerAppVersionConfigAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return not PartnerAppVersionConfig.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(CustomerAppVersionConfig)
+class CustomerAppVersionConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        'latest_version',
+        'minimum_supported_version',
+        'force_update',
+        'updated_at',
+    )
+    fieldsets = (
+        (
+            'Version numbers',
+            {
+                'fields': ('latest_version', 'minimum_supported_version', 'force_update'),
+                'description': (
+                    'When Force update is enabled, customer apps below Minimum supported '
+                    'version OR Latest version cannot continue and must update from Play Store.'
+                ),
+            },
+        ),
+        (
+            'Update screen text',
+            {
+                'fields': ('update_title', 'update_message'),
+            },
+        ),
+        ('Meta', {'fields': ('updated_at',)}),
+    )
+    readonly_fields = ('updated_at',)
+
+    def has_add_permission(self, request):
+        return not CustomerAppVersionConfig.objects.exists()
 
     def has_delete_permission(self, request, obj=None):
         return False

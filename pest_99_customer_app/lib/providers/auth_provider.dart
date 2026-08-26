@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../core/api_client.dart';
+import '../core/api_exception.dart';
 import '../models/customer_models.dart';
 import '../services/customer_services.dart';
 
@@ -10,6 +11,24 @@ class OtpSendResult {
   final bool ok;
   final String? devOtp;
   final String? error;
+}
+
+class OtpVerifyResult {
+  const OtpVerifyResult({
+    required this.ok,
+    this.error,
+    this.code,
+    this.mobile,
+    this.action,
+  });
+
+  final bool ok;
+  final String? error;
+  final String? code;
+  final String? mobile;
+  final String? action;
+
+  bool get needsRegistration => code == 'not_registered' || action == 'register';
 }
 
 class AuthProvider extends ChangeNotifier {
@@ -69,7 +88,7 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> verifyOtp({
+  Future<OtpVerifyResult> verifyOtp({
     required String mobile,
     required String otp,
     required String purpose,
@@ -85,11 +104,20 @@ class AuthProvider extends ChangeNotifier {
       );
       loggedIn = true;
       notifyListeners();
-      return true;
+      return const OtpVerifyResult(ok: true);
     } catch (e) {
       error = '$e';
       notifyListeners();
-      return false;
+      if (e is ApiException) {
+        return OtpVerifyResult(
+          ok: false,
+          error: e.message,
+          code: e.code,
+          mobile: mobile,
+          action: e.code == 'not_registered' ? 'register' : null,
+        );
+      }
+      return OtpVerifyResult(ok: false, error: error, mobile: mobile);
     }
   }
 
