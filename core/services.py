@@ -1611,18 +1611,35 @@ class DashboardService:
             today_active = JobCard.objects.filter(
                 schedule_datetime__date=today,
             ).exclude(status=JobCard.JobStatus.CANCELLED)
+
+            # Complaint Calls are linked free re-visits — show as their own activity,
+            # not as a new billable booking or AMC service call.
+            complaint_q = (
+                Q(is_complaint_call=True)
+                | Q(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
+                | Q(booking_type=JobCard.BookingType.COMPLAINT_CALL)
+            )
             today_service_q = (
                 Q(booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES)
                 | Q(is_service_call=True)
-            )
+            ) & ~complaint_q
+            today_complaint_qs = today_active.filter(complaint_q)
             today_service_qs = today_active.filter(today_service_q)
-            today_booking_qs = today_active.exclude(today_service_q)
+            today_booking_qs = today_active.exclude(complaint_q).exclude(today_service_q)
 
             # Always include today's city counts (even when date range is wider)
             today_city_stats = _city_counts(today_booking_qs)
             today_service_city_stats = _city_counts(today_service_qs)
+            today_complaint_city_stats = _city_counts(today_complaint_qs)
             today_booking_count = today_booking_qs.count()
             today_service_call_count = today_service_qs.count()
+            today_complaint_call_count = today_complaint_qs.count()
+
+            # Range totals — complaints stay in total_job_cards but are also surfaced.
+            total_complaint_calls = JobCard.objects.filter(
+                jobcard_filters,
+                complaint_q,
+            ).count()
             
             # Property Type breakdown
             property_type_stats = list(JobCard.objects.filter(jobcard_filters)
@@ -1750,8 +1767,11 @@ class DashboardService:
                 'city_stats': city_stats,
                 'today_city_stats': today_city_stats,
                 'today_service_city_stats': today_service_city_stats,
+                'today_complaint_city_stats': today_complaint_city_stats,
                 'today_booking_count': today_booking_count,
                 'today_service_call_count': today_service_call_count,
+                'today_complaint_call_count': today_complaint_call_count,
+                'total_complaint_calls': total_complaint_calls,
                 'property_type_stats': property_type_stats,
             }
         except Exception as e:
@@ -1763,6 +1783,7 @@ class DashboardService:
         """Get lightweight counts for sidebar badges."""
         try:
             from django.utils import timezone
+            from django.db.models import Q
             from .models import Inquiry, JobCard, CRMInquiry, Feedback, Reminder, Quotation
             today = timezone.now().date()
             
@@ -1770,7 +1791,9 @@ class DashboardService:
                 "website_leads_unread": Inquiry.objects.filter(is_read=False).count(),
                 "crm_inquiries_unread": CRMInquiry.objects.filter(is_read=False).count(),
                 "complaint_calls": JobCard.objects.filter(
-                    booking_category=JobCard.BookingCategory.COMPLAINT_CALL,
+                    Q(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
+                    | Q(is_complaint_call=True)
+                    | Q(booking_type=JobCard.BookingType.COMPLAINT_CALL),
                     status=JobCard.JobStatus.PENDING,
                 ).count(),
                 "reminders": Reminder.objects.filter(status='pending').count(),

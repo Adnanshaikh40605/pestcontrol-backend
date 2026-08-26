@@ -131,7 +131,47 @@ class DashboardTodayCitySplitTests(TestCase):
         stats = DashboardService.get_dashboard_statistics()
         self.assertEqual(stats['today_booking_count'], 1)
         self.assertEqual(stats['today_service_call_count'], 2)
+        self.assertEqual(stats['today_complaint_call_count'], 0)
         self.assertEqual(stats['today_city_stats'], [{'city': 'Mumbai', 'count': 1}])
         service_by_city = {row['city']: row['count'] for row in stats['today_service_city_stats']}
         self.assertEqual(service_by_city.get('Mumbai'), 1)
         self.assertEqual(service_by_city.get('Pune'), 1)
+
+    def test_today_complaint_calls_are_split_from_bookings(self):
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='1000',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_service_call=False,
+        )
+        complaint = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='0',
+            reference='Other',
+            status=JobCard.JobStatus.ON_PROCESS,
+            booking_type=JobCard.BookingType.COMPLAINT_CALL,
+            booking_category=JobCard.BookingCategory.COMPLAINT_CALL,
+            is_complaint_call=True,
+            is_service_call=False,
+        )
+
+        stats = DashboardService.get_dashboard_statistics(
+            from_date=timezone.now().date().isoformat(),
+            to_date=timezone.now().date().isoformat(),
+        )
+        self.assertEqual(stats['today_booking_count'], 1)
+        self.assertEqual(stats['today_service_call_count'], 0)
+        self.assertEqual(stats['today_complaint_call_count'], 1)
+        self.assertEqual(stats['total_complaint_calls'], 1)
+        self.assertEqual(stats['total_job_cards'], 2)
+        self.assertEqual(stats['today_city_stats'], [{'city': 'Mumbai', 'count': 1}])
+        self.assertEqual(stats['today_complaint_city_stats'], [{'city': 'Mumbai', 'count': 1}])
+        self.assertTrue(complaint.is_complaint_call)
