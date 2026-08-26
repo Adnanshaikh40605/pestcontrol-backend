@@ -164,19 +164,20 @@ def notify_customer_otp(
     customer_name: str | None = None,
 ) -> bool:
     """
-    Deliver customer-app OTP via WhatsFlow template (soft-fail).
+    Deliver customer-app OTP via WhatsFlow AUTH template (soft-fail).
 
-    Configure Meta/WhatsFlow template name with settings.CUSTOMER_OTP_WHATSAPP_TEMPLATE.
-    Template body must accept OTP as the first body parameter.
+    Configure Meta/WhatsFlow template name with settings.CUSTOMER_OTP_WHATSAPP_TEMPLATE
+    (e.g. login_otp). AUTH templates accept a single body param — the OTP code.
     """
     template = (getattr(settings, "CUSTOMER_OTP_WHATSAPP_TEMPLATE", "") or "").strip()
     if not template:
         logger.warning("Customer OTP WhatsApp skipped (CUSTOMER_OTP_WHATSAPP_TEMPLATE unset).")
         return False
+    # AUTH / login_otp templates only have {{1}} = OTP. Do not send purpose as {{2}}.
     return send_template_by_phone(
         phone=mobile,
         template_name=template,
-        body_params=[str(otp), purpose],
+        body_params=[str(otp)],
         customer_name=customer_name or "Customer",
-        external_id=f"customer-otp:{normalize_whatsapp_phone(mobile)}",
+        external_id=f"customer-otp:{normalize_whatsapp_phone(mobile)}:{purpose}",
     )
