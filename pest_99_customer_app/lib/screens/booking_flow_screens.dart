@@ -146,30 +146,6 @@ class _PropertySelectionScreenState extends State<PropertySelectionScreen> {
                   },
                 )),
             const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceSoft,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline_rounded, size: 18, color: AppColors.primary),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      flow.ratesLoading
-                          ? 'Loading CRM prices…'
-                          : flow.isHome
-                              ? 'Prices shown from CRM rate card for your property size. Pay after service.'
-                              : 'Commercial rates may need inspection when CRM amount is ₹0.',
-                      style: const TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ],
       ),
@@ -663,7 +639,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.savings_outlined, color: AppColors.primary, size: 18),
+                  const Icon(Icons.currency_rupee_rounded, color: AppColors.primary, size: 18),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -715,41 +691,54 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           ),
           const SizedBox(height: 12),
           Pc99Card(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Pc99SectionTitle('Service Address'),
-                const SizedBox(height: 10),
+                const Text(
+                  'Service Address',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                ),
+                const SizedBox(height: 8),
                 TextFormField(
                   initialValue: flow.serviceAddress,
                   onChanged: (v) => flow.setServiceAddress(address: v),
-                  maxLines: 2,
+                  maxLines: 1,
+                  style: const TextStyle(fontSize: 13),
                   decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                     hintText: 'Flat / building, street, landmark',
-                    hintStyle: TextStyle(fontSize: 12.5, color: AppColors.textHint),
+                    hintStyle: TextStyle(fontSize: 12, color: AppColors.textHint),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 Row(
                   children: [
                     Expanded(
                       child: TextFormField(
                         initialValue: flow.serviceArea,
                         onChanged: (v) => flow.setServiceAddress(area: v),
+                        style: const TextStyle(fontSize: 13),
                         decoration: const InputDecoration(
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                           hintText: 'Area',
-                          hintStyle: TextStyle(fontSize: 12.5, color: AppColors.textHint),
+                          hintStyle: TextStyle(fontSize: 12, color: AppColors.textHint),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: TextFormField(
                         initialValue: flow.serviceCity,
                         onChanged: (v) => flow.setServiceAddress(city: v),
+                        style: const TextStyle(fontSize: 13),
                         decoration: const InputDecoration(
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
                           hintText: 'City',
-                          hintStyle: TextStyle(fontSize: 12.5, color: AppColors.textHint),
+                          hintStyle: TextStyle(fontSize: 12, color: AppColors.textHint),
                         ),
                       ),
                     ),

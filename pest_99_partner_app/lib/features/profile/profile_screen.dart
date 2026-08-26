@@ -11,6 +11,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/bookings_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../services/earnings_service.dart';
+import '../../shared/widgets/app_snackbar.dart';
 import '../../shared/widgets/app_top_bar.dart';
 import '../../shared/widgets/legal_support_card.dart';
 import 'delete_account_dialog.dart';
@@ -78,6 +79,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     onChanged: (online) => _setPresence(context, online),
                   ),
                   const SizedBox(height: AppSpacing.sectionGap),
+                  _EarningsProgressCard(
+                    jobsDone: completed,
+                    totalEarnings: p?.stats?.totalEarnings ?? '0',
+                    onOpenEarnings: () => context.push('/earnings'),
+                  ),
+                  const SizedBox(height: AppSpacing.sectionGap),
                   _StatsGrid(
                     available: available,
                     accepted: accepted,
@@ -113,14 +120,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (ok) {
       context.read<ProfileProvider>().clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Your account has been permanently deleted.')),
-      );
+      AppSnackBar.success(context, 'Your account has been permanently deleted.');
       context.go('/login');
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(auth.error ?? 'Account deletion failed')),
-      );
+      AppSnackBar.error(context, auth.error ?? 'Account deletion failed');
     }
   }
 
@@ -133,8 +136,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await context.read<ProfileProvider>().loadProfile(force: true);
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(userErrorMessage(e, fallback: 'Could not update presence.'))),
+      AppSnackBar.error(
+        context,
+        userErrorMessage(e, fallback: 'Could not update presence.'),
       );
     }
   }
@@ -288,6 +292,126 @@ class _StatsGrid extends StatelessWidget {
           ),
         );
       }).toList(),
+    );
+  }
+}
+
+class _EarningsProgressCard extends StatelessWidget {
+  const _EarningsProgressCard({
+    required this.jobsDone,
+    required this.totalEarnings,
+    required this.onOpenEarnings,
+  });
+
+  final int jobsDone;
+  final String totalEarnings;
+  final VoidCallback onOpenEarnings;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onOpenEarnings,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.border),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.primary.withValues(alpha: 0.10),
+                AppColors.surface,
+              ],
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.payments_outlined, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Your earnings progress',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                  Text(
+                    'History',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const Icon(Icons.chevron_right, color: AppColors.primary, size: 20),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '$jobsDone',
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                        Text(
+                          'Jobs completed',
+                          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          totalEarnings.startsWith('₹')
+                              ? totalEarnings
+                              : '₹$totalEarnings',
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primary,
+                              ),
+                        ),
+                        Text(
+                          'Your share (40%)',
+                          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'This is your technician money only. Company share is separate and not paid to you.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

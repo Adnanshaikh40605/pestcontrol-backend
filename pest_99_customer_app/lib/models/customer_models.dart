@@ -124,6 +124,43 @@ class CustomerBooking {
   bool get isDone => (status ?? '').toLowerCase() == 'done';
   bool get isPaid => (paymentStatus ?? '').toLowerCase().contains('paid');
 
+  /// Customer-facing visit status (hides CRM jargon like Pending / On Process).
+  String get visitStatusLabel {
+    final s = (status ?? '').trim().toLowerCase();
+    if (s.isEmpty || s == 'pending' || s == 'upcoming') return 'Scheduled';
+    if (s == 'done' || s == 'completed') return 'Completed';
+    if (s.contains('cancel')) return 'Cancelled';
+    if (s.contains('process') || s.contains('accept')) return 'In progress';
+    return status!.trim();
+  }
+
+  /// Customer-facing payment label.
+  String get paymentStatusLabel {
+    if (isPaid) return 'Paid';
+    final raw = (paymentStatus ?? '').trim().toLowerCase();
+    if (raw.contains('partial')) return 'Partially paid';
+    return 'Pay after service';
+  }
+
+  /// One-Time / AMC — never show raw CRM booking_type strings.
+  String? get planTypeLabel {
+    final bt = (bookingType ?? '').trim().toLowerCase();
+    if (bt.isEmpty) return null;
+    if (bt.contains('amc')) return 'AMC plan';
+    if (bt.contains('one') || bt.contains('new booking')) return 'One-time service';
+    if (bt.contains('service call') || bt.contains('follow')) return 'Follow-up visit';
+    if (bt.contains('complaint')) return 'Complaint visit';
+    return null;
+  }
+
+  /// Hide internal app/CRM note dumps from the customer.
+  String? get customerNotes {
+    final n = (notes ?? '').trim();
+    if (n.isEmpty) return null;
+    if (n.toLowerCase().startsWith('app booking')) return null;
+    return n;
+  }
+
   factory CustomerBooking.fromJson(Map<String, dynamic> json) {
     return CustomerBooking(
       id: json['id'] as int,

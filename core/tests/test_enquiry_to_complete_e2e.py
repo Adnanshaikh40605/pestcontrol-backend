@@ -88,15 +88,16 @@ class EnquiryToCompleteE2ETests(TestCase):
 
         # 2) Staff converts enquiry → draft booking (no final price / no WhatsApp yet)
         schedule = (timezone.now() + timedelta(days=1)).isoformat()
-        convert = self.crm.post(
-            f'/api/v1/inquiries/{inquiry_id}/convert/',
-            {
-                'price': '2500',  # ignored — final price set on Edit Booking
-                'schedule_datetime': schedule,
-                'client_address': '12 Website Lane, Pune',
-            },
-            format='json',
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            convert = self.crm.post(
+                f'/api/v1/inquiries/{inquiry_id}/convert/',
+                {
+                    'price': '2500',  # ignored — final price set on Edit Booking
+                    'schedule_datetime': schedule,
+                    'client_address': '12 Website Lane, Pune',
+                },
+                format='json',
+            )
         self.assertEqual(convert.status_code, 201, convert.data)
         job_id = convert.data['id']
         job = JobCard.objects.get(id=job_id)
@@ -108,6 +109,10 @@ class EnquiryToCompleteE2ETests(TestCase):
         self.assertNotEqual(job.payout_status, JobCard.PayoutStatus.LEGACY_EXEMPT)
         self.assertEqual((job.price or '').strip(), '')
         self.assertEqual(job.total_amount or 0, 0)
+        # Auto-send on convert — no manual Action click required
+        self.assertIsNotNone(job.sent_to_app_at)
+        self.assertEqual(job.partner_status, JobCard.PartnerStatus.PENDING)
+        self.assertIsNone(job.partner_id)
 
         # Staff confirms final agreed price on Edit Booking
         price_patch = self.crm.patch(
@@ -127,7 +132,7 @@ class EnquiryToCompleteE2ETests(TestCase):
         )
         self.assertEqual(again.status_code, 400, again.data)
 
-        # 3) Send to partner app (technician lineup pool)
+        # Optional Action/refloat still succeeds (already in pool)
         send = self.crm.post(f'/api/v1/jobcards/{job_id}/send-to-app/', {}, format='json')
         self.assertEqual(send.status_code, 200, send.data)
         self.assertTrue(send.data['success'])

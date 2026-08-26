@@ -5,6 +5,7 @@ import '../../core/models/booking.dart';
 import '../../core/models/booking_type.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/utils/money_format.dart';
 import 'booking_type_tag.dart';
 import 'loading_action_button.dart';
 import 'primary_button.dart';
@@ -195,21 +196,24 @@ class AcceptedBookingCard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 6),
-                          Text(
-                            'Started at 2:15 PM',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: AppColors.successText,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                          Expanded(
+                            child: Text(
+                              booking.startedAtLabel ?? 'Service in progress',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: AppColors.successText,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
                           ),
                         ],
                       ),
-                      Text(
-                        'Running for 25 mins',
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              color: AppColors.textSecondary,
-                            ),
-                      ),
+                      if (booking.runningForLabel != null)
+                        Text(
+                          booking.runningForLabel!,
+                          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                        ),
                     ] else if (booking.timeRemaining != null)
                       StatusChip(
                         label: booking.timeRemaining!,
@@ -298,6 +302,8 @@ class CompletedBookingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final paid = booking.isPaid;
+    final yourShare = booking.hasRevenuePayout ? booking.yourShareAmount : null;
+    final jobAmount = booking.jobAmount ?? booking.amount;
 
     return Container(
       decoration: BoxDecoration(
@@ -346,12 +352,34 @@ class CompletedBookingCard extends StatelessWidget {
                               ],
                             ),
                           ),
-                          StatusChip(
-                            label: paid ? 'Paid' : 'Pending',
-                            backgroundColor: paid ? AppColors.successBg : AppColors.surfaceContainerHigh,
-                            foregroundColor: paid ? AppColors.successText : AppColors.onSurfaceVariant,
-                            icon: paid ? Icons.check_circle : Icons.pending,
-                            borderColor: paid ? AppColors.successText.withValues(alpha: 0.2) : AppColors.outlineVariant.withValues(alpha: 0.5),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (yourShare != null) ...[
+                                Text(
+                                  MoneyFormat.rupees(yourShare),
+                                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.primary,
+                                      ),
+                                ),
+                                Text(
+                                  booking.yourShareLabel,
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                        color: AppColors.textSecondary,
+                                      ),
+                                ),
+                              ] else
+                                StatusChip(
+                                  label: paid ? 'Paid' : 'Pending',
+                                  backgroundColor: paid ? AppColors.successBg : AppColors.surfaceContainerHigh,
+                                  foregroundColor: paid ? AppColors.successText : AppColors.onSurfaceVariant,
+                                  icon: paid ? Icons.check_circle : Icons.pending,
+                                  borderColor: paid
+                                      ? AppColors.successText.withValues(alpha: 0.2)
+                                      : AppColors.outlineVariant.withValues(alpha: 0.5),
+                                ),
+                            ],
                           ),
                         ],
                       ),
@@ -372,16 +400,60 @@ class CompletedBookingCard extends StatelessWidget {
                           Expanded(
                             child: _MetaBlock(
                               icon: Icons.payments_outlined,
-                              label: 'PAYMENT MODE',
-                              value: booking.paymentMode == PaymentMode.cash
-                                  ? 'Cash'
-                                  : booking.paymentMode == PaymentMode.online
-                                      ? 'Online (Card)'
-                                      : '—',
+                              label: 'CUSTOMER PAID',
+                              value: paid ? 'Yes' : 'Pending',
                             ),
                           ),
                         ],
                       ),
+                      if (yourShare != null || jobAmount != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Column(
+                            children: [
+                              if (jobAmount != null)
+                                _MoneyLine(
+                                  label: 'Job / service amount',
+                                  value: MoneyFormat.rupees(jobAmount),
+                                  muted: true,
+                                ),
+                              if (yourShare != null) ...[
+                                if (jobAmount != null) const SizedBox(height: 6),
+                                _MoneyLine(
+                                  label: booking.yourShareLabel,
+                                  value: MoneyFormat.rupees(yourShare),
+                                  emphasize: true,
+                                ),
+                              ],
+                              if (booking.companyShareAmount != null &&
+                                  booking.companyShareAmount!.isNotEmpty &&
+                                  booking.companyShareAmount != '0' &&
+                                  booking.companyShareAmount != '0.00') ...[
+                                const SizedBox(height: 6),
+                                _MoneyLine(
+                                  label: booking.companyShareLabel,
+                                  value: MoneyFormat.rupees(booking.companyShareAmount),
+                                  muted: true,
+                                ),
+                              ],
+                              if (booking.payoutStatus != null && booking.payoutStatus!.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                _MoneyLine(
+                                  label: 'Payout status',
+                                  value: booking.payoutStatus!,
+                                  muted: true,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -390,6 +462,37 @@ class CompletedBookingCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _MoneyLine extends StatelessWidget {
+  const _MoneyLine({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+    this.muted = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasize;
+  final bool muted;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelStyle = Theme.of(context).textTheme.labelMedium?.copyWith(
+          color: muted ? AppColors.textSecondary : AppColors.onSurface,
+        );
+    final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
+          fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
+          color: emphasize ? AppColors.primary : (muted ? AppColors.textSecondary : AppColors.onSurface),
+        );
+    return Row(
+      children: [
+        Expanded(child: Text(label, style: labelStyle)),
+        Text(value, style: valueStyle),
+      ],
     );
   }
 }

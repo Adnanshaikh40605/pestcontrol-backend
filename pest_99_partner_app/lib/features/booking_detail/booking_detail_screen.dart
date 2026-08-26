@@ -9,6 +9,7 @@ import '../../core/routing/booking_open_args.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/user_error.dart';
+import '../../core/utils/money_format.dart';
 import '../../models/booking.dart' as api;
 import '../../providers/bookings_provider.dart';
 import '../../services/booking_service.dart';
@@ -274,25 +275,8 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
               children: [
                 Text(b.serviceType, style: Theme.of(context).textTheme.titleMedium),
                 if (b.serviceCategory != null) Text(b.serviceCategory!),
-                const SizedBox(height: 8),
-                Text('Amount: ${b.priceDisplay ?? b.price ?? '—'}'),
-                if (b.hasRevenuePayout) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Your payout: ₹${b.visitPayoutAmount}',
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                  if (b.payoutStatus != null)
-                    Text(
-                      'Payout status: ${b.payoutStatus}',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
-                    ),
-                ],
+                const SizedBox(height: 12),
+                _MoneyBreakdownCard(booking: b),
                 if (b.code != null && b.code!.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Text('Booking #${b.code}', style: Theme.of(context).textTheme.labelMedium),
@@ -453,6 +437,138 @@ class _SectionCard extends StatelessWidget {
           child,
         ],
       ),
+    );
+  }
+}
+
+class _MoneyBreakdownCard extends StatelessWidget {
+  const _MoneyBreakdownCard({required this.booking});
+
+  final api.PartnerBooking booking;
+
+  @override
+  Widget build(BuildContext context) {
+    final jobAmount = booking.priceDisplay ?? booking.price;
+    final yourShare = booking.visitPayoutAmount;
+    final companyShare = booking.companyShareAmount;
+    final visitRev = booking.visitRevenueAmount;
+    final showSplit = booking.hasRevenuePayout;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Money for this service',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            showSplit
+                ? 'Your money is only the technician share. Job amount is what the customer pays.'
+                : 'No revenue-share payout on this visit (included / complaint / salaried).',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+          ),
+          const SizedBox(height: 12),
+          _DetailMoneyRow(
+            label: 'Job / service amount',
+            value: MoneyFormat.rupees(jobAmount),
+            muted: true,
+          ),
+          if (visitRev != null &&
+              visitRev.isNotEmpty &&
+              visitRev != '0' &&
+              visitRev != '0.00' &&
+              visitRev != jobAmount?.replaceAll('₹', '')) ...[
+            const SizedBox(height: 8),
+            _DetailMoneyRow(
+              label: 'This visit value',
+              value: MoneyFormat.rupees(visitRev),
+              muted: true,
+            ),
+          ],
+          if (showSplit) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            _DetailMoneyRow(
+              label: booking.yourShareLabel,
+              value: MoneyFormat.rupees(yourShare),
+              emphasize: true,
+            ),
+            if (companyShare != null &&
+                companyShare.isNotEmpty &&
+                companyShare != '0' &&
+                companyShare != '0.00') ...[
+              const SizedBox(height: 8),
+              _DetailMoneyRow(
+                label: booking.companyShareLabel,
+                value: MoneyFormat.rupees(companyShare),
+                muted: true,
+              ),
+            ],
+            if (booking.payoutStatus != null && booking.payoutStatus!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              _DetailMoneyRow(
+                label: 'Payout status',
+                value: booking.payoutStatus!,
+                muted: true,
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailMoneyRow extends StatelessWidget {
+  const _DetailMoneyRow({
+    required this.label,
+    required this.value,
+    this.emphasize = false,
+    this.muted = false,
+  });
+
+  final String label;
+  final String value;
+  final bool emphasize;
+  final bool muted;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: muted ? AppColors.textSecondary : AppColors.onSurface,
+                ),
+          ),
+        ),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: emphasize ? FontWeight.w800 : FontWeight.w600,
+                color: emphasize
+                    ? AppColors.primary
+                    : (muted ? AppColors.textSecondary : AppColors.onSurface),
+              ),
+        ),
+      ],
     );
   }
 }

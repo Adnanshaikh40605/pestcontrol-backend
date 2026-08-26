@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/user_error.dart';
 import '../../models/partner_referral.dart';
 import '../../services/referral_service.dart';
 import '../../core/api_client.dart';
@@ -46,7 +47,7 @@ class _ReferralProgressScreenState extends State<ReferralProgressScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = '$e';
+        _error = userErrorMessage(e, fallback: 'Could not load referrals.');
         _loading = false;
       });
     }

@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/legal_config.dart';
 import '../../core/theme/app_colors.dart';
+import 'app_snackbar.dart';
 
 /// Company + legal links for Play Console compliance (profile / settings).
 class LegalSupportCard extends StatelessWidget {
@@ -12,9 +13,7 @@ class LegalSupportCard extends StatelessWidget {
     final uri = Uri.parse(url);
     if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open $url')),
-        );
+        AppSnackBar.error(context, 'Could not open link. Please try again.');
       }
     }
   }

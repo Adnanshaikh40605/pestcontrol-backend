@@ -77,15 +77,15 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           color: AppColors.primary,
           onRefresh: _load,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             children: [
               const Padding(
-                padding: EdgeInsets.symmetric(vertical: 6),
+                padding: EdgeInsets.symmetric(vertical: 4),
                 child: Center(child: Pc99Logo(height: 40)),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Container(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                 decoration: BoxDecoration(
                   color: AppColors.primary,
                   borderRadius: BorderRadius.circular(14),
@@ -95,20 +95,20 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                     Positioned(
                       right: -6,
                       top: -4,
-                      child: Icon(Icons.settings_suggest_outlined, size: 88, color: Colors.white.withValues(alpha: 0.12)),
+                      child: Icon(Icons.settings_suggest_outlined, size: 72, color: Colors.white.withValues(alpha: 0.12)),
                     ),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           'Hello, $name',
-                          style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800),
+                          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
                         ),
-                        const SizedBox(height: 4),
-                        Text(greet, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 13)),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 2),
+                        Text(greet, style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12)),
+                        const SizedBox(height: 10),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.16),
                             borderRadius: BorderRadius.circular(20),
@@ -116,11 +116,11 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.verified_user_outlined, color: Colors.white, size: 15),
+                              Icon(Icons.verified_user_outlined, color: Colors.white, size: 14),
                               SizedBox(width: 4),
                               Text(
                                 'Safe & Certified Pest Control',
-                                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                                style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
                               ),
                             ],
                           ),
@@ -130,20 +130,20 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   ],
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
               if (_loading)
                 const LinearProgressIndicator(minHeight: 2, color: AppColors.primary)
               else if (!auth.loggedIn) ...[
                 Pc99EmptyBookPrompt(
                   title: 'Book pest control',
-                  subtitle: 'Browse services and CRM prices freely. Sign in when you confirm a booking.',
-                  onBook: () => context.push('/book/property'),
+                  subtitle: 'Sign in to browse services and book pest control.',
+                  onBook: () => pushAuthed(context, '/book/property'),
                 ),
               ] else if (next == null && _amc.isEmpty) ...[
                 Pc99EmptyBookPrompt(
                   title: 'Book your first service',
-                  subtitle: 'No bookings yet. Tap below to schedule pest control for your home or commercial property.',
-                  onBook: () => context.push('/book/property'),
+                  subtitle: 'No bookings yet. Schedule pest control for your property.',
+                  onBook: () => pushAuthed(context, '/book/property'),
                 ),
               ] else ...[
                 const Pc99SectionTitle('Next Service Due'),
@@ -188,7 +188,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                             child: SizedBox(
                               height: 42,
                               child: ElevatedButton(
-                                onPressed: () => context.push('/book/property'),
+                                onPressed: () => pushAuthed(context, '/book/property'),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppColors.primary,
                                   foregroundColor: Colors.white,
@@ -204,7 +204,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                             child: SizedBox(
                               height: 42,
                               child: OutlinedButton(
-                                onPressed: () => context.push('/book/property'),
+                                onPressed: () => pushAuthed(context, '/book/property'),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: AppColors.primary,
                                   side: const BorderSide(color: AppColors.primary),
@@ -220,18 +220,18 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                   ),
                 ),
               ],
-              const SizedBox(height: 22),
+              const SizedBox(height: 16),
               const Pc99SectionTitle('Quick Actions'),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               GridView.count(
                 crossAxisCount: 4,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 14,
+                mainAxisSpacing: 10,
                 crossAxisSpacing: 8,
-                childAspectRatio: 0.82,
+                childAspectRatio: 0.88,
                 children: [
-                  _QA(Icons.calendar_month_outlined, 'Book', () => context.push('/book/property')),
+                  _QA(Icons.calendar_month_outlined, 'Book', () => pushAuthed(context, '/book/property')),
                   _QA(Icons.workspace_premium_outlined, 'My AMC', () => goAuthed(context, '/amc')),
                   _QA(Icons.support_agent_rounded, 'Complaint', () => pushAuthed(context, '/complaint')),
                   _QA(Icons.receipt_long_outlined, 'Payments', () => goAuthed(context, '/payments')),
@@ -262,16 +262,16 @@ class _QA extends StatelessWidget {
       child: Column(
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: AppColors.border),
             ),
-            child: Icon(icon, color: AppColors.primary, size: 22),
+            child: Icon(icon, color: AppColors.primary, size: 20),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 5),
           Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
         ],
       ),

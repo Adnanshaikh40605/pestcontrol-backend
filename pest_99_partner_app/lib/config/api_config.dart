@@ -5,6 +5,9 @@ class ApiConfig {
     defaultValue: 'https://api.vacationbna.site',
   );
 
+  /// Public — no auth. Checked on every partner app launch.
+  static const String appVersion = '/api/app/version/';
+
   static const String partnerPrefix = '/api/partner';
 
   static String get register => '$partnerPrefix/register/';
@@ -28,9 +31,6 @@ class ApiConfig {
   static String get referClient => '$partnerPrefix/refer-client/';
   static String get referrals => '$partnerPrefix/referrals/';
   static String referralDetail(int id) => '$partnerPrefix/referrals/$id/';
-  static String get notifications => '$partnerPrefix/notifications/';
-  static String get markAllNotificationsRead => '$partnerPrefix/notifications/mark-all-read/';
-  static String markNotificationRead(int id) => '$partnerPrefix/notifications/$id/read/';
 
   static String get earnings => '$partnerPrefix/earnings/';
   static String get presence => '$partnerPrefix/presence/';

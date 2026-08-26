@@ -9,6 +9,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/user_error.dart';
 import '../../models/partner_earnings.dart';
 import '../../services/earnings_service.dart';
+import '../../shared/widgets/app_snackbar.dart';
 import '../../shared/widgets/async_error_view.dart';
 import '../../shared/widgets/primary_button.dart';
 
@@ -89,14 +90,13 @@ class _LeaveRequestsScreenState extends State<LeaveRequestsScreen> {
         reason: reasonCtrl.text.trim(),
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Leave request submitted.')),
-      );
+      AppSnackBar.success(context, 'Leave request submitted.');
       await _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(userErrorMessage(e, fallback: 'Could not submit leave.'))),
+      AppSnackBar.error(
+        context,
+        userErrorMessage(e, fallback: 'Could not submit leave.'),
       );
     }
   }
@@ -108,8 +108,9 @@ class _LeaveRequestsScreenState extends State<LeaveRequestsScreen> {
       await _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(userErrorMessage(e, fallback: 'Could not cancel.'))),
+      AppSnackBar.error(
+        context,
+        userErrorMessage(e, fallback: 'Could not cancel leave request.'),
       );
     }
   }

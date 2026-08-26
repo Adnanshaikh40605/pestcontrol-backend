@@ -8,6 +8,7 @@ import '../screens/booking_flow_screens.dart';
 import '../screens/bookings_screen.dart';
 import '../screens/home_dashboard_screen.dart';
 import '../screens/home_shell.dart';
+import '../screens/invoice_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/register_screen.dart';
 
@@ -87,6 +88,13 @@ class AppRouter {
           builder: (context, state) {
             final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
             return BookingDetailScreen(bookingId: id);
+          },
+        ),
+        GoRoute(
+          path: '/invoice/:id',
+          builder: (context, state) {
+            final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+            return InvoiceScreen(bookingId: id);
           },
         ),
       ],

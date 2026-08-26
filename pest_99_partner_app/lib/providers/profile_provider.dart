@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../core/api_exception.dart';
+import '../core/user_error.dart';
 import '../models/partner_profile.dart';
 import '../services/profile_service.dart';
 
@@ -39,9 +40,9 @@ class ProfileProvider extends ChangeNotifier {
       _profile = PartnerProfile.fromProfileResponse(data);
       _error = null;
     } on ApiException catch (e) {
-      _error = e.message;
+      _error = userErrorMessage(e, fallback: 'Could not load profile.');
     } catch (e) {
-      _error = 'Could not load profile.';
+      _error = userErrorMessage(e, fallback: 'Could not load profile.');
       if (kDebugMode) debugPrint('Profile load error: $e');
     } finally {
       _loading = false;
@@ -71,10 +72,10 @@ class ProfileProvider extends ChangeNotifier {
       await loadProfile(force: true);
       return true;
     } on ApiException catch (e) {
-      _error = e.message;
+      _error = userErrorMessage(e, fallback: 'Could not save profile.');
       return false;
     } catch (e) {
-      _error = 'Could not save profile.';
+      _error = userErrorMessage(e, fallback: 'Could not save profile.');
       if (kDebugMode) debugPrint('Profile update error: $e');
       return false;
     } finally {

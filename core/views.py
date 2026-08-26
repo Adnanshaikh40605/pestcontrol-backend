@@ -830,7 +830,7 @@ class TechnicianViewSet(BaseModelViewSet):
         Booking-wise technician ledger with payout, settlement and performance totals.
 
         GET filters: from, to, city, service_type, booking_type, status,
-        settlement_status (unsettled|settled|legacy), page, page_size.
+        settlement_status (unsettled|settled|legacy|history|complaints), page, page_size.
 
         POST body: { "job_ids": [1,2,3], "notes": "" } — settle selected Unsettled rows.
         """
@@ -886,22 +886,27 @@ class TechnicianViewSet(BaseModelViewSet):
         rows = [serialize_ledger_row(job, technician) for job in filtered_jobs]
 
         settlement_filter = (request.query_params.get('settlement_status') or '').strip().lower()
-        if settlement_filter == 'unsettled':
-            rows = [r for r in rows if r.get('settlement_status') == 'unsettled']
-        elif settlement_filter == 'settled':
-            # Settlement History — already settled entries
-            rows = [r for r in rows if r.get('settlement_status') == 'settled']
-        elif settlement_filter in ('legacy', 'history'):
-            # Old Service Calls / History — legacy + settled completed records
-            rows = [
-                r for r in rows
-                if r.get('settlement_status') in ('legacy', 'settled')
-                or (
-                    r.get('is_completed_visit')
-                    and r.get('settlement_status') != 'unsettled'
-                )
-            ]
-        # '' / all → no extra filter
+        # Complaints are isolated: only on Complaints tab; never in main ledger tabs.
+        if settlement_filter == 'complaints':
+            rows = [r for r in rows if r.get('is_complaint_call')]
+        else:
+            rows = [r for r in rows if not r.get('is_complaint_call')]
+            if settlement_filter == 'unsettled':
+                rows = [r for r in rows if r.get('settlement_status') == 'unsettled']
+            elif settlement_filter == 'settled':
+                # Settlement History — already settled entries
+                rows = [r for r in rows if r.get('settlement_status') == 'settled']
+            elif settlement_filter in ('legacy', 'history'):
+                # Old Service Calls / History — legacy + settled completed records
+                rows = [
+                    r for r in rows
+                    if r.get('settlement_status') in ('legacy', 'settled')
+                    or (
+                        r.get('is_completed_visit')
+                        and r.get('settlement_status') != 'unsettled'
+                    )
+                ]
+            # '' / all → non-complaint rows only (no settlement filter)
 
         try:
             page_number = max(int(request.query_params.get('page') or 1), 1)
@@ -2927,8 +2932,14 @@ class JobCardViewSet(BaseModelViewSet):
                 and old_status != JobCard.JobStatus.DONE
             )
 
+            from core.complaint_service import is_complaint_job
+
             # Ensure next visit schedule exists before follow-up automation
-            if newly_completed and not request.data.get('next_service_date'):
+            if (
+                newly_completed
+                and not request.data.get('next_service_date')
+                and not is_complaint_job(instance)
+            ):
                 JobCardService.ensure_next_service_schedule(instance)
                 instance.refresh_from_db()
             
@@ -2941,6 +2952,17 @@ class JobCardViewSet(BaseModelViewSet):
                         'Follow-up job creation failed for %s: %s',
                         instance.code,
                         exc,
+                    )
+                # Safety net: included visits / follow-ups must still get service-level payout.
+                try:
+                    from core.payout_engine import try_apply_payout_after_completion
+
+                    try_apply_payout_after_completion(instance)
+                    instance.refresh_from_db()
+                except Exception:
+                    logger.exception(
+                        'Payout after completion failed for %s',
+                        instance.code,
                     )
                 log_activity(
                     request.user,
@@ -4175,9 +4197,25 @@ class CustomerHistoryView(views.APIView):
         except Client.DoesNotExist:
             return response.Response({'error': 'Client not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        # 1. Booking History
-        jobcards = client.jobcards.all().order_by('-schedule_datetime', '-created_at')
+        # 1. Booking History — enrich with grouping under the original booking.
+        from core.complaint_service import (
+            history_role,
+            history_root_id,
+            is_billable_root_booking,
+            is_complaint_job,
+        )
+
+        jobcards = list(
+            client.jobcards.all()
+            .select_related('parent_job', 'complaint_parent_booking', 'technician')
+            .order_by('-schedule_datetime', '-created_at')
+        )
         jobcards_data = JobCardSerializer(jobcards, many=True).data
+        for item, jc in zip(jobcards_data, jobcards):
+            role = history_role(jc)
+            item['history_role'] = role
+            item['root_booking_id'] = history_root_id(jc)
+            item['is_complaint_call'] = bool(item.get('is_complaint_call') or is_complaint_job(jc))
 
         # 2. Feedback History
         feedbacks = Feedback.objects.filter(booking__client=client).order_by('-created_at')
@@ -4188,15 +4226,18 @@ class CustomerHistoryView(views.APIView):
         amc_revenue = 0
         paid_services = 0
         seen_revenue_keys = set()
+        billable_roots = 0
 
         for jc in jobcards:
+            if is_billable_root_booking(jc):
+                billable_roots += 1
             if jc.status == JobCard.JobStatus.CANCELLED:
                 continue
             # Child / free follow-up / complaint rows never add to Total Revenue.
             if (
                 jc.parent_job_id
                 or jc.included_in_amc
-                or jc.is_complaint_call
+                or is_complaint_job(jc)
                 or jc.is_followup_visit
             ):
                 if jc.payment_status == JobCard.PaymentStatus.PAID:
@@ -4274,37 +4315,46 @@ class CustomerHistoryView(views.APIView):
             elif jc.assigned_to:
                 technicians.add(jc.assigned_to)
 
-        # 6. Upcoming Services — hide Termite auto-checkups (Termite is One-Time only).
+        # 6. Upcoming Services — hide Termite auto-checkups and complaint-spawned follow-ups.
+        from datetime import date as date_cls
+
         from core.booking_schedule_engine import is_termite_service
 
-        upcoming = jobcards.filter(
-            status=JobCard.JobStatus.UPCOMING,
-            booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES,
-        ).order_by('next_service_date', 'schedule_datetime')
         upcoming = [
-            jc for jc in upcoming
-            if not (
+            jc for jc in jobcards
+            if jc.status == JobCard.JobStatus.UPCOMING
+            and jc.booking_category in JobCard.UPCOMING_SERVICE_CATEGORIES
+            and not is_complaint_job(jc)
+            and not (
                 is_termite_service(jc.service_type or '')
                 or is_termite_service(jc.source_service or '')
                 or is_termite_service(jc.visit_type or '')
             )
+            and not (jc.parent_job_id and is_complaint_job(jc.parent_job))
         ]
+        upcoming.sort(
+            key=lambda j: (
+                j.next_service_date or date_cls.max,
+                j.schedule_datetime or timezone.now(),
+            )
+        )
 
         return response.Response({
             'client': ClientSerializer(client).data,
             'stats': {
-                'total_bookings': jobcards.count(),
+                # Original bookings only — complaints / follow-up services do not increase count.
+                'total_bookings': billable_roots,
                 'total_revenue': total_revenue,
                 'amc_revenue': amc_revenue,
                 'paid_services': paid_services,
-                'first_booking': jobcards.last().schedule_datetime if jobcards.exists() else None,
-                'last_service': jobcards.first().schedule_datetime if jobcards.exists() else None,
+                'first_booking': jobcards[-1].schedule_datetime if jobcards else None,
+                'last_service': jobcards[0].schedule_datetime if jobcards else None,
             },
             'bookings': jobcards_data,
             'feedbacks': feedback_data,
             'reminders': sorted(reminders, key=lambda x: str(x['date']), reverse=True),
             'technicians': list(technicians),
-            'upcoming': JobCardSerializer(upcoming, many=True).data
+            'upcoming': JobCardSerializer(upcoming, many=True).data,
         })
 
 
@@ -4340,35 +4390,30 @@ class ComplaintViewSet(viewsets.ModelViewSet):
     def create_complaint(self, request):
         parent_id = request.data.get('parent_booking_id')
         try:
-            parent = JobCard.objects.get(id=parent_id)
+            parent = JobCard.objects.select_related('parent_job', 'client').get(id=parent_id)
         except JobCard.DoesNotExist:
             return response.Response({'error': 'Parent booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Create new complaint booking by copying parent details
-        complaint = JobCard.objects.create(
-            client=parent.client,
-            is_complaint_call=True,
-            complaint_parent_booking=parent,
-            service_type=parent.service_type,
-            client_address=parent.client_address,
-            city=parent.city,
-            state=parent.state,
-            job_type=parent.job_type,
-            commercial_type=parent.commercial_type,
-            service_category=parent.service_category,
-            complaint_type=request.data.get('complaint_type'),
-            complaint_note=request.data.get('complaint_note', ''),
-            priority=request.data.get('priority', 'Medium'),
-            schedule_datetime=request.data.get('revisit_date'),
+        from core.complaint_service import create_complaint_jobcard
+
+        complaint = create_complaint_jobcard(
+            parent=parent,
+            complaint_type=request.data.get('complaint_type') or '',
+            complaint_note=request.data.get('complaint_note', '') or '',
+            priority=request.data.get('priority', 'Medium') or 'Medium',
+            revisit_date=request.data.get('revisit_date'),
             technician_id=request.data.get('technician_id'),
-            status=JobCard.JobStatus.PENDING,
-            complaint_status=JobCard.ComplaintStatus.OPEN,
-            booking_type=JobCard.BookingType.COMPLAINT_CALL,
-            price="0"  # Complaint calls are usually free
+            created_by=request.user,
         )
 
         serializer = self.get_serializer(complaint)
-        log_activity(request.user, "Created Complaint", booking_id=complaint.code, details=f"Parent Booking: {parent.code}")
+        root_id = complaint.complaint_parent_booking_id or parent.id
+        log_activity(
+            request.user,
+            "Created Complaint",
+            booking_id=complaint.code,
+            details=f"Parent Booking: {root_id}",
+        )
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
 

@@ -393,7 +393,8 @@ class LedgerFixesMdCrossCheckTests(TestCase):
         job.refresh_from_db()
         row = serialize_ledger_row(job, tech)
         required = [
-            'booking_id', 'booking_date', 'customer_name', 'property_type',
+            'booking_id', 'booking_date', 'customer_name', 'client_mobile',
+            'client_number', 'is_complaint_call', 'property_type',
             'service_type', 'booking_type_label', 'service_number',
             'booking_amount', 'visit_revenue', 'technician_share_percent',
             'technician_share', 'assigned_technicians', 'status',

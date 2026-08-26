@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../providers/profile_provider.dart';
+import '../../shared/widgets/app_snackbar.dart';
 import '../../shared/widgets/app_text_field.dart';
 import '../../shared/widgets/primary_button.dart';
 
@@ -64,9 +65,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Future<void> _save() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your full name')),
-      );
+      AppSnackBar.error(context, 'Please enter your full name');
       return;
     }
 
@@ -77,14 +76,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
     if (!mounted) return;
     if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile updated')),
-      );
+      AppSnackBar.success(context, 'Profile updated');
       context.pop();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(provider.error ?? 'Could not save profile')),
-      );
+      AppSnackBar.error(context, provider.error ?? 'Could not save profile');
     }
   }
 

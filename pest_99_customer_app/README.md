@@ -25,7 +25,7 @@ flutter run --dart-define=API_BASE_URL=http://127.0.0.1:8000
 
 - Online payment gateway (`CUSTOMER_ONLINE_PAYMENT_ENABLED` is off — pay after service)
 - FCM push notifications
-- PDF invoice download
+- PDF invoice download (Payments → Download Invoice PDF)
 
 ## Play Store
 

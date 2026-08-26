@@ -5,8 +5,10 @@ import 'package:provider/provider.dart';
 import '../../core/api_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/user_error.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/profile_service.dart';
+import '../../shared/widgets/app_snackbar.dart';
 import '../../shared/widgets/pest_logo.dart';
 import '../../shared/widgets/primary_button.dart';
 
@@ -24,21 +26,25 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
     setState(() => _checking = true);
     try {
       final api = context.read<ApiClient>();
+      final auth = context.read<AuthProvider>();
       final data = await ProfileService(api).getProfile();
       final approved = data['is_app_approved'] == true;
-      await context.read<AuthProvider>().refreshApprovalFromProfile(data);
+      await auth.refreshApprovalFromProfile(data);
       if (!mounted) return;
       if (approved) {
         context.go('/bookings');
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Still waiting for admin approval on CRM Technicians page.')),
+        AppSnackBar.info(
+          context,
+          'Still waiting for admin approval on CRM Technicians page.',
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
-      }
+      if (!mounted) return;
+      AppSnackBar.error(
+        context,
+        userErrorMessage(e, fallback: 'Could not check approval status.'),
+      );
     } finally {
       if (mounted) setState(() => _checking = false);
     }

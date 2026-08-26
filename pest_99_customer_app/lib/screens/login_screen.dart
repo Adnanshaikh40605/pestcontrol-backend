@@ -67,7 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Center(child: Pc99Logo(height: 78)),
+              const Center(child: Pc99Logo(height: 56)),
               const SizedBox(height: 10),
               const Center(
                 child: Text(
@@ -87,7 +87,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Enter your mobile number to login with OTP',
+                'Enter your mobile number. We will send a WhatsApp OTP.',
                 style: TextStyle(fontSize: 14, color: AppColors.textMuted),
               ),
               const SizedBox(height: 28),
@@ -178,6 +178,30 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   bool _busy = false;
 
   @override
+  void initState() {
+    super.initState();
+    for (var i = 0; i < 4; i++) {
+      final index = i;
+      _focus[index].onKeyEvent = (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        if (event.logicalKey != LogicalKeyboardKey.backspace) {
+          return KeyEventResult.ignored;
+        }
+        // Empty box + backspace → clear previous digit and move focus there.
+        if (_digits[index].text.isEmpty && index > 0) {
+          _digits[index - 1].clear();
+          _focus[index - 1].requestFocus();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      };
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus[0].requestFocus();
+    });
+  }
+
+  @override
   void dispose() {
     for (final c in _digits) {
       c.dispose();
@@ -189,6 +213,16 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   }
 
   String get _otp => _digits.map((c) => c.text).join();
+
+  void _clearOtp({bool focusFirst = true}) {
+    for (final c in _digits) {
+      c.clear();
+    }
+    if (focusFirst && mounted) {
+      _focus[0].requestFocus();
+    }
+    setState(() {});
+  }
 
   Future<void> _verify() async {
     if (_otp.length != 4) {
@@ -210,6 +244,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
       final next = context.read<AuthProvider>().takePendingRoute();
       context.go(next ?? '/home');
     } else {
+      _clearOtp();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(context.read<AuthProvider>().error ?? 'Invalid OTP'),
@@ -228,6 +263,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
         );
     if (!mounted) return;
     setState(() => _busy = false);
+    _clearOtp();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -241,26 +277,47 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   }
 
   void _onDigit(int index, String value) {
-    if (value.length > 1) {
-      // Paste support
-      final digits = value.replaceAll(RegExp(r'\D'), '');
+    final clean = value.replaceAll(RegExp(r'\D'), '');
+
+    // Paste / autofill of full code into one box.
+    if (clean.length > 1) {
       for (var i = 0; i < 4; i++) {
-        _digits[i].text = i < digits.length ? digits[i] : '';
+        _digits[i].text = i < clean.length ? clean[i] : '';
       }
-      if (digits.length >= 4) {
+      if (clean.length >= 4) {
         _focus[3].unfocus();
         _verify();
-      } else if (digits.isNotEmpty) {
-        _focus[digits.length.clamp(0, 3)].requestFocus();
+      } else if (clean.isNotEmpty) {
+        _focus[clean.length.clamp(0, 3)].requestFocus();
       }
+      setState(() {});
       return;
     }
-    if (value.isNotEmpty && index < 3) {
-      _focus[index + 1].requestFocus();
+
+    // Backspace cleared this box → jump to previous.
+    if (clean.isEmpty) {
+      _digits[index].clear();
+      if (index > 0) {
+        _focus[index - 1].requestFocus();
+      }
+      setState(() {});
+      return;
     }
-    if (_otp.length == 4) {
+
+    // Keep only the latest digit in this box.
+    final digit = clean.substring(clean.length - 1);
+    if (_digits[index].text != digit) {
+      _digits[index].text = digit;
+      _digits[index].selection = const TextSelection.collapsed(offset: 1);
+    }
+
+    if (index < 3) {
+      _focus[index + 1].requestFocus();
+    } else if (_otp.length == 4) {
+      _focus[index].unfocus();
       _verify();
     }
+    setState(() {});
   }
 
   @override
@@ -280,12 +337,12 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                 icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: AppColors.primary),
               ),
               const SizedBox(height: 8),
-              const Center(child: Pc99Logo(height: 56)),
+              const Center(child: Pc99Logo(height: 48)),
               const SizedBox(height: 22),
               const Text('Enter OTP', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
               const SizedBox(height: 6),
               Text(
-                'We sent a 4-digit code to +91 ${widget.mobile}',
+                'We sent a 4-digit WhatsApp OTP to +91 ${widget.mobile}',
                 style: const TextStyle(color: AppColors.textMuted, fontSize: 14),
               ),
               if (kDebugMode && widget.devOtp != null && widget.devOtp!.isNotEmpty) ...[
@@ -307,7 +364,7 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                       focusNode: _focus[i],
                       keyboardType: TextInputType.number,
                       textAlign: TextAlign.center,
-                      maxLength: 4,
+                      maxLength: 1,
                       style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       decoration: InputDecoration(
@@ -325,7 +382,12 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
                         ),
                       ),
                       onChanged: (v) => _onDigit(i, v),
-                      onTap: () => _digits[i].selection = TextSelection(baseOffset: 0, extentOffset: _digits[i].text.length),
+                      onTap: () {
+                        _digits[i].selection = TextSelection(
+                          baseOffset: 0,
+                          extentOffset: _digits[i].text.length,
+                        );
+                      },
                     ),
                   );
                 }),

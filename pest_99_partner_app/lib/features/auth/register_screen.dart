@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_spacing.dart';
 import '../../providers/auth_provider.dart';
+import '../../shared/widgets/app_snackbar.dart';
 import '../../shared/widgets/app_text_field.dart';
 import '../../shared/widgets/pest_logo.dart';
 import '../../config/legal_config.dart';
@@ -38,8 +39,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _submit() async {
     if (!_acceptedTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please accept the Privacy Policy and Terms to register.')),
+      AppSnackBar.error(
+        context,
+        'Please accept the Privacy Policy and Terms to register.',
       );
       return;
     }
@@ -53,8 +55,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (ok) {
       context.go('/registration-success');
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(auth.error ?? 'Registration failed')),
+      AppSnackBar.error(
+        context,
+        auth.error ?? 'Registration failed. Please try again.',
       );
     }
   }

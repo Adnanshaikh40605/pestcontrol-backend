@@ -10,6 +10,44 @@ from .models import (
     ECardVisit,
     ECardWhatsAppSend,
 )
+from .partner_app_version import PartnerAppVersionConfig
+
+
+@admin.register(PartnerAppVersionConfig)
+class PartnerAppVersionConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        'latest_version',
+        'minimum_supported_version',
+        'force_update',
+        'updated_at',
+    )
+    fieldsets = (
+        (
+            'Version numbers',
+            {
+                'fields': ('latest_version', 'minimum_supported_version', 'force_update'),
+                'description': (
+                    'When Force update is enabled, partner apps with version lower than '
+                    'Minimum supported version cannot open the app and are sent to the Play Store.'
+                ),
+            },
+        ),
+        (
+            'Update screen text',
+            {
+                'fields': ('update_title', 'update_message'),
+                'description': 'Partner app shows a fixed popup: “Please update the app.” with Update → Play Store.',
+            },
+        ),
+        ('Meta', {'fields': ('updated_at',)}),
+    )
+    readonly_fields = ('updated_at',)
+
+    def has_add_permission(self, request):
+        return not PartnerAppVersionConfig.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(ECardVisit)

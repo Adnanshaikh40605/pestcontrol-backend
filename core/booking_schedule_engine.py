@@ -350,7 +350,7 @@ def heal_bed_bug_package(job) -> list[Any]:
     Repair an existing Bed Bugs booking saved as One-Time / 1 visit.
 
     Locks max_cycle + planned_visit_count to 2 and creates the missing
-    ~15-day follow-up JobCard. Idempotent.
+    ~15-day follow-up JobCard. Idempotent. Only operates on package roots.
     """
     from core.models import JobCard
     from core.payout_engine import calculate_and_apply_payout
@@ -358,7 +358,15 @@ def heal_bed_bug_package(job) -> list[Any]:
     if job is None:
         return []
 
+    # Never nest another visit-2 under an already-linked follow-up child.
+    if getattr(job, 'parent_job_id', None) and (
+        getattr(job, 'is_followup_visit', False) or int(getattr(job, 'service_cycle', 1) or 1) >= 2
+    ):
+        return []
+
     root = job.parent_job or job
+    if getattr(root, 'parent_job_id', None):
+        root = root.parent_job or root
     if getattr(root, 'status', None) == JobCard.JobStatus.CANCELLED:
         return []
     if not job_includes_bed_bugs(root) and not job_includes_bed_bugs(job):

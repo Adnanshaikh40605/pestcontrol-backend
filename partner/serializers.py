@@ -164,6 +164,8 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
             'property_type', 'bhk_size',
             'price', 'payment_status', 'payment_mode',
             'payment_model', 'visit_payout_amount', 'payout_status',
+            'technician_share_percent', 'company_share_percent',
+            'visit_revenue_amount', 'company_share_amount',
             'started_at', 'completed_at',
         ]
 
@@ -241,6 +243,8 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
             # Payment
             'price', 'price_display', 'payment_status', 'payment_mode',
             'payment_model', 'visit_payout_amount', 'payout_status',
+            'technician_share_percent', 'company_share_percent',
+            'visit_revenue_amount', 'company_share_amount',
             # Status
             'status', 'partner_status', 'priority',
             # Timestamps

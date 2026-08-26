@@ -87,7 +87,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: AppColors.primary),
             ),
             const SizedBox(height: 8),
-            const Center(child: Pc99Logo(height: 64)),
+            const Center(child: Pc99Logo(height: 52)),
             const SizedBox(height: 22),
             const Text(
               'Create account',
@@ -95,7 +95,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(height: 6),
             const Text(
-              'Enter your name and mobile number — no password needed',
+              'Enter your name and mobile — we send a WhatsApp OTP (no password)',
               style: TextStyle(fontSize: 14, color: AppColors.textMuted),
             ),
             const SizedBox(height: 28),

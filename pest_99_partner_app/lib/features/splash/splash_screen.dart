@@ -8,8 +8,8 @@ import '../../core/api_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../services/profile_service.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../providers/app_update_provider.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/notifications_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../services/push_notification_service.dart';
 import '../../shared/widgets/pest_logo.dart';
@@ -30,6 +30,14 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _boot() async {
     try {
+      final appUpdate = context.read<AppUpdateProvider>();
+      await appUpdate.checkForUpdate();
+      if (!mounted) return;
+      if (appUpdate.forceUpdateRequired) {
+        context.go('/force-update');
+        return;
+      }
+
       final auth = context.read<AuthProvider>();
       await auth.init();
       if (!mounted) return;
@@ -78,7 +86,6 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!auth.loggedIn || !auth.appApproved) return;
 
     unawaited(context.read<ProfileProvider>().loadProfile(force: true));
-    unawaited(context.read<NotificationsProvider>().load(force: true));
   }
 
   @override

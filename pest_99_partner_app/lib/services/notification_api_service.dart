@@ -1,7 +1,8 @@
 import '../config/api_config.dart';
 import '../core/api_client.dart';
-import '../models/partner_notification.dart';
 
+/// Partner FCM token registration with the backend.
+/// In-app notification inbox was removed; push delivery still uses these endpoints.
 class NotificationApiService {
   NotificationApiService(this._api);
 
@@ -19,18 +20,5 @@ class NotificationApiService {
       ApiConfig.removeFcmToken,
       body: token != null ? {'fcm_token': token} : {},
     );
-  }
-
-  Future<PartnerNotificationListResponse> fetchNotifications() async {
-    final data = await _api.get(ApiConfig.notifications);
-    return PartnerNotificationListResponse.fromJson(data);
-  }
-
-  Future<void> markAllRead() async {
-    await _api.post(ApiConfig.markAllNotificationsRead);
-  }
-
-  Future<void> markRead(int id) async {
-    await _api.post(ApiConfig.markNotificationRead(id));
   }
 }

@@ -591,3 +591,37 @@ class TechnicianLedgerTests(TestCase):
         # Still visible when filter is cleared
         all_rows = self._ledger({'settlement_status': ''})
         self.assertEqual(all_rows.data['count'], 2)
+
+    def test_complaints_tab_isolated_and_client_number_exposed(self):
+        """Complaints only on Complaints tab; main tabs exclude them; client mobile present."""
+        normal = self._job(amount='1000')
+        complaint = self._job(
+            amount='0',
+            is_complaint_call=True,
+            booking_type=JobCard.BookingType.COMPLAINT_CALL,
+            booking_category=JobCard.BookingCategory.COMPLAINT_CALL,
+        )
+
+        unsettled = self._ledger({'settlement_status': 'unsettled'})
+        self.assertEqual(unsettled.status_code, 200, unsettled.data)
+        unsettled_ids = {row['job_id'] for row in unsettled.data['results']}
+        self.assertIn(normal.id, unsettled_ids)
+        self.assertNotIn(complaint.id, unsettled_ids)
+
+        all_rows = self._ledger({'settlement_status': ''})
+        all_ids = {row['job_id'] for row in all_rows.data['results']}
+        self.assertIn(normal.id, all_ids)
+        self.assertNotIn(complaint.id, all_ids)
+
+        complaints = self._ledger({'settlement_status': 'complaints'})
+        self.assertEqual(complaints.status_code, 200, complaints.data)
+        self.assertEqual(complaints.data['count'], 1)
+        row = complaints.data['results'][0]
+        self.assertEqual(row['job_id'], complaint.id)
+        self.assertTrue(row['is_complaint_call'])
+        self.assertEqual(row['client_mobile'], '9555000001')
+        self.assertEqual(row['client_number'], '9555000001')
+
+        normal_row = next(r for r in unsettled.data['results'] if r['job_id'] == normal.id)
+        self.assertEqual(normal_row['client_mobile'], '9555000001')
+        self.assertFalse(normal_row['is_complaint_call'])

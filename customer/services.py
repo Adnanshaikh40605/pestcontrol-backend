@@ -194,46 +194,42 @@ def create_customer_complaint(account: CustomerAccount, data: dict) -> JobCard:
     booking_id = data.get('booking_id')
     if booking_id:
         try:
-            parent = JobCard.objects.get(id=booking_id, client=account.client)
+            parent = JobCard.objects.select_related('parent_job', 'client').get(
+                id=booking_id, client=account.client,
+            )
         except JobCard.DoesNotExist as exc:
             raise CustomerAppError('Booking not found.', code='booking_not_found') from exc
 
-    payload = {
-        'client': account.client_id,
-        'service_type': parent.service_type if parent else 'Complaint / Re-Service',
-        'service_category': JobCard.ServiceCategory.ONE_TIME,
-        'property_type': parent.property_type if parent else JobCard.PropertyType.HOME_FLAT,
-        'bhk_size': parent.bhk_size if parent else '',
-        'client_address': parent.client_address if parent else (account.client.address or ''),
-        'city': parent.city if parent else (getattr(account.client, 'city', '') or ''),
-        'notes': note,
-        'price': '0',
-        'total_amount': Decimal('0'),
-        'status': JobCard.JobStatus.PENDING,
-        'payment_status': JobCard.PaymentStatus.UNPAID,
-        'package_tier': JobCard.PackageTier.STANDARD,
-        'reference': 'Customer App Complaint',
-        'job_type': JobCard.JobType.CUSTOMER,
-        'commercial_type': JobCard.CommercialType.HOME,
-    }
+    from core.complaint_service import create_complaint_jobcard
 
-    try:
-        job = JobCardService.create_jobcard(payload, user=None)
-    except Exception as exc:
-        logger.exception('Customer complaint create failed: %s', exc)
-        raise CustomerAppError(str(exc), code='create_failed') from exc
+    if parent is None:
+        # Standalone complaint without a parent booking — still one free service only.
+        from core.complaint_service import apply_complaint_constraints
 
-    job.creation_source = 'customer_app'
-    job.is_complaint_call = True
-    job.complaint_type = complaint_type
-    job.complaint_note = note
-    job.complaint_status = JobCard.ComplaintStatus.OPEN
-    if parent:
-        job.complaint_parent_booking = parent
-    job.booking_type = JobCard.BookingType.COMPLAINT_CALL
-    job.booking_category = JobCard.BookingCategory.COMPLAINT_CALL
-    job.save()
-    return job
+        job = JobCard(
+            client=account.client,
+            service_type='Complaint / Re-Service',
+            client_address=account.client.address or '',
+            city=getattr(account.client, 'city', '') or '',
+            notes=note,
+            status=JobCard.JobStatus.PENDING,
+            property_type=JobCard.PropertyType.HOME_FLAT,
+            job_type=JobCard.JobType.CUSTOMER,
+            commercial_type=JobCard.CommercialType.HOME,
+            creation_source='customer_app',
+            complaint_type=complaint_type,
+            complaint_note=note,
+        )
+        apply_complaint_constraints(job, parent=None)
+        job.save()
+        return job
+
+    return create_complaint_jobcard(
+        parent=parent,
+        complaint_type=complaint_type,
+        complaint_note=note,
+        creation_source='customer_app',
+    )
 
 
 @transaction.atomic

@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../core/api_client.dart';
+import '../core/auth_gate.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
 import '../models/customer_models.dart';
@@ -109,7 +110,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                   ? Pc99EmptyBookPrompt(
                       title: widget.historyOnly ? 'No completed services yet' : 'No bookings yet',
                       subtitle: 'You haven’t booked any service yet. Tap Book to schedule pest control for your property.',
-                      onBook: () => context.push('/book/property'),
+                      onBook: () => pushAuthed(context, '/book/property'),
                     )
                   : RefreshIndicator(
                       color: AppColors.primary,
@@ -171,7 +172,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             Pc99EmptyBookPrompt(
                               title: 'No bookings yet',
                               subtitle: 'Book a service to see it listed here.',
-                              onBook: () => context.push('/book/property'),
+                              onBook: () => pushAuthed(context, '/book/property'),
                             )
                           else
                             ..._items.map(
@@ -191,7 +192,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                             ),
                                           ),
                                           StatusChip(
-                                            label: b.status ?? 'Pending',
+                                            label: b.visitStatusLabel,
                                             tone: _statusTone(b.status),
                                           ),
                                         ],
@@ -225,7 +226,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                       Row(
                                         children: [
                                           StatusChip(
-                                            label: b.paymentStatus ?? 'Unpaid',
+                                            label: b.paymentStatusLabel,
                                             tone: b.isPaid ? StatusTone.success : StatusTone.warning,
                                           ),
                                           const Spacer(),

@@ -341,9 +341,19 @@ class ApiClient {
     final data = res.data;
     if (data is Map<String, dynamic>) {
       body = data;
+    } else if (data is Map) {
+      body = Map<String, dynamic>.from(data);
     } else if (data is String && data.isNotEmpty) {
-      final decoded = jsonDecode(data);
-      if (decoded is Map<String, dynamic>) body = decoded;
+      try {
+        final decoded = jsonDecode(data);
+        if (decoded is Map<String, dynamic>) {
+          body = decoded;
+        } else if (decoded is Map) {
+          body = Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {
+        // Non-JSON body (e.g. HTML 500) — fall through to status message.
+      }
     }
 
     if (status >= 200 && status < 300) {

@@ -6,6 +6,7 @@ import '../core/models/booking_type.dart';
 import '../models/booking.dart' as api;
 import '../models/booking_action_result.dart';
 import '../providers/bookings_provider.dart';
+import 'widgets/app_snackbar.dart';
 import 'widgets/booking_confirm_dialog.dart';
 import 'widgets/processing_overlay.dart';
 import 'widgets/service_modals.dart';
@@ -155,22 +156,10 @@ class BookingWorkflow {
   }) {
     final msg = result.message;
     if (msg == null || msg.isEmpty) return;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            if (result.success && successIcon != null) ...[
-              Icon(successIcon, color: Colors.white, size: 20),
-              const SizedBox(width: 8),
-            ],
-            Expanded(child: Text(msg)),
-          ],
-        ),
-        backgroundColor: result.success ? null : Theme.of(context).colorScheme.error,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    if (result.success) {
+      AppSnackBar.success(context, msg);
+    } else {
+      AppSnackBar.error(context, msg);
+    }
   }
 }

@@ -114,18 +114,25 @@ class _EarningsTab extends StatelessWidget {
             children: [
               Expanded(
                 child: _SummaryCard(
-                  label: 'Total',
+                  label: 'Your earnings',
                   value: '₹${history.totalEarnings}',
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _SummaryCard(
-                  label: 'Approved',
+                  label: 'Approved for payout',
                   value: '₹${history.approvedEarnings}',
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Every amount below is your technician share (usually 40%). Job/customer totals are not shown here.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                ),
           ),
           const SizedBox(height: AppSpacing.sectionGap),
           if (history.results.isEmpty)
@@ -150,6 +157,12 @@ class _EarningsTab extends StatelessWidget {
               if (e.completedAt != null) {
                 when = DateTime.tryParse(e.completedAt!);
               }
+              final yourShare = (e.visitPayoutAmount != null &&
+                      e.visitPayoutAmount!.isNotEmpty &&
+                      e.visitPayoutAmount != '0' &&
+                      e.visitPayoutAmount != '0.00')
+                  ? e.visitPayoutAmount!
+                  : e.amount;
               return Card(
                 margin: const EdgeInsets.only(bottom: 10),
                 child: ListTile(
@@ -158,6 +171,7 @@ class _EarningsTab extends StatelessWidget {
                     [
                       if (e.serviceType != null && e.serviceType!.isNotEmpty) e.serviceType!,
                       if (when != null) dateFmt.format(when.toLocal()),
+                      'Your share',
                       if (e.settlementStatus != null) 'Settlement: ${e.settlementStatus}',
                       if (e.payoutStatus != null) 'Payout: ${e.payoutStatus}',
                     ].join(' · '),
@@ -167,9 +181,10 @@ class _EarningsTab extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        '₹${e.amount}',
+                        '₹$yourShare',
                         style: Theme.of(context).textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
                             ),
                       ),
                       Text(

@@ -1,15 +1,13 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart' show BuildContext;
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/bookings_provider.dart';
-import '../providers/notifications_provider.dart';
 import 'constants/notification_channels.dart';
 import 'routing/app_router.dart';
 import 'routing/booking_open_args.dart';
 
-/// Opens booking detail after push / notification tap with fresh API data.
+/// Opens booking detail after FCM / system notification tap with fresh API data.
 class NotificationNavigation {
   NotificationNavigation._();
 
@@ -45,10 +43,7 @@ class NotificationNavigation {
 
     if (ctx != null) {
       try {
-        await Future.wait([
-          ctx.read<BookingsProvider>().refreshListsLight(),
-          ctx.read<NotificationsProvider>().load(force: true),
-        ]);
+        await ctx.read<BookingsProvider>().refreshListsLight();
       } catch (e, st) {
         debugPrint('[NotificationNavigation] list refresh failed: $e\n$st');
       }
@@ -79,24 +74,5 @@ class NotificationNavigation {
       router.pop();
     }
     router.push(path, extra: openArgs);
-  }
-
-  /// In-app notifications list tap — refresh lists then open detail.
-  static Future<void> openBookingFromInAppList(
-    BuildContext context,
-    int bookingId,
-  ) async {
-    final router = GoRouter.of(context);
-    try {
-      await Future.wait([
-        context.read<BookingsProvider>().refreshListsLight(),
-        context.read<NotificationsProvider>().load(force: true),
-      ]);
-    } catch (_) {}
-    if (!context.mounted) return;
-    router.push(
-      '/booking/$bookingId',
-      extra: BookingOpenArgs.fromNotification(),
-    );
   }
 }

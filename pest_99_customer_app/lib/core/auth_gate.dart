@@ -10,10 +10,6 @@ const Set<String> kGuestAllowedRoutes = {
   '/login',
   '/register',
   '/otp',
-  // Browse booking + see CRM prices before signing in.
-  '/book/property',
-  '/book/datetime',
-  '/book/summary',
 };
 
 /// If logged in → run [action]. Else save [pendingRoute] and open login.

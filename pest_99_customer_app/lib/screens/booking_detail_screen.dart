@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -129,26 +130,36 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                         children: [
                           Text(
                             b!.serviceType,
-                            style: Theme.of(context).textTheme.headlineMedium,
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 18,
+                                ),
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 10),
                           Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
+                            spacing: 6,
+                            runSpacing: 6,
                             children: [
-                              StatusChip(label: b.status ?? 'Pending', tone: StatusTone.info),
                               StatusChip(
-                                label: b.paymentStatus ?? 'Unpaid',
+                                label: b.visitStatusLabel,
+                                tone: b.isDone
+                                    ? StatusTone.success
+                                    : (b.visitStatusLabel.toLowerCase().contains('cancel')
+                                        ? StatusTone.danger
+                                        : StatusTone.info),
+                              ),
+                              StatusChip(
+                                label: b.paymentStatusLabel,
                                 tone: b.isPaid ? StatusTone.success : StatusTone.warning,
                               ),
-                              if (b.packageTier != null && b.packageTier!.isNotEmpty)
+                              if (b.planTypeLabel != null)
                                 StatusChip(
-                                  label: b.packageTier!,
+                                  label: b.planTypeLabel!,
                                   tone: StatusTone.neutral,
                                 ),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 14),
                           _DetailRow(label: 'Schedule', value: _formatDate(b.scheduleDatetime)),
                           if (b.timeSlot != null && b.timeSlot!.isNotEmpty)
                             _DetailRow(label: 'Time slot', value: b.timeSlot!),
@@ -168,10 +179,10 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                                 if (b.bhkSize != null && b.bhkSize!.isNotEmpty) b.bhkSize!,
                               ].join(' · '),
                             ),
-                          if (b.bookingType != null && b.bookingType!.isNotEmpty)
-                            _DetailRow(label: 'Type', value: b.bookingType!),
-                          if (b.notes != null && b.notes!.isNotEmpty)
-                            _DetailRow(label: 'Notes', value: b.notes!),
+                          if (b.planTypeLabel != null)
+                            _DetailRow(label: 'Plan', value: b.planTypeLabel!),
+                          if (b.customerNotes != null)
+                            _DetailRow(label: 'Notes', value: b.customerNotes!),
                         ],
                       ),
                     ),
@@ -187,7 +198,23 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                             _DetailRow(label: 'Amount', value: '₹${_invoice!['amount'] ?? '—'}'),
                             _DetailRow(
                               label: 'Payment',
-                              value: '${_invoice!['payment_status'] ?? '—'}',
+                              value: b.paymentStatusLabel,
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 44,
+                              child: ElevatedButton.icon(
+                                onPressed: () => context.push('/invoice/${b.id}'),
+                                icon: const Icon(Icons.download_rounded, size: 18),
+                                label: const Text('View & Download Invoice', style: TextStyle(fontWeight: FontWeight.w800)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              ),
                             ),
                           ],
                         ),

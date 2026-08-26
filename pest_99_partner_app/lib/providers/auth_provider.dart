@@ -4,8 +4,10 @@ import 'package:flutter/foundation.dart';
 
 import '../core/api_exception.dart';
 import '../core/session_coordinator.dart';
+import '../core/user_error.dart';
 import '../services/auth_service.dart';
 import '../services/push_notification_service.dart';
+
 
 class AuthProvider extends ChangeNotifier {
   AuthProvider(this._auth, this._session) {
@@ -76,6 +78,12 @@ class AuthProvider extends ChangeNotifier {
     _session.clearMessage();
   }
 
+  void clearError() {
+    if (_error == null) return;
+    _error = null;
+    notifyListeners();
+  }
+
   Future<bool> login(String mobile, String password) async {
     _loading = true;
     _error = null;
@@ -94,14 +102,13 @@ class AuthProvider extends ChangeNotifier {
       if (!fcmOk) {
         debugPrint('FCM token not saved — enable notifications and try again');
       }
-      // Show login alert after token sync; permission re-checked inside service.
       unawaited(PushNotificationService.instance.showLoginSuccessNotification());
       return true;
     } on ApiException catch (e) {
-      _error = e.message;
+      _error = userErrorMessage(e, fallback: 'Login failed. Please try again.');
       return false;
-    } catch (_) {
-      _error = 'Network error. Check your connection.';
+    } catch (e) {
+      _error = userErrorMessage(e, fallback: 'Network error. Check your connection.');
       return false;
     } finally {
       _loading = false;
@@ -121,10 +128,13 @@ class AuthProvider extends ChangeNotifier {
       await _auth.register(fullName: fullName, mobile: mobile, password: password);
       return true;
     } on ApiException catch (e) {
-      _error = e.message;
+      _error = userErrorMessage(e, fallback: 'Registration failed. Please try again.');
       return false;
-    } catch (_) {
-      _error = 'Registration failed. Check your connection.';
+    } catch (e) {
+      _error = userErrorMessage(
+        e,
+        fallback: 'Registration failed. Check your connection.',
+      );
       return false;
     } finally {
       _loading = false;
@@ -158,10 +168,16 @@ class AuthProvider extends ChangeNotifier {
       _initFuture = null;
       return true;
     } on ApiException catch (e) {
-      _error = e.message;
+      _error = userErrorMessage(
+        e,
+        fallback: 'Could not delete account. Please try again.',
+      );
       return false;
-    } catch (_) {
-      _error = 'Could not delete account. Check your connection and try again.';
+    } catch (e) {
+      _error = userErrorMessage(
+        e,
+        fallback: 'Could not delete account. Check your connection and try again.',
+      );
       return false;
     } finally {
       _loading = false;
@@ -170,7 +186,11 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> logout() async {
-    await PushNotificationService.instance.removeTokenFromBackend();
+    try {
+      await PushNotificationService.instance.removeTokenFromBackend();
+    } catch (e) {
+      debugPrint('[Auth] logout FCM cleanup: $e');
+    }
     await _auth.logout();
     _loggedIn = false;
     _appApproved = false;

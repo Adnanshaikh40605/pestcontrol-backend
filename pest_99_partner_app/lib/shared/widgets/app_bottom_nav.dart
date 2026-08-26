@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/bookings_provider.dart';
-import '../../providers/notifications_provider.dart';
 
 enum AppNavTab { bookings, accepted, completed, profile }
 
@@ -185,10 +184,11 @@ class _MainShellScaffoldState extends State<MainShellScaffold> with WidgetsBindi
     final firstLoad = bookings.available.isEmpty &&
         bookings.accepted.isEmpty &&
         bookings.completed.isEmpty;
-    await Future.wait([
-      context.read<NotificationsProvider>().load(force: true),
-      firstLoad ? bookings.refreshAll(force: true) : bookings.refreshListsLight(),
-    ]);
+    if (firstLoad) {
+      await bookings.refreshAll(force: true);
+    } else {
+      await bookings.refreshListsLight();
+    }
   }
 
   @override

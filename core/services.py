@@ -737,7 +737,12 @@ class JobCardService:
                 jobcard.is_amc_main_booking = True
                 jobcard.booking_type = JobCard.BookingType.AMC_MAIN
             elif jobcard.is_complaint_call:
-                jobcard.booking_type = JobCard.BookingType.COMPLAINT_CALL
+                from core.complaint_service import apply_complaint_constraints
+
+                apply_complaint_constraints(
+                    jobcard,
+                    parent=jobcard.complaint_parent_booking,
+                )
             elif jobcard.is_followup_visit or jobcard.included_in_amc:
                 jobcard.booking_type = JobCard.BookingType.AMC_FOLLOWUP
             elif jobcard.is_service_call:
@@ -745,8 +750,9 @@ class JobCardService:
             else:
                 jobcard.booking_type = JobCard.BookingType.NEW_BOOKING
             
-            # Auto-calculate next service date if not provided
-            JobCardService.ensure_next_service_schedule(jobcard)
+            # Auto-calculate next service date if not provided (never for complaints).
+            if not jobcard.is_complaint_call:
+                JobCardService.ensure_next_service_schedule(jobcard)
 
             jobcard.full_clean()  # Run model validation
             jobcard.save()  # This will create a new record with a new ID and code
@@ -756,10 +762,32 @@ class JobCardService:
             if price_total > 0 and (not jobcard.total_amount or jobcard.total_amount <= 0):
                 jobcard.total_amount = price_total
                 jobcard.save(update_fields=['total_amount'])
+
+            # If staff accidentally creates a free Bed Bugs "visit 2" as a new root
+            # booking, attach it under the prior package instead of leaving an orphan.
+            if not jobcard.parent_job_id and not jobcard.is_complaint_call:
+                try:
+                    from core.management.commands.heal_bed_bug_packages import (
+                        try_link_orphan_bed_bug_visit,
+                    )
+
+                    linked = try_link_orphan_bed_bug_visit(jobcard, dry_run=False)
+                    if linked:
+                        jobcard.refresh_from_db()
+                        logger.info(
+                            'Auto-linked Bed Bugs orphan #%s under package #%s',
+                            jobcard.id,
+                            linked.get('parent_id'),
+                        )
+                except Exception:
+                    logger.exception(
+                        'Bed Bugs orphan auto-link failed for job %s',
+                        jobcard.id,
+                    )
             
             logger.info(f"Successfully created NEW jobcard {jobcard.code} (ID: {jobcard.id}) for client {client.full_name} (ID: {client.id})")
 
-            # Pre-generate AMC / termite visits (PRD: all future visits at create time)
+            # Pre-generate AMC / termite / Bed Bugs visits at create time.
             if not jobcard.is_followup_visit and not jobcard.is_complaint_call:
                 from core.booking_schedule_engine import BookingScheduleEngine
                 try:
@@ -770,6 +798,11 @@ class JobCardService:
                         jobcard.code,
                         exc,
                     )
+
+            # CRM create / convert → Partner App pool + FCM (no manual Action click).
+            from partner.services import schedule_auto_send_new_booking_to_partner_app
+
+            schedule_auto_send_new_booking_to_partner_app(jobcard, sent_by_user=user)
 
             return jobcard
             
@@ -787,7 +820,19 @@ class JobCardService:
         """
         Populate or correct next_service_date / max_cycle from service rules.
         Keeps a manually entered next_service_date but still syncs max_cycle.
+        Complaint calls are always a single free revisit — never schedule package visits.
         """
+        from core.complaint_service import apply_complaint_constraints, is_complaint_job
+
+        if is_complaint_job(jobcard):
+            changed = apply_complaint_constraints(
+                jobcard,
+                parent=jobcard.complaint_parent_booking,
+            )
+            if changed and jobcard.pk:
+                jobcard.save(update_fields=list(dict.fromkeys(changed + ['updated_at'])))
+            return jobcard
+
         next_date, max_cycle = JobCardService.calculate_next_service_date(jobcard)
         update_fields = []
 
@@ -876,6 +921,22 @@ class JobCardService:
         """
         # Refetch with lock to prevent race conditions
         jobcard = JobCard.objects.select_for_update().get(id=jobcard.id)
+
+        from core.complaint_service import apply_complaint_constraints, is_complaint_job
+
+        # Complaint calls are a single free revisit — never spawn Bed Bugs/AMC follow-ups.
+        if is_complaint_job(jobcard):
+            changed = apply_complaint_constraints(
+                jobcard,
+                parent=jobcard.complaint_parent_booking,
+            )
+            if changed:
+                jobcard.save(update_fields=list(dict.fromkeys(changed + ['updated_at'])))
+            logger.info(
+                'Skipping follow-up automation for complaint JobCard %s',
+                jobcard.code,
+            )
+            return None
 
         JobCardService.ensure_next_service_schedule(jobcard)
         

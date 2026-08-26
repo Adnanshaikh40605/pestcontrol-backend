@@ -56,10 +56,29 @@ class ApiException implements Exception {
   }
 
   static String _messageForStatus(int status) {
-    if (status == 429) {
-      return 'Too many requests. Please wait and try again.';
+    switch (status) {
+      case 400:
+        return 'Invalid request. Please check your details and try again.';
+      case 401:
+        return 'Session expired. Please login again.';
+      case 403:
+        return 'You do not have permission for this action.';
+      case 404:
+        return 'This item is no longer available.';
+      case 408:
+        return 'Network slow. Please try again.';
+      case 409:
+        return 'This action conflicts with the current status. Please refresh.';
+      case 422:
+        return 'Some fields need to be corrected before continuing.';
+      case 429:
+        return 'Too many requests. Please wait and try again.';
+      default:
+        if (status >= 500) {
+          return 'Server error. Please try again in a moment.';
+        }
+        return 'Request failed. Please try again.';
     }
-    return 'Request failed ($status)';
   }
 
   /// DRF: "Request was throttled. Expected available in 651 seconds."

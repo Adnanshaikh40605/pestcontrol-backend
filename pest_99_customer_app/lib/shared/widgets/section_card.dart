@@ -57,17 +57,19 @@ class StatusChip extends StatelessWidget {
     };
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: fg,
-              letterSpacing: 0,
-            ),
+        style: TextStyle(
+          color: fg,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0,
+        ),
       ),
     );
   }

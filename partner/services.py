@@ -137,6 +137,75 @@ def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=N
     return job, False, notify_result
 
 
+def auto_send_new_booking_to_partner_app(job: JobCard, sent_by_user=None) -> bool:
+    """
+    Idempotent first-time send into the partner app pool.
+
+    Used after CRM create/convert so staff do not need the Action button.
+    Returns True only when a new send happened (False for skip / already sent).
+    """
+    try:
+        job.refresh_from_db()
+    except JobCard.DoesNotExist:
+        return False
+
+    if job.status != JobCard.JobStatus.PENDING:
+        return False
+    if job.sent_to_app_at:
+        return False
+    # Follow-ups / complaint calls are not open-pool lineup jobs.
+    if job.is_followup_visit or job.is_complaint_call:
+        return False
+    if job.partner_id is not None:
+        return False
+
+    try:
+        send_booking_to_partner_app(job, technician_id=None, sent_by_user=sent_by_user)
+        return True
+    except PartnerBookingError as exc:
+        logger.warning(
+            'Auto-send to partner app skipped for booking #%s: %s',
+            job.id,
+            exc.message,
+        )
+        return False
+    except Exception:
+        logger.exception('Auto-send to partner app failed for booking #%s', job.id)
+        return False
+
+
+def schedule_auto_send_new_booking_to_partner_app(job: JobCard, sent_by_user=None) -> None:
+    """
+    Run auto-send after the surrounding DB transaction commits.
+    Safe inside nested atomic blocks (inquiry/quotation convert).
+
+    In Django TestCase (always wrapped in a transaction), callers/tests should use
+    captureOnCommitCallbacks(execute=True) so the callback runs.
+    """
+    if not job or not job.pk:
+        return
+
+    job_id = job.pk
+    user_id = getattr(sent_by_user, 'pk', None)
+
+    def _run():
+        from django.contrib.auth import get_user_model
+
+        latest = JobCard.objects.filter(pk=job_id).first()
+        if not latest:
+            return
+        user = None
+        if user_id:
+            user = get_user_model().objects.filter(pk=user_id).first()
+        auto_send_new_booking_to_partner_app(latest, sent_by_user=user)
+
+    # If no atomic block is open, run immediately (management commands, etc.).
+    if transaction.get_connection().in_atomic_block:
+        transaction.on_commit(_run)
+    else:
+        _run()
+
+
 def _raise_if_booking_already_taken(job: JobCard, partner: Partner) -> None:
     """First partner to accept wins; others see a clear message."""
     taken_by_other = job.partner_id is not None and job.partner_id != partner.id

@@ -368,10 +368,22 @@ def heal_stuck_payouts(jobs) -> int:
     return healed
 
 
+def _is_complaint_job(job: JobCard) -> bool:
+    """True for service complaint calls (excluded from the main ledger tab)."""
+    if getattr(job, 'is_complaint_call', False):
+        return True
+    if getattr(job, 'booking_category', None) == JobCard.BookingCategory.COMPLAINT_CALL:
+        return True
+    booking_type = getattr(job, 'booking_type', None)
+    complaint_type = getattr(JobCard.BookingType, 'COMPLAINT_CALL', None)
+    return bool(complaint_type and booking_type == complaint_type)
+
+
 def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
     economics = _economics(job)
     completed = job.status == JobCard.JobStatus.DONE
     is_legacy = job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT
+    is_complaint = _is_complaint_job(job)
 
     from core.payout_engine import is_bed_bug_multi_visit, service_line_package_amount, _visit_divisor, _package_root
 
@@ -488,11 +500,18 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
     elif planned and cycle:
         service_number = f'Service {cycle} of {planned}'
 
+    client_mobile = ''
+    if job.client_id and getattr(job.client, 'mobile', None):
+        client_mobile = str(job.client.mobile)
+
     return {
         'job_id': job.id,
         'booking_id': job.code or str(job.id),
         'booking_date': _report_date(job).isoformat(),
         'customer_name': job.client.full_name if job.client_id else '',
+        'client_mobile': client_mobile,
+        'client_number': client_mobile,
+        'is_complaint_call': is_complaint,
         'property_type': job.property_type or job.commercial_type or '',
         'service_type': job.service_type or '',
         'city': job.master_city.name if job.master_city_id else (job.city or ''),
@@ -503,6 +522,7 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
         'service_cycle': cycle,
         'planned_visits': planned,
         'service_number': service_number,
+        # Kept for CSV/API backward compatibility; CRM ledger UI no longer shows it.
         'assigned_technicians': ', '.join([n for n in tech_names if n]) or '—',
         'technician_share_percent': str(share_pct),
         'booking_amount': str(booking_amount),

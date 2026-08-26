@@ -7,6 +7,7 @@ import '../models/booking_type.dart';
 class BookingMapper {
   static Booking fromPartner(api.PartnerBooking b) {
     final schedule = _parseSchedule(b.scheduleDatetime);
+    final started = _startedLabels(b.startedAt);
     return Booking(
       id: '${b.id}',
       pestType: b.serviceType,
@@ -21,6 +22,8 @@ class BookingMapper {
           ? BookingPriority.high
           : BookingPriority.standard,
       acceptedState: _acceptedState(b),
+      startedAtLabel: started.$1,
+      runningForLabel: started.$2,
       scheduleLabel: schedule.dateLabel,
       scheduleSubLabel: b.timeSlot ?? schedule.timeLabel,
       propertyType: b.serviceCategory,
@@ -29,6 +32,14 @@ class BookingMapper {
       paymentStatus: _paymentStatus(b.paymentStatus),
       paymentMode: _paymentMode(b.paymentMode),
       isPaid: b.paymentStatus?.toLowerCase() == 'paid',
+      jobAmount: b.priceDisplay ?? b.price,
+      yourShareAmount: b.visitPayoutAmount,
+      companyShareAmount: b.companyShareAmount,
+      visitRevenueAmount: b.visitRevenueAmount,
+      technicianSharePercent: b.technicianSharePercent,
+      companySharePercent: b.companySharePercent,
+      payoutStatus: b.payoutStatus,
+      hasRevenuePayout: b.hasRevenuePayout,
     );
   }
 
@@ -83,6 +94,28 @@ class BookingMapper {
       );
     } catch (_) {
       return _ScheduleParts(dateLabel: iso, timeLabel: '—');
+    }
+  }
+
+  /// Returns (startedAtLabel, runningForLabel).
+  static (String?, String?) _startedLabels(String? iso) {
+    if (iso == null || iso.isEmpty) {
+      return ('Service in progress', null);
+    }
+    try {
+      final started = DateTime.parse(iso).toLocal();
+      final startedLabel = 'Started at ${DateFormat('h:mm a').format(started)}';
+      final mins = DateTime.now().difference(started).inMinutes;
+      if (mins < 1) return (startedLabel, 'Just started');
+      if (mins < 60) return (startedLabel, 'Running for $mins mins');
+      final hours = mins ~/ 60;
+      final rem = mins % 60;
+      final running = rem == 0
+          ? 'Running for ${hours}h'
+          : 'Running for ${hours}h ${rem}m';
+      return (startedLabel, running);
+    } catch (_) {
+      return ('Service in progress', null);
     }
   }
 }

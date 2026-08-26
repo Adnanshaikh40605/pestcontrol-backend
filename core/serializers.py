@@ -455,10 +455,10 @@ class JobCardSerializer(serializers.ModelSerializer):
         return None
 
     def get_price_display(self, obj):
+        if obj.is_complaint_call or obj.booking_type == JobCard.BookingType.COMPLAINT_CALL:
+            return "Free (Complaint)"
         if obj.booking_type == JobCard.BookingType.AMC_FOLLOWUP or obj.included_in_amc:
             return "Included in AMC"
-        if obj.booking_type == JobCard.BookingType.COMPLAINT_CALL:
-            return "Free (Complaint)"
         from core.booking_schedule_engine import is_bed_bug_service
 
         # Even if legacy rows carry stale booking_type/price, Bed Bugs visit 2 is
@@ -760,6 +760,28 @@ class JobCardSerializer(serializers.ModelSerializer):
         sync_jobcard_amounts_from_price(instance)
         instance.refresh_from_db()
 
+        # Cancelling a visit/service must never create a new booking — only flip status —
+        # and must clear any visit ledger so settlements stay clean.
+        if (
+            new_status == JobCard.JobStatus.CANCELLED
+            and old_status != JobCard.JobStatus.CANCELLED
+        ):
+            from decimal import Decimal
+
+            instance.visit_revenue_amount = Decimal('0.00')
+            instance.technician_pool_amount = Decimal('0.00')
+            instance.company_share_amount = Decimal('0.00')
+            instance.visit_payout_amount = Decimal('0.00')
+            if instance.payout_status not in (
+                JobCard.PayoutStatus.APPROVED,
+                JobCard.PayoutStatus.PAID,
+            ):
+                instance.payout_status = JobCard.PayoutStatus.CANCELLED
+            instance.save(update_fields=[
+                'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
+                'visit_payout_amount', 'payout_status', 'updated_at',
+            ])
+
         # Keep ledger/history in sync when service type / items / plan are edited.
         from core.booking_schedule_engine import (
             BookingScheduleEngine,
@@ -830,25 +852,26 @@ class JobCardSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError(exc.message_dict)
                     raise serializers.ValidationError(str(exc))
                 instance.refresh_from_db()
-                try:
-                    from core.payout_engine import try_apply_payout_after_completion
-                    from core.booking_schedule_engine import (
-                        BookingScheduleEngine,
-                        is_multi_service_booking,
-                    )
 
-                    if is_multi_service_booking(instance):
-                        # Shell holds customer payment; tech ledger is per-service day-1 rows.
-                        BookingScheduleEngine.sync_multi_service_day1_children(
-                            instance,
-                            completing=True,
-                        )
-                        try_apply_payout_after_completion(instance)
-                    else:
-                        try_apply_payout_after_completion(instance)
-                    instance.refresh_from_db()
-                except Exception:
-                    logger.exception('Payout after CRM Done failed for %s', instance.code)
+            # Always apply visit-level payout on Done — including Bed Bugs/AMC
+            # follow-ups that skip customer payment collection.
+            try:
+                from core.payout_engine import try_apply_payout_after_completion
+                from core.booking_schedule_engine import (
+                    BookingScheduleEngine,
+                    is_multi_service_booking,
+                )
+
+                if is_multi_service_booking(instance):
+                    # Shell holds customer payment; tech ledger is per-service day-1 rows.
+                    BookingScheduleEngine.sync_multi_service_day1_children(
+                        instance,
+                        completing=True,
+                    )
+                try_apply_payout_after_completion(instance)
+                instance.refresh_from_db()
+            except Exception:
+                logger.exception('Payout after CRM Done failed for %s', instance.code)
         else:
             from core.booking_schedule_engine import (
                 BookingScheduleEngine,

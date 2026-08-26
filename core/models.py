@@ -16,6 +16,7 @@ from .revenue_constants import (
     TECHNICIAN_SHARE_PERCENT,
     COMPANY_SHARE_PERCENT,
 )
+from .partner_app_version import PartnerAppVersionConfig  # noqa: F401
 
 
 class BaseModel(models.Model):

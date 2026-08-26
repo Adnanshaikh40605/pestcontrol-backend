@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../config/legal_config.dart';
 import '../core/api_client.dart';
+import '../core/auth_gate.dart';
 import '../core/theme/app_colors.dart';
 import '../models/customer_models.dart';
 import '../providers/auth_provider.dart';
@@ -86,7 +87,7 @@ class _AmcDashboardScreenState extends State<AmcDashboardScreen> {
                           title: 'No AMC plans yet',
                           subtitle: 'You don’t have an active AMC. Book a service and choose the AMC package to protect your property year-round.',
                           buttonLabel: 'Book AMC Service',
-                          onBook: () => context.push('/book/property'),
+                          onBook: () => pushAuthed(context, '/book/property'),
                         )
                       : RefreshIndicator(
                           color: AppColors.primary,
@@ -404,7 +405,7 @@ class ServiceReportScreen extends StatelessWidget {
           Pc99EmptyBookPrompt(
             title: 'No reports yet',
             subtitle: 'After your first completed service, the report will appear here.',
-            onBook: () => context.push('/book/property'),
+            onBook: () => pushAuthed(context, '/book/property'),
           ),
         ],
       ),
@@ -517,7 +518,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
               Pc99EmptyBookPrompt(
                 title: 'No invoices yet',
                 subtitle: 'After you book a service, invoices and payments will show up here.',
-                onBook: () => context.push('/book/property'),
+                onBook: () => pushAuthed(context, '/book/property'),
               )
             else
               ...rows.map((b) {
@@ -555,32 +556,35 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: b.isPaid ? AppColors.successSoft : AppColors.surfaceSoft,
+                                color: b.isPaid ? AppColors.successSoft : const Color(0xFFFFF7ED),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                b.paymentStatus ?? 'Unpaid',
+                                b.paymentStatusLabel,
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
-                                  color: b.isPaid ? AppColors.primary : AppColors.textMuted,
+                                  color: b.isPaid ? AppColors.primary : AppColors.warning,
                                 ),
                               ),
                             ),
-                            const Spacer(),
-                            TextButton.icon(
-                              onPressed: () => context.push('/booking/${b.id}'),
-                              icon: const Icon(Icons.download_outlined, size: 16, color: AppColors.primary),
-                              label: const Text(
-                                'Invoice',
-                                style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 12),
-                              ),
-                              style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                                visualDensity: VisualDensity.compact,
-                              ),
-                            ),
                           ],
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 42,
+                          child: ElevatedButton.icon(
+                            onPressed: () => context.push('/invoice/${b.id}'),
+                            icon: const Icon(Icons.download_rounded, size: 18),
+                            label: const Text('Download Invoice PDF', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -657,7 +661,7 @@ class AccountScreen extends StatelessWidget {
             padding: EdgeInsets.zero,
             child: Column(
               children: [
-                _Menu(Icons.home_work_outlined, 'Book a Service', () => context.push('/book/property')),
+                _Menu(Icons.home_work_outlined, 'Book a Service', () => pushAuthed(context, '/book/property')),
                 _Menu(Icons.workspace_premium_outlined, 'My AMC', () => context.go('/amc')),
                 _Menu(Icons.receipt_long_outlined, 'Payments & Invoices', () => context.go('/payments')),
                 _Menu(Icons.support_agent_rounded, 'Complaint / Re-Service', () => context.push('/complaint')),
@@ -831,7 +835,7 @@ class _AmcDetailsScreenState extends State<AmcDetailsScreen> {
         children: [
           Expanded(child: Pc99OutlineButton(label: 'Raise Complaint', onPressed: () => context.push('/complaint'))),
           const SizedBox(width: 10),
-          Expanded(child: Pc99PrimaryButton(label: 'Book Service', onPressed: () => context.push('/book/property'))),
+          Expanded(child: Pc99PrimaryButton(label: 'Book Service', onPressed: () => pushAuthed(context, '/book/property'))),
         ],
       ),
       child: _loading

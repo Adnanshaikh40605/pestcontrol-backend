@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import '../../core/api_client.dart';
 import '../../core/constants/app_assets.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/user_error.dart';
 import '../../services/referral_service.dart';
+import '../../shared/widgets/app_snackbar.dart';
 import '../../shared/widgets/app_text_field.dart';
 import '../../shared/widgets/primary_button.dart';
 import '../../shared/widgets/stitch_illustration.dart';
@@ -32,18 +34,27 @@ class _ReferClientScreenState extends State<ReferClientScreen> {
   }
 
   Future<void> _submit() async {
+    final name = _name.text.trim();
+    final mobile = _mobile.text.trim();
+    if (name.isEmpty || mobile.isEmpty) {
+      AppSnackBar.error(context, 'Please enter client name and mobile number.');
+      return;
+    }
     setState(() => _saving = true);
     try {
       final referral = await ReferralService(context.read<ApiClient>()).submitReferral(
-        clientName: _name.text.trim(),
-        mobile: _mobile.text.trim(),
+        clientName: name,
+        mobile: mobile,
         area: _area.text.trim(),
       );
       if (!mounted) return;
       context.push('/referral-progress', extra: referral.id);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        AppSnackBar.error(
+          context,
+          userErrorMessage(e, fallback: 'Could not submit referral. Please try again.'),
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
