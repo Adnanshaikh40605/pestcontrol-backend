@@ -367,18 +367,24 @@ def heal_stuck_payouts(jobs) -> int:
     Recalculate Done jobs with wrong / missing Tech 40% so ledger stays correct.
     Never migrates legacy_exempt history into unsettled payables.
     Handles Bed Bugs ÷2, multi-service day-1 split, and equal 40% across techs.
+    Also realigns stale service_items/total_amount to the staff-edited price.
     """
     from core.booking_schedule_engine import (
         BookingScheduleEngine,
         is_multi_service_booking,
     )
     from core.models import JobCard as JC
+    from core.payment_utils import sync_jobcard_amounts_from_price
     from core.payout_engine import calculate_and_apply_payout
 
     healed = 0
     for job in jobs:
         if job.payout_status == JC.PayoutStatus.LEGACY_EXEMPT:
             continue
+        # Keep items/total in lockstep with staff price (Booking History).
+        if sync_jobcard_amounts_from_price(job):
+            job.refresh_from_db()
+            healed += 1
         if not job_needs_payout_heal(job):
             continue
         if is_multi_service_booking(job) and not job.parent_job_id:
@@ -423,7 +429,21 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
 
     # Booking column: per-visit for AMC / Bed Bugs / follow-ups — never the full
     # package total on every visit row (that is what staff call "same charges").
+    # One-Time roots use staff-edited JobCard.price (same as Booking History).
+    from core.payment_utils import parse_jobcard_price
+
+    staff_price = parse_jobcard_price(job.price)
     booking_amount = quantize_money(effective_service_total(job))
+    if (
+        economics == 'one_time'
+        and not job.parent_job_id
+        and not job.is_followup_visit
+        and not job.included_in_amc
+        and (job.service_cycle or 1) <= 1
+        and staff_price > 0
+    ):
+        booking_amount = staff_price
+
     bed_bug_line = is_bed_bug_multi_visit(job)
     if not bed_bug_line:
         primary = (job.source_service or job.service_type or '').strip()
@@ -445,6 +465,24 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
         booking_amount = quantize_money(line_pkg / Decimal(divisor))
     elif job.parent_job_id and line_pkg > 0:
         booking_amount = line_pkg
+
+    # Completed One-Time: Booking column must match Service ₹ (visit revenue /
+    # staff price) after staff edits — never leave a stale AMC package total.
+    if (
+        completed
+        and not is_legacy
+        and economics == 'one_time'
+        and not bed_bug_line
+        and not job.parent_job_id
+        and not job.is_followup_visit
+        and not job.included_in_amc
+        and (job.service_cycle or 1) <= 1
+    ):
+        visit_snap = quantize_money(job.visit_revenue_amount)
+        if staff_price > 0:
+            booking_amount = staff_price
+        elif visit_snap > 0:
+            booking_amount = visit_snap
 
     visit_revenue = Decimal('0.00')
     if completed and not is_legacy:

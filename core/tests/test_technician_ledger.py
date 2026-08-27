@@ -15,6 +15,7 @@ from core.models import (
     TechnicianSettlement,
 )
 from partner.models import Partner, PartnerEarning
+from core.payment_utils import parse_jobcard_price
 
 
 @override_settings(REVENUE_MODEL_V2=True)
@@ -695,13 +696,16 @@ class TechnicianLedgerTests(TestCase):
             visit_payout_amount=Decimal('333.33'),
             payout_status=JobCard.PayoutStatus.PENDING,
         )
-        # Simulate leftover AMC snapshot after staff edited price to 1000.
+        # Simulate leftover AMC snapshot after staff edited price to 1000
+        # (including paid amount still at the old package total).
         JobCard.objects.filter(pk=job.pk).update(
             price='1000',
             total_amount=Decimal('2500.00'),
-            visit_revenue_amount=Decimal('833.33'),
-            visit_payout_amount=Decimal('333.33'),
-            technician_pool_amount=Decimal('333.33'),
+            paid_amount=Decimal('2500.00'),
+            pending_amount=Decimal('0.00'),
+            visit_revenue_amount=Decimal('1000.00'),
+            visit_payout_amount=Decimal('400.00'),
+            technician_pool_amount=Decimal('400.00'),
             planned_visit_count=3,
             max_cycle=3,
             service_items=[{
@@ -713,7 +717,7 @@ class TechnicianLedgerTests(TestCase):
         )
         job.refresh_from_db()
         part = job.technician_participations.get(technician=self.tech)
-        part.payout_amount_snapshot = Decimal('333.33')
+        part.payout_amount_snapshot = Decimal('400.00')
         part.save(update_fields=['payout_amount_snapshot', 'updated_at'])
 
         self.assertEqual(effective_service_total(job), Decimal('1000.00'))
@@ -726,5 +730,5 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(Decimal(row['technician_share']), Decimal('400.00'))
 
         job.refresh_from_db()
-        self.assertEqual(job.visit_revenue_amount, Decimal('1000.00'))
-        self.assertEqual(job.visit_payout_amount, Decimal('400.00'))
+        self.assertEqual(parse_jobcard_price(job.service_items[0]['amount']), Decimal('1000.00'))
+        self.assertEqual(job.total_amount, Decimal('1000.00'))

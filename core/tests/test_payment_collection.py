@@ -85,6 +85,21 @@ class PaymentUtilsTests(TestCase):
         )
         self.assertEqual(effective_service_total(job), Decimal('1000.00'))
 
+    def test_effective_service_total_prefers_price_even_when_paid_higher(self):
+        """Staff reduced price after collection — ledger/revenue must use edited price."""
+        job = JobCard(
+            price='1000',
+            total_amount=Decimal('2500.00'),
+            paid_amount=Decimal('2500.00'),
+            service_items=[{
+                'service': 'Cockroach / Ants',
+                'plan': 'One Time Service',
+                'area': '2 BHK',
+                'amount': 2500,
+            }],
+        )
+        self.assertEqual(effective_service_total(job), Decimal('1000.00'))
+
     def test_effective_service_total_falls_back_to_items_when_price_empty(self):
         job = JobCard(
             price='',

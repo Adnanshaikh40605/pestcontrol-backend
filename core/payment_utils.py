@@ -108,10 +108,9 @@ def effective_service_total(jobcard) -> Decimal:
     """
     Billable service amount for payment UI, client revenue, and technician ledger.
 
-    Staff-facing Booking History shows ``JobCard.price``. Prefer that whenever it
-    is set so ledger Booking ₹ and client Total Revenue stay consistent with
-    history. Stale ``service_items`` (e.g. after AMC ₹2500 → One-Time ₹1000)
-    must not override the edited price.
+    Staff-facing Booking History shows ``JobCard.price``. That edited price is
+    always the source of truth when set — including after AMC→One-Time edits —
+    so ledger Booking ₹, Service ₹, and Total Revenue stay aligned with history.
     """
     if is_bed_bug_included_visit(jobcard):
         return Decimal('0.00')
@@ -121,20 +120,21 @@ def effective_service_total(jobcard) -> Decimal:
     stored_total = quantize_money(jobcard.total_amount or 0)
     paid = quantize_money(jobcard.paid_amount)
 
+    # Always prefer the staff-edited price when present (even if paid/items still
+    # hold a higher stale AMC package total).
+    if price_total > 0:
+        return price_total
+
     if paid <= 0:
-        if price_total > 0:
-            return price_total
         if items_total > 0:
             return items_total
         return stored_total
 
-    if price_total > 0 and price_total >= paid:
-        return price_total
     if items_total > 0 and items_total >= paid:
         return items_total
     if stored_total >= paid:
         return stored_total
-    return price_total if price_total > 0 else items_total
+    return items_total
 
 
 def sync_jobcard_amounts_from_price(jobcard, *, save: bool = True) -> list[str]:
