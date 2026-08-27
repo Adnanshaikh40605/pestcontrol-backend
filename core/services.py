@@ -1563,50 +1563,18 @@ class DashboardService:
                 'hold': 0
             }
             
-            # City breakdown — prefer master city name (Pune / Mumbai / Lonavala…)
-            from django.db.models.functions import Coalesce
-            from django.db.models import CharField, Value as V
+            # City breakdown — merge case variants (Mumbai / mumbai) into proper labels.
+            from core.city_utils import aggregate_city_counts
 
-            city_qs = (
-                JobCard.objects.filter(jobcard_filters)
-                .exclude(status=JobCard.JobStatus.CANCELLED)
-                .annotate(
-                    city_label=Coalesce(
-                        'master_city__name',
-                        'city',
-                        V(''),
-                        output_field=CharField(),
-                    )
-                )
-                .exclude(city_label='')
-                .values('city_label')
-                .annotate(count=Count('id'))
-                .order_by('-count')[:12]
+            city_stats = aggregate_city_counts(
+                JobCard.objects.filter(jobcard_filters).exclude(
+                    status=JobCard.JobStatus.CANCELLED
+                ),
+                limit=12,
             )
-            city_stats = [
-                {'city': row['city_label'], 'count': row['count']}
-                for row in city_qs
-            ]
 
             def _city_counts(qs):
-                rows = (
-                    qs.annotate(
-                        city_label=Coalesce(
-                            'master_city__name',
-                            'city',
-                            V(''),
-                            output_field=CharField(),
-                        )
-                    )
-                    .exclude(city_label='')
-                    .values('city_label')
-                    .annotate(count=Count('id'))
-                    .order_by('-count')[:12]
-                )
-                return [
-                    {'city': row['city_label'], 'count': row['count']}
-                    for row in rows
-                ]
+                return aggregate_city_counts(qs, limit=12)
 
             today_active = JobCard.objects.filter(
                 schedule_datetime__date=today,

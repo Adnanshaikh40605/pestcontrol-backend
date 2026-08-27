@@ -137,6 +137,44 @@ class DashboardTodayCitySplitTests(TestCase):
         self.assertEqual(service_by_city.get('Mumbai'), 1)
         self.assertEqual(service_by_city.get('Pune'), 1)
 
+    def test_city_stats_merge_case_variants_and_show_proper_names(self):
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='1000',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            city='mumbai',
+            schedule_datetime=self.today,
+            price='1000',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            city='Navi mumbai',
+            schedule_datetime=self.today,
+            price='1000',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+        )
+
+        stats = DashboardService.get_dashboard_statistics()
+        by_city = {row['city']: row['count'] for row in stats['today_city_stats']}
+        self.assertEqual(by_city.get('Mumbai'), 2)
+        self.assertEqual(by_city.get('Navi Mumbai'), 1)
+        self.assertNotIn('mumbai', by_city)
+
     def test_today_complaint_calls_are_split_from_bookings(self):
         JobCard.objects.create(
             client=self.client_record,

@@ -63,6 +63,15 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
     if area and area.lower() not in address.lower():
         address = f'{address}, {area}'.strip(', ')
 
+    from core.city_utils import canonical_city_label, resolve_master_city
+
+    raw_city = (data.get('city') or getattr(account.client, 'city', None) or '').strip()
+    master_city = resolve_master_city(raw_city)
+    city_label = (
+        canonical_city_label(master_city.name if master_city else raw_city)
+        or raw_city
+    )
+
     # Contractual = society/commercial crew jobs (revenue sharing when flag on).
     if booking_kind == 'contractual':
         job_type = JobCard.JobType.SOCIETY
@@ -82,7 +91,7 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         'property_type': property_type,
         'bhk_size': data.get('bhk_size') or '',
         'client_address': address,
-        'city': data.get('city') or (account.client.city or ''),
+        'city': city_label,
         'schedule_datetime': data.get('schedule_datetime'),
         'time_slot': data.get('time_slot') or '',
         'notes': data.get('notes') or '',
@@ -95,6 +104,8 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         'job_type': job_type,
         'commercial_type': commercial_type,
     }
+    if master_city:
+        payload['master_city'] = master_city.id
     if contract_duration:
         payload['contract_duration'] = contract_duration
     if booking_kind == 'amc':
