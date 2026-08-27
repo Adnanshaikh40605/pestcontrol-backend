@@ -158,6 +158,7 @@ def technician_jobs_queryset(technician: Technician):
             | Q(technician_participations__technician=technician)
             | Q(partner_earnings__partner__core_technician=technician)
         )
+        .exclude(hidden_from_technician_ledger=True)
         .select_related('client', 'master_city', 'parent_job')
         .prefetch_related(
             Prefetch('technician_participations', queryset=participations),
@@ -314,6 +315,35 @@ def job_needs_payout_heal(job) -> bool:
             full_tech = quantize_money(package * Decimal('0.40'))
             if visit_pay >= full_tech and expected_tech < full_tech:
                 return True
+
+    # One-Time (or non-AMC) still carrying an old AMC package÷N snapshot.
+    # Example: #1930 edited AMC ₹2500 / 3 visits → One-Time ₹1000, but
+    # visit_revenue stayed ₹833.33 and tech pay ₹333.33.
+    if (
+        not is_amc_economics(job)
+        and not is_bed_bug_multi_visit(job)
+        and package > 0
+        and visit_rev > 0
+    ):
+        from core.payment_utils import effective_service_total, parse_jobcard_price
+
+        billable = effective_service_total(job) or parse_jobcard_price(job.price)
+        if billable <= 0:
+            billable = package
+        planned = int(job.planned_visit_count or job.max_cycle or 1)
+        if planned > 1 and visit_rev < billable * Decimal('0.90'):
+            return True
+        for n in (2, 3, 4, 6, 12):
+            split = quantize_money(package / Decimal(str(n)))
+            if (
+                split > 0
+                and abs(visit_rev - split) <= Decimal('0.05')
+                and visit_rev < billable * Decimal('0.90')
+            ):
+                return True
+        # Billable price changed after payout (1000 vs stored 833 of old 2500).
+        if abs(visit_rev - billable) > Decimal('0.05') and visit_rev < billable:
+            return True
 
     # Two+ assigned partner techs but only one got the pool (others ₹0).
     parts = list(job.technician_participations.all())
@@ -631,3 +661,114 @@ def payment_history(technician: Technician, params) -> list[dict]:
         }
         for row in qs.order_by('-period_end', '-id')[:100]
     ]
+
+
+class LedgerActionError(Exception):
+    """Staff ledger action rejected (missing job, wrong tech, etc.)."""
+
+    def __init__(self, message: str, *, code: str = 'invalid'):
+        self.message = message
+        self.code = code
+        super().__init__(message)
+
+
+def _job_on_technician_ledger(job: JobCard, technician: Technician) -> bool:
+    if job.hidden_from_technician_ledger:
+        return False
+    if job.technician_id == technician.id:
+        return True
+    if any(p.technician_id == technician.id for p in job.technician_participations.all()):
+        return True
+    return PartnerEarning.objects.filter(
+        job=job,
+        partner__core_technician=technician,
+    ).exists()
+
+
+def resolve_ledger_job(*, technician: Technician, job_id) -> JobCard:
+    """Load a job that belongs on this technician's ledger."""
+    try:
+        job_pk = int(job_id)
+    except (TypeError, ValueError):
+        raise LedgerActionError('job_id is required', code='invalid_job_id') from None
+
+    job = (
+        JobCard.objects.select_related('technician', 'partner')
+        .prefetch_related('technician_participations')
+        .filter(pk=job_pk)
+        .first()
+    )
+    if not job:
+        raise LedgerActionError('Booking not found', code='not_found')
+    if not _job_on_technician_ledger(job, technician):
+        raise LedgerActionError(
+            'This booking is not on this technician ledger',
+            code='not_on_ledger',
+        )
+    return job
+
+
+def move_job_to_old_service(*, technician: Technician, job_id) -> JobCard:
+    """
+    Move a ledger booking to Old Service Calls (payout_status=legacy_exempt).
+
+    Clears unsettled tech pay so the row leaves Unsettled. Booking stays in CRM
+    with its customer / amount history intact.
+    """
+    job = resolve_ledger_job(technician=technician, job_id=job_id)
+    zero = Decimal('0.00')
+
+    job.technician_pool_amount = zero
+    job.company_share_amount = zero
+    job.visit_payout_amount = zero
+    job.payout_status = JobCard.PayoutStatus.LEGACY_EXEMPT
+    job.save(update_fields=[
+        'technician_pool_amount',
+        'company_share_amount',
+        'visit_payout_amount',
+        'payout_status',
+        'updated_at',
+    ])
+
+    PartnerEarning.objects.filter(job=job).delete()
+    for part in job.technician_participations.all():
+        if quantize_money(part.payout_amount_snapshot) != zero:
+            part.payout_amount_snapshot = zero
+            part.save(update_fields=['payout_amount_snapshot', 'updated_at'])
+
+    return job
+
+
+def remove_job_from_ledger(*, technician: Technician, job_id) -> JobCard:
+    """
+    Hide a booking from the technician ledger for all tabs.
+
+    Does not cancel or delete the CRM booking. Also clears unsettled partner
+    earnings so removed rows cannot be settled later.
+    """
+    job = resolve_ledger_job(technician=technician, job_id=job_id)
+    zero = Decimal('0.00')
+
+    job.hidden_from_technician_ledger = True
+    job.technician_pool_amount = zero
+    job.company_share_amount = zero
+    job.visit_payout_amount = zero
+    # CANCELLED payout keeps settlement engines from picking this up again.
+    if job.payout_status != JobCard.PayoutStatus.PAID:
+        job.payout_status = JobCard.PayoutStatus.CANCELLED
+    job.save(update_fields=[
+        'hidden_from_technician_ledger',
+        'technician_pool_amount',
+        'company_share_amount',
+        'visit_payout_amount',
+        'payout_status',
+        'updated_at',
+    ])
+
+    PartnerEarning.objects.filter(job=job).delete()
+    for part in job.technician_participations.all():
+        if quantize_money(part.payout_amount_snapshot) != zero:
+            part.payout_amount_snapshot = zero
+            part.save(update_fields=['payout_amount_snapshot', 'updated_at'])
+
+    return job

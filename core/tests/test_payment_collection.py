@@ -70,10 +70,25 @@ class PaymentUtilsTests(TestCase):
             JobCard.PaymentStatus.PENDING,
         )
 
-    def test_effective_service_total_prefers_updated_items_when_unpaid(self):
+    def test_effective_service_total_prefers_staff_price_over_stale_items(self):
+        """Booking History price must win over leftover AMC service_items amounts."""
         job = JobCard(
-            price='5000',
-            total_amount=Decimal('5000.00'),
+            price='1000',
+            total_amount=Decimal('2500.00'),
+            paid_amount=Decimal('0.00'),
+            service_items=[{
+                'service': 'Cockroach / Ants',
+                'plan': 'One Time Service',
+                'area': '2 BHK',
+                'amount': 2500,
+            }],
+        )
+        self.assertEqual(effective_service_total(job), Decimal('1000.00'))
+
+    def test_effective_service_total_falls_back_to_items_when_price_empty(self):
+        job = JobCard(
+            price='',
+            total_amount=Decimal('0.00'),
             paid_amount=Decimal('0.00'),
             service_items=[{
                 'service': 'Cockroach / Ants',
@@ -105,6 +120,28 @@ class PaymentUtilsTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(job.total_amount, Decimal('2500.00'))
         self.assertEqual(job.pending_amount, Decimal('2500.00'))
+
+    def test_sync_realigns_stale_service_items_to_price(self):
+        job = JobCard.objects.create(
+            client=Client.objects.create(full_name='Stale Items Client', mobile='9876500002'),
+            service_type='Cockroach / Ants',
+            schedule_datetime=datetime(2026, 6, 11, 10, 0, tzinfo=dt_timezone.utc),
+            price='1000',
+            total_amount=Decimal('2500.00'),
+            pending_amount=Decimal('2500.00'),
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            service_items=[{
+                'service': 'Cockroach / Ants',
+                'plan': 'One Time Service',
+                'area': '2 BHK',
+                'amount': 2500,
+            }],
+        )
+        sync_jobcard_amounts_from_price(job)
+        job.refresh_from_db()
+        self.assertEqual(job.total_amount, Decimal('1000.00'))
+        self.assertEqual(parse_jobcard_price(job.service_items[0]['amount']), Decimal('1000.00'))
 
 
 class PaymentCollectionAPITests(TestCase):

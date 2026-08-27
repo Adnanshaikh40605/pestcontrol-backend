@@ -625,3 +625,106 @@ class TechnicianLedgerTests(TestCase):
         normal_row = next(r for r in unsettled.data['results'] if r['job_id'] == normal.id)
         self.assertEqual(normal_row['client_mobile'], '9555000001')
         self.assertFalse(normal_row['is_complaint_call'])
+
+    def test_move_to_old_service_and_remove_from_ledger(self):
+        job = self._job(amount='1000')
+        PartnerEarning.objects.create(
+            partner=self.partner,
+            job=job,
+            amount=Decimal('400.00'),
+            earning_type=PartnerEarning.EarningType.REVENUE_SHARE,
+            is_approved=True,
+        )
+
+        move = self.api.post(
+            f'/api/v1/technicians/{self.tech.id}/ledger/move-to-old-service/',
+            {'job_id': job.id},
+            format='json',
+        )
+        self.assertEqual(move.status_code, 200, move.data)
+        job.refresh_from_db()
+        self.assertEqual(job.payout_status, JobCard.PayoutStatus.LEGACY_EXEMPT)
+        self.assertEqual(job.visit_payout_amount, Decimal('0.00'))
+        self.assertFalse(PartnerEarning.objects.filter(job=job).exists())
+
+        unsettled = self._ledger({'settlement_status': 'unsettled'})
+        self.assertNotIn(job.id, {r['job_id'] for r in unsettled.data['results']})
+
+        legacy = self._ledger({'settlement_status': 'legacy'})
+        self.assertIn(job.id, {r['job_id'] for r in legacy.data['results']})
+        legacy_row = next(r for r in legacy.data['results'] if r['job_id'] == job.id)
+        self.assertEqual(legacy_row['settlement_status'], 'legacy')
+
+        remove = self.api.post(
+            f'/api/v1/technicians/{self.tech.id}/ledger/remove-booking/',
+            {'job_id': job.id},
+            format='json',
+        )
+        self.assertEqual(remove.status_code, 200, remove.data)
+        job.refresh_from_db()
+        self.assertTrue(job.hidden_from_technician_ledger)
+
+        after_remove = self._ledger({'settlement_status': ''})
+        self.assertNotIn(job.id, {r['job_id'] for r in after_remove.data['results']})
+        legacy_after = self._ledger({'settlement_status': 'legacy'})
+        self.assertNotIn(job.id, {r['job_id'] for r in legacy_after.data['results']})
+
+    def test_ledger_heals_stale_amc_split_after_one_time_price_edit(self):
+        """
+        Regression #1930: AMC ₹2500 / 3 visits converted to One-Time ₹1000.
+        History shows price 1000; ledger must not keep Booking 2500 / Service 833.33.
+        """
+        from core.payment_utils import effective_service_total
+
+        job = self._job(
+            amount='1000',
+            service_type='Cockroach / Ants',
+            service_items=[{
+                'service': 'Cockroach / Ants',
+                'plan': 'One Time Service',
+                'area': '2 BHK',
+                'amount': 2500,
+            }],
+            total_amount=Decimal('2500.00'),
+            planned_visit_count=3,
+            max_cycle=3,
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            visit_revenue_amount=Decimal('833.33'),
+            technician_pool_amount=Decimal('333.33'),
+            company_share_amount=Decimal('500.00'),
+            visit_payout_amount=Decimal('333.33'),
+            payout_status=JobCard.PayoutStatus.PENDING,
+        )
+        # Simulate leftover AMC snapshot after staff edited price to 1000.
+        JobCard.objects.filter(pk=job.pk).update(
+            price='1000',
+            total_amount=Decimal('2500.00'),
+            visit_revenue_amount=Decimal('833.33'),
+            visit_payout_amount=Decimal('333.33'),
+            technician_pool_amount=Decimal('333.33'),
+            planned_visit_count=3,
+            max_cycle=3,
+            service_items=[{
+                'service': 'Cockroach / Ants',
+                'plan': 'One Time Service',
+                'area': '2 BHK',
+                'amount': 2500,
+            }],
+        )
+        job.refresh_from_db()
+        part = job.technician_participations.get(technician=self.tech)
+        part.payout_amount_snapshot = Decimal('333.33')
+        part.save(update_fields=['payout_amount_snapshot', 'updated_at'])
+
+        self.assertEqual(effective_service_total(job), Decimal('1000.00'))
+
+        res = self._ledger({'settlement_status': 'unsettled'})
+        self.assertEqual(res.status_code, 200, res.data)
+        row = next(r for r in res.data['results'] if r['job_id'] == job.id)
+        self.assertEqual(Decimal(row['booking_amount']), Decimal('1000.00'))
+        self.assertEqual(Decimal(row['visit_revenue']), Decimal('1000.00'))
+        self.assertEqual(Decimal(row['technician_share']), Decimal('400.00'))
+
+        job.refresh_from_db()
+        self.assertEqual(job.visit_revenue_amount, Decimal('1000.00'))
+        self.assertEqual(job.visit_payout_amount, Decimal('400.00'))

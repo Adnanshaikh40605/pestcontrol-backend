@@ -106,8 +106,12 @@ def is_bed_bug_included_visit(jobcard) -> bool:
 
 def effective_service_total(jobcard) -> Decimal:
     """
-    Service amount due for payment UI and completion.
-    Prefers current price / line items over stale total_amount when unpaid.
+    Billable service amount for payment UI, client revenue, and technician ledger.
+
+    Staff-facing Booking History shows ``JobCard.price``. Prefer that whenever it
+    is set so ledger Booking ₹ and client Total Revenue stay consistent with
+    history. Stale ``service_items`` (e.g. after AMC ₹2500 → One-Time ₹1000)
+    must not override the edited price.
     """
     if is_bed_bug_included_visit(jobcard):
         return Decimal('0.00')
@@ -118,10 +122,10 @@ def effective_service_total(jobcard) -> Decimal:
     paid = quantize_money(jobcard.paid_amount)
 
     if paid <= 0:
-        if items_total > 0:
-            return items_total
         if price_total > 0:
             return price_total
+        if items_total > 0:
+            return items_total
         return stored_total
 
     if price_total > 0 and price_total >= paid:
@@ -137,16 +141,35 @@ def sync_jobcard_amounts_from_price(jobcard, *, save: bool = True) -> list[str]:
     """
     Keep total_amount / pending_amount aligned with the current quoted service price.
     Called when staff edits a booking before completion payment is recorded.
+    Also realigns stale service_items when they disagree with price.
     """
+    price_total = parse_jobcard_price(jobcard.price)
+    items_total = _service_items_total(jobcard)
+    update_fields: list[str] = []
+
+    # Keep line items in lockstep with staff-facing price (fixes AMC→One-Time leftovers).
+    if (
+        price_total > 0
+        and items_total > 0
+        and abs(price_total - items_total) > Decimal('0.01')
+    ):
+        items = jobcard.service_items if isinstance(jobcard.service_items, list) else []
+        if items:
+            distribute_amount_across_service_items(items, price_total)
+            jobcard.service_items = items
+            update_fields.append('service_items')
+
     total = effective_service_total(jobcard)
     if total <= 0:
-        return []
+        if update_fields and save:
+            update_fields.append('updated_at')
+            jobcard.save(update_fields=update_fields)
+        return update_fields
 
     paid = quantize_money(jobcard.paid_amount)
     pending = quantize_money(total - paid) if paid > 0 else total
     status = derive_payment_status(paid, pending, total)
 
-    update_fields = []
     if quantize_money(jobcard.total_amount or 0) != total:
         jobcard.total_amount = total
         update_fields.append('total_amount')

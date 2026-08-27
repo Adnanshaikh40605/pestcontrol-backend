@@ -502,6 +502,14 @@ def sync_plan_flags_from_service_items(job) -> list[str]:
         if job.included_in_amc:
             job.included_in_amc = False
             changed.append('included_in_amc')
+        # One-Time must not keep AMC visit counts — leftover planned=3 caused
+        # ledger Service ₹ = package÷3 after staff converted AMC → One-Time.
+        if (job.planned_visit_count or 0) != 1:
+            job.planned_visit_count = 1
+            changed.append('planned_visit_count')
+        if (job.max_cycle or 0) != 1:
+            job.max_cycle = 1
+            changed.append('max_cycle')
 
         # Cancel leftover AMC follow-ups (cycle > 1) that no longer apply.
         # Keep Bed Bugs service-2 children (cycle 2, not AMC).

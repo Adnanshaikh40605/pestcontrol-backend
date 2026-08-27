@@ -980,6 +980,65 @@ class TechnicianViewSet(BaseModelViewSet):
             'results': page_rows,
         })
 
+    @action(detail=True, methods=['post'], url_path='ledger/move-to-old-service')
+    def ledger_move_to_old_service(self, request, pk=None):
+        """Move one booking to Old Service Calls (legacy_exempt). Confirm on CRM first."""
+        from core.technician_ledger import LedgerActionError, move_job_to_old_service
+
+        technician = self.get_object()
+        try:
+            job = move_job_to_old_service(
+                technician=technician,
+                job_id=request.data.get('job_id'),
+            )
+        except LedgerActionError as exc:
+            http_status = (
+                status.HTTP_404_NOT_FOUND
+                if exc.code in ('not_found', 'not_on_ledger')
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return response.Response(
+                {'error': exc.message, 'code': exc.code},
+                status=http_status,
+            )
+        return response.Response({
+            'ok': True,
+            'job_id': job.id,
+            'booking_id': job.id,
+            'payout_status': job.payout_status,
+            'settlement_status': 'legacy',
+            'message': 'Booking moved to Old Service.',
+        })
+
+    @action(detail=True, methods=['post'], url_path='ledger/remove-booking')
+    def ledger_remove_booking(self, request, pk=None):
+        """Hide one booking from the technician ledger. Confirm on CRM first."""
+        from core.technician_ledger import LedgerActionError, remove_job_from_ledger
+
+        technician = self.get_object()
+        try:
+            job = remove_job_from_ledger(
+                technician=technician,
+                job_id=request.data.get('job_id'),
+            )
+        except LedgerActionError as exc:
+            http_status = (
+                status.HTTP_404_NOT_FOUND
+                if exc.code in ('not_found', 'not_on_ledger')
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return response.Response(
+                {'error': exc.message, 'code': exc.code},
+                status=http_status,
+            )
+        return response.Response({
+            'ok': True,
+            'job_id': job.id,
+            'booking_id': job.id,
+            'hidden_from_technician_ledger': True,
+            'message': 'Booking removed from the ledger.',
+        })
+
 
 @extend_schema_view(
     list=extend_schema(

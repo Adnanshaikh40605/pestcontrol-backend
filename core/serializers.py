@@ -797,6 +797,15 @@ class JobCardSerializer(serializers.ModelSerializer):
                 update_fields.append('booking_category')
             instance.save(update_fields=update_fields)
             instance.refresh_from_db()
+            # Recalculate tech share when AMC↔One-Time (or visit count) changes on a Done job.
+            if instance.status == JobCard.JobStatus.DONE:
+                try:
+                    from core.payout_engine import calculate_and_apply_payout
+
+                    calculate_and_apply_payout(instance, force=True)
+                    instance.refresh_from_db()
+                except Exception:
+                    pass
 
         completing = (
             new_status == JobCard.JobStatus.DONE

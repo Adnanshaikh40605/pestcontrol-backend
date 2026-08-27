@@ -68,6 +68,7 @@ def eligible_earnings_queryset(*, period_start: date, period_end: date):
             | Q(job__payout_status=JobCard.PayoutStatus.HELD, is_approved=True)
         )
         .exclude(job__payout_status=JobCard.PayoutStatus.LEGACY_EXEMPT)
+        .exclude(job__hidden_from_technician_ledger=True)
         .filter(settlement_line__isnull=True)
         .order_by('id')
     )
@@ -300,6 +301,7 @@ def settle_jobs_for_technician(
         JobCard.objects.select_related('technician', 'partner')
         .prefetch_related('technician_participations', 'partner_earnings', 'settlement_line_items__settlement')
         .filter(id__in=ids, status=JobCard.JobStatus.DONE)
+        .exclude(hidden_from_technician_ledger=True)
     )
     if not jobs:
         raise SettlementError('No completed bookings found for settlement', code='no_jobs')

@@ -1179,6 +1179,12 @@ class JobCard(BaseModel):
         db_index=True,
         verbose_name="Payout Status",
     )
+    hidden_from_technician_ledger = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name="Hidden From Technician Ledger",
+        help_text="When True, staff removed this booking from the technician ledger UI. Booking remains in CRM.",
+    )
 
     class Meta:
         ordering = ['-created_at']
