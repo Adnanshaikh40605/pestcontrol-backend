@@ -23,6 +23,10 @@ from core.revenue_constants import (
 )
 from partner.models import PartnerEarning
 
+# Technician ledger list pagination (CRM Payment Settlement table).
+LEDGER_DEFAULT_PAGE_SIZE = 40
+LEDGER_MAX_PAGE_SIZE = 100
+
 
 def _report_date(job: JobCard):
     """

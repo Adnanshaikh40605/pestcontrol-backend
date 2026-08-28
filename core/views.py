@@ -830,13 +830,16 @@ class TechnicianViewSet(BaseModelViewSet):
         Booking-wise technician ledger with payout, settlement and performance totals.
 
         GET filters: from, to, city, service_type, booking_type, status,
-        settlement_status (unsettled|settled|legacy|history|complaints), page, page_size.
+        settlement_status (unsettled|settled|legacy|history|complaints), page,
+        page_size (default 40, max 100).
 
         POST body: { "job_ids": [1,2,3], "notes": "" } — settle selected Unsettled rows.
         """
         from decimal import Decimal
 
         from core.technician_ledger import (
+            LEDGER_DEFAULT_PAGE_SIZE,
+            LEDGER_MAX_PAGE_SIZE,
             apply_ledger_filters,
             earning_periods,
             exclude_package_shells,
@@ -910,7 +913,10 @@ class TechnicianViewSet(BaseModelViewSet):
 
         try:
             page_number = max(int(request.query_params.get('page') or 1), 1)
-            page_size = min(max(int(request.query_params.get('page_size') or 20), 1), 100)
+            page_size = min(
+                max(int(request.query_params.get('page_size') or LEDGER_DEFAULT_PAGE_SIZE), 1),
+                LEDGER_MAX_PAGE_SIZE,
+            )
         except (TypeError, ValueError):
             return response.Response(
                 {'error': 'page and page_size must be integers'},

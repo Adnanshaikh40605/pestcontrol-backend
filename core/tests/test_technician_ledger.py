@@ -298,6 +298,18 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(res.data['page_size'], 1)
         self.assertEqual(res.data['summary']['completed_jobs'], 1)
 
+    def test_ledger_default_page_size_is_40(self):
+        from core.technician_ledger import LEDGER_DEFAULT_PAGE_SIZE
+
+        for _ in range(LEDGER_DEFAULT_PAGE_SIZE + 3):
+            self._job(status='Done', amount='1000')
+        res = self._ledger()
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['page_size'], LEDGER_DEFAULT_PAGE_SIZE)
+        self.assertEqual(len(res.data['results']), LEDGER_DEFAULT_PAGE_SIZE)
+        self.assertEqual(res.data['count'], LEDGER_DEFAULT_PAGE_SIZE + 3)
+        self.assertEqual(res.data['total_pages'], 2)
+
     def test_date_range_filter_excludes_outside_window(self):
         """Scenario: from/to window keeps only bookings inside the range."""
         inside = self._job(amount='1000', when=timezone.now() - timezone.timedelta(days=2))
