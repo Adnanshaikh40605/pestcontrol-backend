@@ -12,6 +12,7 @@ class PartnerProfile {
     this.isAppApproved = false,
     this.presence,
     this.stats,
+    this.serviceCities = const [],
   });
 
   final int id;
@@ -23,6 +24,7 @@ class PartnerProfile {
   final bool isAppApproved;
   final PartnerPresence? presence;
   final PartnerStats? stats;
+  final List<String> serviceCities;
 
   bool get isSuspended => presence?.isSuspended == true;
 
@@ -31,6 +33,24 @@ class PartnerProfile {
     final rawPresence = json['presence'];
     if (rawPresence is Map<String, dynamic>) {
       presence = PartnerPresence.fromJson(rawPresence);
+    }
+    final names = <String>[];
+    final rawNames = json['service_city_names'];
+    if (rawNames is List) {
+      for (final n in rawNames) {
+        if (n != null && '$n'.trim().isNotEmpty) names.add('$n'.trim());
+      }
+    }
+    if (names.isEmpty) {
+      final rawCities = json['service_cities'];
+      if (rawCities is List) {
+        for (final c in rawCities) {
+          if (c is Map && c['name'] != null) {
+            final name = '${c['name']}'.trim();
+            if (name.isNotEmpty) names.add(name);
+          }
+        }
+      }
     }
     return PartnerProfile(
       id: json['id'] as int,
@@ -41,6 +61,7 @@ class PartnerProfile {
       isActive: json['is_active'] as bool? ?? true,
       isAppApproved: json['is_app_approved'] == true,
       presence: presence,
+      serviceCities: names,
     );
   }
 
@@ -63,6 +84,7 @@ class PartnerProfile {
         isAppApproved: data['is_app_approved'] == true || profile.isAppApproved,
         presence: profile.presence,
         stats: PartnerStats.fromJson(statsRaw),
+        serviceCities: profile.serviceCities,
       );
     }
     return profile;

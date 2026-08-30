@@ -68,6 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     role: p?.role ?? 'technician',
                     avatarUrl: profile.avatarUrl,
                     isActive: p?.isActive ?? true,
+                    serviceCities: p?.serviceCities ?? const [],
                   ),
                   if (p?.isSuspended == true) ...[
                     const SizedBox(height: AppSpacing.elementGap),
@@ -151,6 +152,7 @@ class _ProfileHeader extends StatelessWidget {
     required this.role,
     this.avatarUrl,
     required this.isActive,
+    this.serviceCities = const [],
   });
 
   final String fullName;
@@ -158,6 +160,7 @@ class _ProfileHeader extends StatelessWidget {
   final String role;
   final String? avatarUrl;
   final bool isActive;
+  final List<String> serviceCities;
 
   @override
   Widget build(BuildContext context) {
@@ -231,6 +234,39 @@ class _ProfileHeader extends StatelessWidget {
               style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppColors.onPrimary),
             ),
           ),
+          if (serviceCities.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Service Areas',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: serviceCities
+                  .map(
+                    (city) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppColors.successBg,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Text(
+                        city,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              color: AppColors.successText,
+                            ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
         ],
       ),
     );

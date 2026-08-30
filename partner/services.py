@@ -447,3 +447,97 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
     except Exception as exc:
         logger.exception('CRM notify complete failed #%s: %s', job.id, exc)
     return job
+
+
+def _normalize_area_token(value: str) -> str:
+    return ' '.join((value or '').strip().lower().split())
+
+
+def partner_service_city_tokens(partner: Partner) -> set[str]:
+    """City / service-area tokens from the linked CRM technician (legacy text fallback)."""
+    tech = getattr(partner, 'core_technician', None)
+    tokens: set[str] = set()
+    if not tech:
+        return tokens
+    # Prefer structured service_cities M2M
+    for name in tech.service_cities.values_list('name', flat=True):
+        token = _normalize_area_token(name)
+        if token:
+            tokens.add(token)
+    if tokens:
+        return tokens
+    for raw in (tech.city or '', tech.service_area or ''):
+        for part in str(raw).replace('/', ',').replace('|', ',').split(','):
+            token = _normalize_area_token(part)
+            if token:
+                tokens.add(token)
+    return tokens
+
+
+def job_matches_partner_service_area(job: JobCard, partner: Partner) -> bool:
+    """
+    True when the booking city matches the technician service cities.
+    Prefer City ID match via M2M; fall back to legacy name tokens.
+    If the technician has no city/area configured, allow all (legacy behaviour).
+    """
+    tech = getattr(partner, 'core_technician', None)
+    if tech is not None:
+        city_ids = set(tech.service_cities.values_list('id', flat=True))
+        if city_ids:
+            job_city_id = getattr(job, 'master_city_id', None)
+            if job_city_id and job_city_id in city_ids:
+                return True
+            # Resolve legacy job.city text → master city id when master_city missing
+            if not job_city_id and job.city:
+                from core.city_utils import resolve_master_city
+                resolved = resolve_master_city(job.city)
+                if resolved and resolved.id in city_ids:
+                    return True
+            if job_city_id or job.city:
+                return False
+            return True  # unscoped job
+
+    allowed = partner_service_city_tokens(partner)
+    if not allowed:
+        return True
+
+    job_tokens: set[str] = set()
+    if job.master_city_id and getattr(job, 'master_city', None):
+        job_tokens.add(_normalize_area_token(job.master_city.name))
+    if job.city:
+        job_tokens.add(_normalize_area_token(job.city))
+    if not job_tokens:
+        return True  # unscoped jobs remain visible
+
+    for jt in job_tokens:
+        for at in allowed:
+            if jt == at or jt in at or at in jt:
+                return True
+    return False
+
+
+def filter_jobs_today_tomorrow(jobs):
+    """Keep only bookings scheduled for today or tomorrow (local date)."""
+    today = timezone.localdate()
+    tomorrow = today + timezone.timedelta(days=1)
+    kept = []
+    for job in jobs:
+        stamp = job.schedule_datetime
+        if not stamp:
+            continue
+        day = timezone.localtime(stamp).date()
+        if day in (today, tomorrow):
+            kept.append(job)
+    return kept
+
+
+def apply_partner_pool_filters(jobs, partner: Partner, *, today_tomorrow_only: bool = True):
+    """
+    City/area filter for partner booking lists.
+    Available pool also limits to Today/Tomorrow; accepted work keeps all dates
+    so in-progress jobs never disappear from the Accepted tab.
+    """
+    scoped = [j for j in jobs if job_matches_partner_service_area(j, partner)]
+    if today_tomorrow_only:
+        return filter_jobs_today_tomorrow(scoped)
+    return scoped

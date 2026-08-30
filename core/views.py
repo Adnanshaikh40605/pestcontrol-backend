@@ -440,16 +440,88 @@ class TechnicianViewSet(BaseModelViewSet):
     ordering_fields = ['name', 'created_at']
 
     def get_queryset(self):
-        return Technician.objects.select_related('partner_account').annotate(
+        return Technician.objects.select_related('partner_account').prefetch_related(
+            'service_cities__state'
+        ).annotate(
             active_jobs=Count('jobcards', filter=Q(jobcards__status__iexact='On Process'))
         )
 
     @action(detail=False, methods=['get'])
     def active(self, request):
-        """Helper action to get only active technicians for assignment dropdowns."""
-        active_techs = self.get_queryset().filter(is_active=True).order_by('name')
-        serializer = self.get_serializer(active_techs, many=True)
-        return response.Response(serializer.data)
+        """Active technicians for assignment dropdowns.
+
+        Optional query params (server-side city filter):
+        - job_id: only techs whose service areas include the booking city
+        - city_id / master_city: same using a City id
+        Technicians with no service cities linked remain eligible (legacy unscoped).
+        """
+        from core.models import JobCard
+        from core.technician_service_areas import (
+            eligible_technicians_queryset,
+            job_service_city,
+        )
+
+        job = None
+        city_id = request.query_params.get('city_id') or request.query_params.get('master_city')
+        job_id = request.query_params.get('job_id')
+        if job_id:
+            job = JobCard.objects.select_related('master_city').filter(pk=job_id).first()
+
+        qs = eligible_technicians_queryset(
+            city_id=int(city_id) if city_id and str(city_id).isdigit() else None,
+            job=job,
+            active_only=True,
+        )
+        serializer = self.get_serializer(qs, many=True)
+        data = serializer.data
+
+        city = None
+        if job is not None:
+            city = job_service_city(job)
+        elif city_id and str(city_id).isdigit():
+            from core.models import City
+            city = City.objects.filter(id=int(city_id)).first()
+
+        # When filtering by a known city and nobody matches, return empty list
+        # (frontend shows "No available technicians found for this service area.")
+        if city is not None and not data:
+            return response.Response([])
+        return response.Response(data)
+
+    @action(detail=True, methods=['get', 'put', 'patch'], url_path='service-areas')
+    def service_areas(self, request, pk=None):
+        """Get or replace service cities for one technician."""
+        from core.technician_service_areas import (
+            serialize_service_cities,
+            set_technician_service_cities,
+        )
+
+        technician = self.get_object()
+        if request.method == 'GET':
+            return response.Response({
+                'technician_id': technician.id,
+                'service_cities': serialize_service_cities(technician),
+            })
+
+        raw = request.data.get('service_city_ids', request.data.get('city_ids'))
+        if raw is None:
+            return response.Response(
+                {'error': 'service_city_ids is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not isinstance(raw, list):
+            return response.Response(
+                {'error': 'service_city_ids must be a list of city ids'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        set_technician_service_cities(technician, raw)
+        technician.refresh_from_db()
+        return response.Response({
+            'technician_id': technician.id,
+            'service_cities': serialize_service_cities(technician),
+            'city': technician.city,
+            'service_area': technician.service_area,
+        })
 
     @action(detail=True, methods=['post'], url_path='approve-partner-app')
     def approve_partner_app(self, request, pk=None):
@@ -2411,7 +2483,11 @@ class JobCardViewSet(BaseModelViewSet):
 
     @action(detail=True, methods=['post'])
     def assign(self, request, pk=None):
-        """Assign technician in CRM only (On Process) — does not use partner app flow."""
+        """Assign technician in CRM only (On Process) — does not use partner app flow.
+
+        No active-job capacity limit: desk staff may assign unlimited On Process
+        jobs to the same technician.
+        """
         try:
             instance = self.get_object()
             technician_id = request.data.get('technician_id')
@@ -2424,11 +2500,36 @@ class JobCardViewSet(BaseModelViewSet):
             
             from .models import Technician
             try:
-                technician = Technician.objects.get(id=technician_id)
+                technician = Technician.objects.prefetch_related('service_cities').get(id=technician_id)
             except Technician.DoesNotExist:
                 return response.Response(
                     {'error': 'Technician not found'},
                     status=status.HTTP_404_NOT_FOUND
+                )
+
+            if not technician.is_active:
+                return response.Response(
+                    {
+                        'error': 'Technician is inactive and cannot be assigned.',
+                        'code': 'technician_inactive',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            from core.technician_service_areas import job_service_city, technician_serves_city
+            booking_city = job_service_city(instance)
+            if booking_city and not technician_serves_city(technician, booking_city):
+                return response.Response(
+                    {
+                        'error': (
+                            f'{technician.name} does not serve '
+                            f'{booking_city.name}. Update their Service Areas first.'
+                        ),
+                        'code': 'technician_outside_service_area',
+                        'service_city_id': booking_city.id,
+                        'service_city_name': booking_city.name,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
             # Block desk-assign once a partner has already claimed / started the job.

@@ -22,6 +22,13 @@ class PartnerSerializer(serializers.ModelSerializer):
             data['profile_image'] = request.build_absolute_uri(image)
         from partner.presence import presence_payload
         data['presence'] = presence_payload(instance)
+        tech = getattr(instance, 'core_technician', None)
+        service_cities = []
+        if tech is not None:
+            from core.technician_service_areas import serialize_service_cities
+            service_cities = serialize_service_cities(tech)
+        data['service_cities'] = service_cities
+        data['service_city_names'] = [c['name'] for c in service_cities]
         return data
 
 
@@ -149,13 +156,17 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
     can_view_client_phone = serializers.SerializerMethodField()
     can_start_job = serializers.SerializerMethodField()
     can_complete_job = serializers.SerializerMethodField()
+    plan_label = serializers.SerializerMethodField()
+    total_booking_amount = serializers.SerializerMethodField()
+    city_name = serializers.SerializerMethodField()
 
     class Meta:
         model = JobCard
         fields = [
             'id', 'code', 'service_type', 'service_category', 'booking_type',
+            'plan_label', 'total_booking_amount',
             'client_name', 'client_mobile', 'can_view_client_phone',
-            'client_address', 'location_display',
+            'client_address', 'location_display', 'city_name',
             'schedule_datetime', 'time_slot',
             'priority', 'priority_label', 'booking_tag',
             'status', 'partner_status',
@@ -211,6 +222,31 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
             return "HIGH PRIORITY"
         return "STANDARD"
 
+    def get_plan_label(self, obj):
+        """One-Time vs AMC for partner booking cards."""
+        if obj.service_category == JobCard.ServiceCategory.AMC:
+            return 'AMC'
+        bt = (obj.booking_type or '').lower()
+        if 'amc' in bt:
+            return 'AMC'
+        if obj.is_followup_visit or obj.included_in_amc:
+            return 'AMC'
+        return 'One-Time'
+
+    def get_total_booking_amount(self, obj):
+        from core.payment_utils import effective_service_total, parse_jobcard_price
+
+        total = effective_service_total(obj)
+        if total > 0:
+            return str(total)
+        price = parse_jobcard_price(obj.price)
+        return str(price) if price > 0 else (obj.price or '0')
+
+    def get_city_name(self, obj):
+        if obj.master_city_id and getattr(obj, 'master_city', None):
+            return obj.master_city.name
+        return obj.city or ''
+
 
 class PartnerBookingDetailSerializer(serializers.ModelSerializer):
     """Detailed booking serializer for the detail screen."""
@@ -225,6 +261,8 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
     job_start_selfie_url = serializers.SerializerMethodField()
     can_start_job = serializers.SerializerMethodField()
     can_complete_job = serializers.SerializerMethodField()
+    plan_label = serializers.SerializerMethodField()
+    total_booking_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = JobCard
@@ -237,6 +275,7 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
             'property_type', 'bhk_size', 'commercial_type',
             # Service
             'service_type', 'service_category', 'booking_type', 'booking_tag',
+            'plan_label', 'total_booking_amount',
             'is_complaint_call', 'complaint_type', 'complaint_note',
             # Schedule
             'schedule_datetime', 'time_slot',
@@ -316,6 +355,25 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
         if obj.is_complaint_call:
             return "Free (Complaint)"
         return f"₹{obj.price}" if obj.price else "TBD"
+
+    def get_plan_label(self, obj):
+        if obj.service_category == JobCard.ServiceCategory.AMC:
+            return 'AMC'
+        bt = (obj.booking_type or '').lower()
+        if 'amc' in bt:
+            return 'AMC'
+        if obj.is_followup_visit or obj.included_in_amc:
+            return 'AMC'
+        return 'One-Time'
+
+    def get_total_booking_amount(self, obj):
+        from core.payment_utils import effective_service_total, parse_jobcard_price
+
+        total = effective_service_total(obj)
+        if total > 0:
+            return str(total)
+        price = parse_jobcard_price(obj.price)
+        return str(price) if price > 0 else (obj.price or '0')
 
 
 class PartnerCompleteBookingSerializer(serializers.Serializer):

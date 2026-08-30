@@ -261,16 +261,23 @@ class Technician(BaseModel):
         blank=True,
         null=True,
         db_index=True,
-        verbose_name="Service Area",
-        help_text="Primary area where the technician operates"
+        verbose_name="Service Area (Legacy)",
+        help_text="Legacy free-text area; prefer service_cities M2M",
     )
     city = models.CharField(
         max_length=100,
         blank=True,
         null=True,
         db_index=True,
-        verbose_name="City",
-        help_text="City where the technician is based"
+        verbose_name="City (Legacy)",
+        help_text="Legacy free-text city; prefer service_cities M2M",
+    )
+    service_cities = models.ManyToManyField(
+        'City',
+        blank=True,
+        related_name='technicians',
+        verbose_name='Service Areas / Cities',
+        help_text='Cities this technician can be assigned to',
     )
     last_active = models.DateTimeField(
         blank=True,

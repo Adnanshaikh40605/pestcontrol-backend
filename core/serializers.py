@@ -120,19 +120,30 @@ class TechnicianSerializer(serializers.ModelSerializer):
     partner_app_approved = serializers.SerializerMethodField()
     partner_id = serializers.SerializerMethodField()
     partner_name = serializers.SerializerMethodField()
+    service_cities = serializers.SerializerMethodField()
+    service_city_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        write_only=True,
+        help_text='Master City IDs this technician serves (replaces prior set on write).',
+    )
 
     class Meta:
         model = Technician
         fields = [
             'id', 'name', 'mobile', 'phone', 'age', 'alternative_mobile',
-            'is_active', 'service_area', 'city', 'last_active', 'active_jobs', 'active_job_details',
+            'is_active', 'service_area', 'city', 'service_cities', 'service_city_ids',
+            'last_active', 'active_jobs', 'active_job_details',
             'has_partner_app', 'partner_app_approved', 'partner_id', 'partner_name',
             'technician_type', 'branch', 'aadhaar', 'pan', 'photo', 'agreement_file',
             'security_deposit_amount', 'security_deposit_status', 'skills', 'star_rating',
             'presence_status', 'suspended_at', 'suspend_reason', 'reactivated_at',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'suspended_at', 'reactivated_at']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'suspended_at', 'reactivated_at',
+            'service_cities',
+        ]
 
     def get_has_partner_app(self, obj):
         # Linked partner account exists (even if awaiting CRM approval).
@@ -149,6 +160,10 @@ class TechnicianSerializer(serializers.ModelSerializer):
     def get_partner_name(self, obj):
         partner = getattr(obj, 'partner_account', None)
         return partner.full_name if partner else None
+
+    def get_service_cities(self, obj):
+        from core.technician_service_areas import serialize_service_cities
+        return serialize_service_cities(obj)
 
     def get_active_job_details(self, obj):
         # Return a list of basic info for current active jobs using values for efficiency
@@ -188,6 +203,47 @@ class TechnicianSerializer(serializers.ModelSerializer):
 
     def validate_name(self, value):
         return (value or '').strip()
+
+    def validate_service_city_ids(self, value):
+        if value is None:
+            return []
+        from core.models import City
+        ids = []
+        seen = set()
+        for raw in value:
+            try:
+                cid = int(raw)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError('service_city_ids must be integers.')
+            if cid in seen:
+                continue
+            seen.add(cid)
+            ids.append(cid)
+        if not ids:
+            return []
+        found = set(City.objects.filter(id__in=ids, is_active=True).values_list('id', flat=True))
+        missing = [i for i in ids if i not in found]
+        if missing:
+            raise serializers.ValidationError(
+                f'Unknown or inactive service area city ids: {missing}'
+            )
+        return ids
+
+    def create(self, validated_data):
+        city_ids = validated_data.pop('service_city_ids', None)
+        tech = super().create(validated_data)
+        if city_ids is not None:
+            from core.technician_service_areas import set_technician_service_cities
+            set_technician_service_cities(tech, city_ids)
+        return tech
+
+    def update(self, instance, validated_data):
+        city_ids = validated_data.pop('service_city_ids', None)
+        tech = super().update(instance, validated_data)
+        if city_ids is not None:
+            from core.technician_service_areas import set_technician_service_cities
+            set_technician_service_cities(tech, city_ids)
+        return tech
 
 
 def _resolve_latest_remark(obj, attr_name: str = '_latest_remarks'):
