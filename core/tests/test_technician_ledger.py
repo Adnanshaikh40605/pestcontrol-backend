@@ -298,17 +298,19 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(res.data['page_size'], 1)
         self.assertEqual(res.data['summary']['completed_jobs'], 1)
 
-    def test_ledger_default_page_size_is_40(self):
-        from core.technician_ledger import LEDGER_DEFAULT_PAGE_SIZE
+    def test_ledger_default_page_size(self):
+        from core.technician_ledger import LEDGER_DEFAULT_PAGE_SIZE, LEDGER_MAX_PAGE_SIZE
 
-        for _ in range(LEDGER_DEFAULT_PAGE_SIZE + 3):
+        self.assertEqual(LEDGER_DEFAULT_PAGE_SIZE, 150)
+        self.assertEqual(LEDGER_MAX_PAGE_SIZE, 150)
+        # Cap is 150 — requesting more still returns at most max.
+        for _ in range(5):
             self._job(status='Done', amount='1000')
-        res = self._ledger()
+        res = self._ledger({'page_size': 999})
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data['page_size'], LEDGER_DEFAULT_PAGE_SIZE)
-        self.assertEqual(len(res.data['results']), LEDGER_DEFAULT_PAGE_SIZE)
-        self.assertEqual(res.data['count'], LEDGER_DEFAULT_PAGE_SIZE + 3)
-        self.assertEqual(res.data['total_pages'], 2)
+        self.assertEqual(res.data['page_size'], LEDGER_MAX_PAGE_SIZE)
+        self.assertEqual(len(res.data['results']), 5)
+        self.assertEqual(res.data['count'], 5)
 
     def test_date_range_filter_excludes_outside_window(self):
         """Scenario: from/to window keeps only bookings inside the range."""

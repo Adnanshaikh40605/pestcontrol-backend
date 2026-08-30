@@ -831,7 +831,7 @@ class TechnicianViewSet(BaseModelViewSet):
 
         GET filters: from, to, city, service_type, booking_type, status,
         settlement_status (unsettled|settled|legacy|history|complaints), page,
-        page_size (default 40, max 100).
+        page_size (default 150, max 150).
 
         POST body: { "job_ids": [1,2,3], "notes": "" } — settle selected Unsettled rows.
         """
