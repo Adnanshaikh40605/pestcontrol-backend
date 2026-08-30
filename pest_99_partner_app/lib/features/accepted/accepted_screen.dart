@@ -50,6 +50,7 @@ class _AcceptedScreenState extends State<AcceptedScreen> {
     final bookings = context.watch<BookingsProvider>();
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF3F4F6),
       appBar: const ProfileAwareTopBar(),
       body: RefreshIndicator(
         onRefresh: () => bookings.refreshListsLight(force: true),
@@ -78,19 +79,51 @@ class _AcceptedScreenState extends State<AcceptedScreen> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(
                       AppSpacing.screenEdge,
-                      16,
+                      AppSpacing.sectionGap,
                       AppSpacing.screenEdge,
                       100,
                     ),
                     children: [
                       Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Text(
-                            'Accepted Jobs',
-                            style: Theme.of(context).textTheme.headlineSmall,
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Accepted Jobs',
+                                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        color: const Color(0xFF111827),
+                                      ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Jobs you’ve accepted and are working on',
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                        color: const Color(0xFF6B7280),
+                                      ),
+                                ),
+                              ],
+                            ),
                           ),
-                          Text('${bookings.accepted.length} active'),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF3F4F6),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: const Color(0xFFE5E7EB)),
+                            ),
+                            child: Text(
+                              '${bookings.accepted.length} active',
+                              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                    color: const Color(0xFF374151),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: AppSpacing.sectionGap),
@@ -106,7 +139,7 @@ class _AcceptedScreenState extends State<AcceptedScreen> {
                           final label = bookings.processingLabel(raw.id);
 
                           return Padding(
-                            padding: const EdgeInsets.only(bottom: 24),
+                            padding: const EdgeInsets.only(bottom: AppSpacing.elementGap),
                             child: AcceptedBookingCard(
                               booking: ui,
                               onViewDetails: processing

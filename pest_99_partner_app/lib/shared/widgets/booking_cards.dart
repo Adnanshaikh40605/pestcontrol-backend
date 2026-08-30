@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../core/models/booking.dart';
 import '../../core/models/booking_type.dart';
@@ -7,8 +6,6 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/money_format.dart';
 import 'booking_type_tag.dart';
-import 'loading_action_button.dart';
-import 'primary_button.dart';
 
 String formatMoneyLabel(String? raw) => MoneyFormat.rupees(raw);
 
@@ -268,167 +265,241 @@ class AcceptedBookingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final inService = booking.acceptedState == AcceptedJobState.inService;
-    final borderColor = booking.isToday
-        ? const Color(0xFF16A34A)
-        : booking.isTomorrow
-            ? const Color(0xFF2563EB)
-            : AppColors.border;
-    final tint = booking.isToday
-        ? const Color(0xFFF0FDF4)
-        : booking.isTomorrow
-            ? const Color(0xFFEFF6FF)
-            : AppColors.surface;
+    final primaryLabel = inService ? 'End Service' : 'Start Job';
+    final primaryIcon = inService ? Icons.check : Icons.play_arrow_rounded;
+    final loadingLabel = primaryLoadingLabel ??
+        (inService ? 'Ending…' : 'Starting…');
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       decoration: BoxDecoration(
-        color: tint,
-        borderRadius: BorderRadius.circular(AppSpacing.baseRadius),
-        border: Border.all(color: borderColor, width: booking.isToday || booking.isTomorrow ? 1.5 : 1),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.border),
         boxShadow: const [
-          BoxShadow(color: Color(0x0A000000), blurRadius: 30, offset: Offset(0, 8)),
+          BoxShadow(
+            color: Color(0x0D000000),
+            blurRadius: 14,
+            offset: Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (booking.priority == BookingPriority.high)
-                          StatusChip(
-                            label: 'High Priority',
-                            backgroundColor: AppColors.errorContainer,
-                            foregroundColor: AppColors.onErrorContainer,
-                          ),
-                        BookingTypeTag(type: booking.bookingType, labelOverride: booking.displayPlanLabel),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.primary.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            formatMoneyLabel(booking.displayAmount),
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                  color: AppColors.primary,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                          ),
-                        ),
-                        if (booking.isToday || booking.isTomorrow)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: borderColor.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              booking.isToday ? 'TODAY' : 'TOMORROW',
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: borderColor,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 10,
-                                  ),
-                            ),
-                          ),
-                        Text(
-                          '#${booking.id}',
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      booking.customerName ?? '',
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    if (inService) ...[
-                      Row(
-                        children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              color: AppColors.successText,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              booking.startedAtLabel ?? 'Service in progress',
-                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: AppColors.successText,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ),
-                        ],
+                child: Text(
+                  '#${booking.id}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
                       ),
-                      if (booking.runningForLabel != null)
-                        Text(
-                          booking.runningForLabel!,
-                          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
-                        ),
-                    ] else if (booking.timeRemaining != null)
-                      StatusChip(
-                        label: booking.timeRemaining!,
-                        backgroundColor: AppColors.successBg,
-                        foregroundColor: AppColors.successText,
-                        icon: Icons.schedule,
-                      ),
-                  ],
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    booking.scheduleLabel ?? '',
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppColors.primary),
+              const SizedBox(width: 8),
+              _AcceptedStatusPill(inService: inService, booking: booking),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            (booking.customerName ?? '').trim().isEmpty
+                ? (booking.pestType.isEmpty ? 'Job' : booking.pestType)
+                : booking.customerName!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                  height: 1.2,
+                  fontSize: 20,
+                ),
+          ),
+          if (booking.pestType.trim().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              booking.pestType,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
                   ),
-                  Text(
-                    booking.scheduleSubLabel ?? '',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: inService ? AppColors.infoBlue : AppColors.textSecondary,
-                          fontWeight: inService ? FontWeight.w500 : FontWeight.w400,
-                        ),
-                  ),
-                ],
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Icon(Icons.location_on, size: 18, color: AppColors.primary),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  booking.area,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
-          _InfoRow(icon: Icons.location_on_outlined, text: booking.address ?? booking.area),
+          if (inService) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.successBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: AppColors.successText,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      [
+                        if ((booking.startedAtLabel ?? '').trim().isNotEmpty)
+                          booking.startedAtLabel!.trim(),
+                        if ((booking.runningForLabel ?? '').trim().isNotEmpty)
+                          booking.runningForLabel!.trim(),
+                      ].where((s) => s.isNotEmpty).join(' · '),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: AppColors.successText,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 14),
+            child: Divider(height: 1, thickness: 1, color: AppColors.border),
+          ),
+          Row(
+            children: [
+              const Icon(Icons.calendar_today_outlined, size: 16, color: AppColors.textSecondary),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  booking.scheduleLabel ?? booking.dateLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  '|',
+                  style: TextStyle(
+                    color: AppColors.border.withValues(alpha: 0.95),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Icon(Icons.access_time, size: 16, color: AppColors.textSecondary),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  booking.scheduleSubLabel ?? booking.timeLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              if ((booking.displayAmount).trim().isNotEmpty &&
+                  booking.displayAmount.trim() != '—') ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    formatMoneyLabel(booking.displayAmount),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.right,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+              ],
+            ],
+          ),
           if (!inService) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
-                  child: _SecondaryActionButton(
-                    icon: Icons.call,
-                    label: 'Call',
-                    onTap: onCall,
+                  child: SizedBox(
+                    height: 44,
+                    child: OutlinedButton.icon(
+                      onPressed: onCall,
+                      icon: const Icon(Icons.call_outlined, size: 18),
+                      label: const Text(
+                        'Call',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textPrimary,
+                        side: const BorderSide(color: AppColors.border),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: _SecondaryActionButton(
-                    icon: Icons.directions,
-                    label: 'Maps',
-                    onTap: onMaps,
+                  child: SizedBox(
+                    height: 44,
+                    child: OutlinedButton.icon(
+                      onPressed: onMaps,
+                      icon: const Icon(Icons.directions_outlined, size: 18),
+                      label: const Text(
+                        'Maps',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textPrimary,
+                        side: const BorderSide(color: AppColors.border),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -438,25 +509,127 @@ class AcceptedBookingCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: GreenOutlineButton(
-                  label: 'View Details',
-                  onPressed: onViewDetails ?? () => context.push('/booking/${Uri.encodeComponent(booking.id)}'),
+                child: SizedBox(
+                  height: 48,
+                  child: OutlinedButton(
+                    onPressed: isPrimaryLoading ? null : onViewDetails,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppColors.textPrimary,
+                      side: const BorderSide(color: AppColors.border, width: 1.2),
+                      backgroundColor: AppColors.surface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    child: const Text(
+                      'View Details',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
-                child: LoadingActionButton(
-                  label: inService ? 'End Service' : 'Start Job',
-                  loadingLabel: primaryLoadingLabel ??
-                      (inService ? 'Ending service…' : 'Starting job…'),
-                  icon: inService ? Icons.check_circle_outline : Icons.play_arrow,
-                  isLoading: isPrimaryLoading,
-                  onPressed: onPrimaryAction,
+                child: SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: isPrimaryLoading ? null : onPrimaryAction,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: AppColors.onPrimary,
+                      disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.45),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (isPrimaryLoading)
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        else
+                          Icon(primaryIcon, size: 18, color: Colors.white),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            isPrimaryLoading ? loadingLabel : primaryLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AcceptedStatusPill extends StatelessWidget {
+  const _AcceptedStatusPill({required this.inService, required this.booking});
+
+  final bool inService;
+  final Booking booking;
+
+  @override
+  Widget build(BuildContext context) {
+    late final String label;
+    late final Color bg;
+    late final Color fg;
+
+    if (inService) {
+      label = 'In Service';
+      bg = AppColors.successBg;
+      fg = AppColors.successText;
+    } else if (booking.isToday) {
+      label = 'Today';
+      bg = const Color(0xFFF0FDF4);
+      fg = const Color(0xFF16A34A);
+    } else if (booking.isTomorrow) {
+      label = 'Tomorrow';
+      bg = const Color(0xFFEFF6FF);
+      fg = const Color(0xFF2563EB);
+    } else {
+      label = booking.displayPlanLabel;
+      bg = const Color(0xFFF3F4F6);
+      fg = const Color(0xFF374151);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: fg,
+          fontWeight: FontWeight.w800,
+          fontSize: 11,
+        ),
       ),
     );
   }
@@ -661,66 +834,6 @@ class _MoneyLine extends StatelessWidget {
         Expanded(child: Text(label, style: labelStyle)),
         Text(value, style: valueStyle),
       ],
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 20, color: AppColors.textSecondary),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            text,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.onSurfaceVariant),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SecondaryActionButton extends StatelessWidget {
-  const _SecondaryActionButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onTap != null;
-    return Material(
-      color: AppColors.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 18, color: AppColors.primary),
-              const SizedBox(width: 8),
-              Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppColors.primary)),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
