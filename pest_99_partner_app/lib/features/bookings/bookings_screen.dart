@@ -42,6 +42,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     final bookings = context.watch<BookingsProvider>();
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF3F4F6),
       appBar: const ProfileAwareTopBar(),
       body: RefreshIndicator(
         onRefresh: () => bookings.refreshListsLight(force: true),
@@ -127,13 +128,47 @@ class _BookingsScreenState extends State<BookingsScreen> {
           const SizedBox(height: AppSpacing.elementGap),
         ],
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Text('New Bookings', style: Theme.of(context).textTheme.headlineSmall),
-            Text('${list.length} requests'),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'New Bookings',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF111827),
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Accept new jobs to grow your business',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF6B7280),
+                        ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3F4F6),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${list.length} ${list.length == 1 ? 'request' : 'requests'}',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: const Color(0xFF374151),
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
           ],
         ),
-        const SizedBox(height: AppSpacing.elementGap),
+        const SizedBox(height: AppSpacing.sectionGap),
         if (list.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 48),

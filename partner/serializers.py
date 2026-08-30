@@ -159,6 +159,7 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
     plan_label = serializers.SerializerMethodField()
     total_booking_amount = serializers.SerializerMethodField()
     city_name = serializers.SerializerMethodField()
+    locality_name = serializers.SerializerMethodField()
 
     class Meta:
         model = JobCard
@@ -166,7 +167,7 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
             'id', 'code', 'service_type', 'service_category', 'booking_type',
             'plan_label', 'total_booking_amount',
             'client_name', 'client_mobile', 'can_view_client_phone',
-            'client_address', 'location_display', 'city_name',
+            'client_address', 'location_display', 'city_name', 'locality_name',
             'schedule_datetime', 'time_slot',
             'priority', 'priority_label', 'booking_tag',
             'status', 'partner_status',
@@ -246,6 +247,12 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
         if obj.master_city_id and getattr(obj, 'master_city', None):
             return obj.master_city.name
         return obj.city or ''
+
+    def get_locality_name(self, obj):
+        """Locality / area only (no flat, street, or full address) for New Bookings cards."""
+        if obj.master_location_id and getattr(obj, 'master_location', None):
+            return (obj.master_location.name or '').strip()
+        return ''
 
 
 class PartnerBookingDetailSerializer(serializers.ModelSerializer):

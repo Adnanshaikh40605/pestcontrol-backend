@@ -5,10 +5,14 @@ class PartnerBooking {
     required this.serviceType,
     this.serviceCategory,
     this.bookingType,
+    this.planLabel,
+    this.totalBookingAmount,
     this.clientName,
     this.clientMobile,
     this.clientAddress,
     this.locationDisplay,
+    this.cityName,
+    this.localityName,
     this.scheduleDatetime,
     this.timeSlot,
     this.status,
@@ -38,10 +42,14 @@ class PartnerBooking {
   final String serviceType;
   final String? serviceCategory;
   final String? bookingType;
+  final String? planLabel;
+  final String? totalBookingAmount;
   final String? clientName;
   final String? clientMobile;
   final String? clientAddress;
   final String? locationDisplay;
+  final String? cityName;
+  final String? localityName;
   final String? scheduleDatetime;
   final String? timeSlot;
   final String? status;
@@ -117,10 +125,14 @@ class PartnerBooking {
       serviceType: '${json['service_type'] ?? ''}',
       serviceCategory: json['service_category']?.toString(),
       bookingType: json['booking_type']?.toString(),
+      planLabel: json['plan_label']?.toString(),
+      totalBookingAmount: json['total_booking_amount']?.toString(),
       clientName: json['client_name']?.toString(),
       clientMobile: json['client_mobile']?.toString(),
       clientAddress: json['client_address']?.toString(),
       locationDisplay: json['location_display']?.toString(),
+      cityName: json['city_name']?.toString(),
+      localityName: json['locality_name']?.toString(),
       scheduleDatetime: json['schedule_datetime']?.toString(),
       timeSlot: json['time_slot']?.toString(),
       status: json['status']?.toString(),
