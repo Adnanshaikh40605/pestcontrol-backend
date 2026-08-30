@@ -453,7 +453,7 @@ class TechnicianViewSet(BaseModelViewSet):
         Optional query params (server-side city filter):
         - job_id: only techs whose service areas include the booking city
         - city_id / master_city: same using a City id
-        Technicians with no service cities linked remain eligible (legacy unscoped).
+        Technicians must be explicitly linked to the booking city (empty M2M = excluded).
         """
         from core.models import JobCard
         from core.technician_service_areas import (

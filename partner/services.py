@@ -478,7 +478,7 @@ def job_matches_partner_service_area(job: JobCard, partner: Partner) -> bool:
     """
     True when the booking city matches the technician service cities.
     Prefer City ID match via M2M; fall back to legacy name tokens.
-    If the technician has no city/area configured, allow all (legacy behaviour).
+    Technicians with no service cities configured do not see city-scoped jobs.
     """
     tech = getattr(partner, 'core_technician', None)
     if tech is not None:
@@ -496,9 +496,15 @@ def job_matches_partner_service_area(job: JobCard, partner: Partner) -> bool:
             if job_city_id or job.city:
                 return False
             return True  # unscoped job
+        # Linked tech with zero service cities: hide city-scoped bookings
+        if getattr(job, 'master_city_id', None) or job.city:
+            return False
 
     allowed = partner_service_city_tokens(partner)
     if not allowed:
+        # No structured cities and no legacy text → not eligible for city-scoped jobs
+        if getattr(job, 'master_city_id', None) or job.city:
+            return False
         return True
 
     job_tokens: set[str] = set()
