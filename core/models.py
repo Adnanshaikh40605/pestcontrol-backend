@@ -2311,6 +2311,16 @@ class PricingRate(BaseModel):
         db_index=True,
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
+    gst_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('18.00'),
+        help_text='GST percentage applied to this rate (e.g. 18.00)',
+    )
+    price_includes_gst = models.BooleanField(
+        default=True,
+        help_text='When True, amount already includes GST; when False, GST is added on top',
+    )
     is_active = models.BooleanField(default=True, db_index=True)
     notes = models.TextField(blank=True)
     updated_by = models.ForeignKey(

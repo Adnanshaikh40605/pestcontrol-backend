@@ -176,11 +176,35 @@ def _build_pricing_table_from_db(region_slug: str) -> dict[str, dict[str, dict[s
     if not rates:
         return None
 
+    from core.pricing.gst import gst_breakdown
+
+    # Customer-facing booking amount = total_with_gst (amount if inclusive).
     table: dict[str, dict[str, dict[str, int]]] = {}
     for rate in rates:
-        amount = int(Decimal(str(rate.amount)))
+        breakdown = gst_breakdown(
+            rate.amount,
+            gst_percent=rate.gst_percent,
+            price_includes_gst=rate.price_includes_gst,
+        )
+        amount = int(Decimal(str(breakdown['total_with_gst'])))
         table.setdefault(rate.service_package, {}).setdefault(rate.plan_type, {})[rate.area_key] = amount
     return table
+
+
+def _build_rate_gst_from_db(region_slug: str) -> dict[str, dict[str, dict[str, dict[str, Any]]]] | None:
+    """Nested GST metadata mirroring the pricing matrix for CRM booking UI."""
+    rates = list(_rates_queryset(region_slug))
+    if not rates:
+        return None
+
+    from core.pricing.gst import rate_gst_payload
+
+    details: dict[str, dict[str, dict[str, dict[str, Any]]]] = {}
+    for rate in rates:
+        details.setdefault(rate.service_package, {}).setdefault(rate.plan_type, {})[
+            rate.area_key
+        ] = rate_gst_payload(rate)
+    return details
 
 
 def _areas_from_db(region_slug: str, category: str) -> list[str] | None:
@@ -312,5 +336,6 @@ def build_pricing_config_payload(
         'rodent_locations': _location_list(
             region, 'rodent', HARDCODED_RODENT.get(region, ['Society Area', 'Windows']),
         ),
+        'rate_gst': _build_rate_gst_from_db(region) or {},
         'source': 'database' if _rates_queryset(region).exists() else 'legacy',
     }

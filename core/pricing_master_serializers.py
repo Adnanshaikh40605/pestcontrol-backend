@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import PricingRate, PricingRateAuditLog, PricingRegion
+from .pricing.gst import rate_gst_payload
 
 
 class PricingRegionSerializer(serializers.ModelSerializer):
@@ -19,26 +20,53 @@ class PricingRateSerializer(serializers.ModelSerializer):
     region_name = serializers.CharField(source='region.name', read_only=True)
     region_slug = serializers.CharField(source='region.slug', read_only=True)
     updated_by_name = serializers.SerializerMethodField()
+    base_amount = serializers.SerializerMethodField()
+    gst_amount = serializers.SerializerMethodField()
+    total_with_gst = serializers.SerializerMethodField()
 
     class Meta:
         model = PricingRate
         fields = [
             'id', 'region', 'region_name', 'region_slug',
             'service_package', 'plan_type', 'area_key', 'property_category',
-            'amount', 'is_active', 'notes',
+            'amount', 'gst_percent', 'price_includes_gst',
+            'base_amount', 'gst_amount', 'total_with_gst',
+            'is_active', 'notes',
             'updated_by', 'updated_by_name',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'updated_by', 'updated_by_name']
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'updated_by', 'updated_by_name',
+            'base_amount', 'gst_amount', 'total_with_gst',
+        ]
+
+    def _breakdown(self, obj):
+        return rate_gst_payload(obj)
 
     def get_updated_by_name(self, obj):
         if obj.updated_by:
             return obj.updated_by.get_full_name() or obj.updated_by.username
         return None
 
+    def get_base_amount(self, obj):
+        return self._breakdown(obj)['base_amount']
+
+    def get_gst_amount(self, obj):
+        return self._breakdown(obj)['gst_amount']
+
+    def get_total_with_gst(self, obj):
+        return self._breakdown(obj)['total_with_gst']
+
     def validate_amount(self, value):
         if value < 0:
             raise serializers.ValidationError('Amount cannot be negative.')
+        return value
+
+    def validate_gst_percent(self, value):
+        if value is None:
+            return value
+        if value < 0 or value > 100:
+            raise serializers.ValidationError('GST percent must be between 0 and 100.')
         return value
 
 

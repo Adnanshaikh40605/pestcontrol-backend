@@ -6,7 +6,12 @@ from django.db import migrations, models
 def seed_pricing_master(apps, schema_editor):
     from core.pricing.seed import seed_pricing_master as run_seed
 
-    run_seed()
+    # Use historical models so seed works before later fields (e.g. GST) exist.
+    run_seed(
+        PricingRegion=apps.get_model('core', 'PricingRegion'),
+        PricingRate=apps.get_model('core', 'PricingRate'),
+        City=apps.get_model('core', 'City'),
+    )
 
 
 class Migration(migrations.Migration):

@@ -116,18 +116,45 @@ class CatalogRateSerializer(serializers.ModelSerializer):
     region_slug = serializers.CharField(source='region.slug', read_only=True)
     region_name = serializers.CharField(source='region.name', read_only=True)
     package_tiers = serializers.SerializerMethodField()
+    base_amount = serializers.SerializerMethodField()
+    gst_amount = serializers.SerializerMethodField()
+    total_with_gst = serializers.SerializerMethodField()
 
     class Meta:
         model = PricingRate
         fields = [
             'id', 'region_slug', 'region_name', 'service_package', 'plan_type',
-            'area_key', 'property_category', 'amount', 'package_tiers',
+            'area_key', 'property_category', 'amount',
+            'gst_percent', 'price_includes_gst',
+            'base_amount', 'gst_amount', 'total_with_gst',
+            'package_tiers',
         ]
+
+    def _breakdown(self, obj):
+        from core.pricing.gst import rate_gst_payload
+        return rate_gst_payload(obj)
+
+    def get_base_amount(self, obj):
+        return self._breakdown(obj)['base_amount']
+
+    def get_gst_amount(self, obj):
+        return self._breakdown(obj)['gst_amount']
+
+    def get_total_with_gst(self, obj):
+        return self._breakdown(obj)['total_with_gst']
 
     def get_package_tiers(self, obj):
         # Standard/Premium are booking tiers; catalog exposes both with same base rate for MVP.
         # Premium can be marked +15% display hint for UI (CRM can refine later).
-        base = obj.amount
+        # Use customer-facing total (with GST) as the catalog amount.
+        from core.pricing.gst import gst_breakdown
+
+        breakdown = gst_breakdown(
+            obj.amount,
+            gst_percent=obj.gst_percent,
+            price_includes_gst=obj.price_includes_gst,
+        )
+        base = breakdown['total_with_gst']
         try:
             premium = (base * Decimal('1.15')).quantize(Decimal('0.01'))
         except (InvalidOperation, TypeError):

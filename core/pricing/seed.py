@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-
-from core.models import PricingPropertyCategory, PricingRegion, PricingRate
+from typing import Any
 
 from .lonavala import LONAVALA_PRICING
 from .mumbai import MUMBAI_PRICING
@@ -39,22 +38,40 @@ RODENT_AREAS = {
 
 def infer_property_category(service_package: str, area_key: str) -> str:
     if area_key in ('Commercial Space', 'Commercial'):
-        return PricingPropertyCategory.COMMERCIAL
+        return 'commercial'
     if area_key in ('Windows', 'Society Area'):
-        return PricingPropertyCategory.RODENT
+        return 'rodent'
     if service_package == 'Mosquito' and area_key in FOGGING_AREAS:
-        return PricingPropertyCategory.FOGGING
+        return 'fogging'
     if area_key in VILLA_AREAS and service_package == 'Cockroach / Ants':
-        return PricingPropertyCategory.VILLA
+        return 'villa'
     if area_key in RODENT_AREAS and service_package == 'Rodent':
-        return PricingPropertyCategory.RODENT
+        return 'rodent'
     if 'Sq.Ft.' in area_key:
         if service_package == 'Rodent':
-            return PricingPropertyCategory.RODENT
+            return 'rodent'
         if service_package == 'Mosquito':
-            return PricingPropertyCategory.FOGGING
-        return PricingPropertyCategory.VILLA
-    return PricingPropertyCategory.RESIDENTIAL
+            return 'fogging'
+        return 'villa'
+    return 'residential'
+
+
+def _models(
+    *,
+    PricingRegion: Any = None,
+    PricingRate: Any = None,
+    City: Any = None,
+) -> tuple[Any, Any, Any]:
+    """Resolve live or historical models (migrations must pass historical)."""
+    if PricingRegion is None or PricingRate is None or City is None:
+        from core.models import City as LiveCity
+        from core.models import PricingRate as LiveRate
+        from core.models import PricingRegion as LiveRegion
+
+        PricingRegion = PricingRegion or LiveRegion
+        PricingRate = PricingRate or LiveRate
+        City = City or LiveCity
+    return PricingRegion, PricingRate, City
 
 
 def _seed_region(
@@ -64,14 +81,21 @@ def _seed_region(
     pricing_table: dict,
     is_default: bool = False,
     city_name: str | None = None,
+    PricingRegion: Any = None,
+    PricingRate: Any = None,
+    City: Any = None,
 ) -> tuple[int, int]:
-    from core.models import City
+    PricingRegion, PricingRate, City = _models(
+        PricingRegion=PricingRegion,
+        PricingRate=PricingRate,
+        City=City,
+    )
 
     city = None
     if city_name:
         city = City.objects.filter(name__iexact=city_name).first()
 
-    region, created = PricingRegion.objects.get_or_create(
+    region, _ = PricingRegion.objects.get_or_create(
         slug=slug,
         defaults={
             'name': name,
@@ -107,7 +131,12 @@ def _seed_region(
     return created, skipped
 
 
-def seed_pricing_master() -> dict[str, dict[str, int]]:
+def seed_pricing_master(
+    *,
+    PricingRegion: Any = None,
+    PricingRate: Any = None,
+    City: Any = None,
+) -> dict[str, dict[str, int]]:
     """Import legacy Mumbai + Lonavala rates. Existing rows are never updated."""
     mumbai_created, mumbai_skipped = _seed_region(
         slug='mumbai',
@@ -115,12 +144,18 @@ def seed_pricing_master() -> dict[str, dict[str, int]]:
         pricing_table=MUMBAI_PRICING,
         is_default=True,
         city_name='Mumbai',
+        PricingRegion=PricingRegion,
+        PricingRate=PricingRate,
+        City=City,
     )
     lonavala_created, lonavala_skipped = _seed_region(
         slug='lonavala',
         name='Lonavala',
         pricing_table=LONAVALA_PRICING,
         city_name='Lonavala',
+        PricingRegion=PricingRegion,
+        PricingRate=PricingRate,
+        City=City,
     )
     return {
         'mumbai': {'created': mumbai_created, 'skipped': mumbai_skipped},
@@ -128,9 +163,20 @@ def seed_pricing_master() -> dict[str, dict[str, int]]:
     }
 
 
-def ensure_commercial_area_rates() -> int:
+def ensure_commercial_area_rates(
+    *,
+    PricingRegion: Any = None,
+    PricingRate: Any = None,
+    City: Any = None,
+) -> int:
     """Insert Commercial area rows (amount 0) for office/hotel/society/other bookings."""
     from .mumbai import COMMERCIAL_AREA_KEY
+
+    PricingRegion, PricingRate, _City = _models(
+        PricingRegion=PricingRegion,
+        PricingRate=PricingRate,
+        City=City,
+    )
 
     created = 0
     for slug, pricing_table in (('mumbai', MUMBAI_PRICING), ('lonavala', LONAVALA_PRICING)):
@@ -151,7 +197,7 @@ def ensure_commercial_area_rates() -> int:
                     area_key=COMMERCIAL_AREA_KEY,
                     defaults={
                         'amount': Decimal(str(amount)),
-                        'property_category': PricingPropertyCategory.COMMERCIAL,
+                        'property_category': 'commercial',
                         'is_active': True,
                     },
                 )

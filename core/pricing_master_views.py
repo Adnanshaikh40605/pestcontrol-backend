@@ -80,21 +80,35 @@ class PricingRateViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         instance = self.get_object()
         old_amount = instance.amount
+        old_gst = instance.gst_percent
+        old_includes = instance.price_includes_gst
+        old_active = instance.is_active
         rate = serializer.save(updated_by=self.request.user)
         action = PricingRateAuditAction.UPDATE
         if 'is_active' in serializer.validated_data:
-            if rate.is_active and not instance.is_active:
+            if rate.is_active and not old_active:
                 action = PricingRateAuditAction.ACTIVATE
-            elif not rate.is_active and instance.is_active:
+            elif not rate.is_active and old_active:
                 action = PricingRateAuditAction.DEACTIVATE
-        if old_amount != rate.amount or action != PricingRateAuditAction.UPDATE:
+        gst_changed = (
+            old_gst != rate.gst_percent
+            or old_includes != rate.price_includes_gst
+        )
+        if old_amount != rate.amount or action != PricingRateAuditAction.UPDATE or gst_changed:
+            note = 'Updated via Pricing Master'
+            if gst_changed:
+                note = (
+                    f'Updated via Pricing Master '
+                    f'(GST {old_gst}%→{rate.gst_percent}%, '
+                    f'includes={old_includes}→{rate.price_includes_gst})'
+                )
             _log_pricing_change(
                 rate=rate,
                 action=action,
                 user=self.request.user,
                 old_amount=old_amount,
                 new_amount=rate.amount,
-                change_note='Updated via Pricing Master',
+                change_note=note,
             )
 
     def perform_destroy(self, instance):

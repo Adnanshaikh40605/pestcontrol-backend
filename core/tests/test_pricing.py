@@ -185,3 +185,120 @@ class CommercialAreaOptionTests(TestCase):
         )
         self.assertEqual(int(rate.amount), 0)
         self.assertEqual(rate.property_category, 'commercial')
+
+
+class GstBreakdownTests(TestCase):
+    def test_inclusive_18_percent(self):
+        from decimal import Decimal
+
+        from core.pricing.gst import gst_breakdown
+
+        result = gst_breakdown(
+            Decimal('1180.00'),
+            gst_percent=Decimal('18.00'),
+            price_includes_gst=True,
+        )
+        self.assertEqual(result['base_amount'], Decimal('1000.00'))
+        self.assertEqual(result['gst_amount'], Decimal('180.00'))
+        self.assertEqual(result['total_with_gst'], Decimal('1180.00'))
+
+    def test_exclusive_18_percent(self):
+        from decimal import Decimal
+
+        from core.pricing.gst import gst_breakdown
+
+        result = gst_breakdown(
+            Decimal('1000.00'),
+            gst_percent=Decimal('18.00'),
+            price_includes_gst=False,
+        )
+        self.assertEqual(result['base_amount'], Decimal('1000.00'))
+        self.assertEqual(result['gst_amount'], Decimal('180.00'))
+        self.assertEqual(result['total_with_gst'], Decimal('1180.00'))
+
+    def test_zero_gst(self):
+        from decimal import Decimal
+
+        from core.pricing.gst import gst_breakdown
+
+        result = gst_breakdown(
+            Decimal('500.00'),
+            gst_percent=Decimal('0'),
+            price_includes_gst=False,
+        )
+        self.assertEqual(result['base_amount'], Decimal('500.00'))
+        self.assertEqual(result['gst_amount'], Decimal('0.00'))
+        self.assertEqual(result['total_with_gst'], Decimal('500.00'))
+
+
+class PricingRateGstApiTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from rest_framework.test import APIClient
+
+        from core.models import PricingRate, PricingRegion
+
+        self.admin = User.objects.create_superuser(
+            username='pricing_admin',
+            email='pricing@example.com',
+            password='pass1234',
+        )
+        self.api = APIClient()
+        self.api.force_authenticate(user=self.admin)
+        self.mumbai = PricingRegion.objects.get(slug='mumbai')
+        self.rate = PricingRate.objects.get(
+            region=self.mumbai,
+            service_package='Cockroach / Ants',
+            plan_type='One Time Service',
+            area_key='2 BHK',
+        )
+
+    def test_pricing_config_includes_rate_gst(self):
+        from decimal import Decimal
+
+        self.rate.amount = Decimal('1180.00')
+        self.rate.gst_percent = Decimal('18.00')
+        self.rate.price_includes_gst = True
+        self.rate.save(update_fields=['amount', 'gst_percent', 'price_includes_gst', 'updated_at'])
+
+        payload = build_pricing_config_payload('Mumbai')
+        detail = payload['rate_gst']['Cockroach / Ants']['One Time Service']['2 BHK']
+        self.assertEqual(detail['base_amount'], '1000.00')
+        self.assertEqual(detail['gst_amount'], '180.00')
+        self.assertEqual(detail['total_with_gst'], '1180.00')
+        self.assertTrue(detail['price_includes_gst'])
+        # Booking matrix uses customer-facing total
+        self.assertEqual(
+            payload['pricing']['Cockroach / Ants']['One Time Service']['2 BHK'],
+            1180,
+        )
+
+    def test_update_rate_gst_writes_audit(self):
+        from decimal import Decimal
+
+        from core.models import PricingRateAuditLog
+
+        url = f'/api/v1/pricing-rates/{self.rate.id}/'
+        res = self.api.patch(
+            url,
+            {
+                'amount': '1000.00',
+                'gst_percent': '18.00',
+                'price_includes_gst': False,
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['base_amount'], '1000.00')
+        self.assertEqual(res.data['gst_amount'], '180.00')
+        self.assertEqual(res.data['total_with_gst'], '1180.00')
+        self.assertFalse(res.data['price_includes_gst'])
+
+        self.rate.refresh_from_db()
+        self.assertEqual(self.rate.amount, Decimal('1000.00'))
+        self.assertFalse(self.rate.price_includes_gst)
+
+        audit = PricingRateAuditLog.objects.filter(rate=self.rate).order_by('-created_at').first()
+        self.assertIsNotNone(audit)
+        self.assertIn('includes=', audit.change_note)
+        self.assertIn('GST', audit.change_note)
