@@ -144,41 +144,94 @@ def job_service_city(job: JobCard) -> Optional[City]:
     return None
 
 
-def technician_serves_city(technician: Technician, city: Optional[City]) -> bool:
-    """
-    True when the technician may be assigned for this city.
-    Empty M2M = legacy / unscoped — eligible for any city (desk can assign anyone active).
-    Bookings with no city remain open to any active technician.
-    """
-    if city is None:
-        return True
-    # Use prefetched cache when available
+def technician_service_cities_list(technician: Technician) -> list[City]:
     if hasattr(technician, '_prefetched_objects_cache') and 'service_cities' in getattr(
         technician, '_prefetched_objects_cache', {}
     ):
-        cities = list(technician.service_cities.all())
-    else:
-        cities = list(technician.service_cities.all())
-    if not cities:
+        return list(technician.service_cities.all())
+    return list(technician.service_cities.all())
+
+
+def technician_has_service_areas(technician: Technician) -> bool:
+    return bool(technician_service_cities_list(technician))
+
+
+def technician_serves_city(technician: Technician, city: Optional[City]) -> bool:
+    """
+    True when the technician may be assigned for this city.
+    Bookings with no city remain open to any active technician.
+    Technicians with no service areas cannot serve city-scoped bookings.
+    """
+    if city is None:
         return True
+    cities = technician_service_cities_list(technician)
+    if not cities:
+        return False
     target_key = city_match_key(city)
     if not target_key:
         return any(c.id == city.id for c in cities)
     return any(city_match_key(c) == target_key for c in cities)
 
 
+def assignment_service_area_error(
+    technician: Technician,
+    booking_city: Optional[City],
+) -> Optional[dict]:
+    """Structured assign error when service area rules block assignment."""
+    if booking_city is None:
+        return None
+
+    cities = technician_service_cities_list(technician)
+    city_label = display_city_name(booking_city.name) or booking_city.name
+
+    if not cities:
+        return {
+            'error': (
+                f'{technician.name} has no Service Areas selected. '
+                f'Open Technicians → Edit and add at least one city (e.g. {city_label}) '
+                f'before assigning this booking.'
+            ),
+            'code': 'technician_no_service_area',
+            'technician_id': technician.id,
+            'technician_name': technician.name,
+            'service_city_id': booking_city.id,
+            'service_city_name': city_label,
+        }
+
+    if not technician_serves_city(technician, booking_city):
+        areas = ', '.join(
+            display_city_name(c.name) or c.name for c in sorted(cities, key=lambda c: c.name.lower())
+        )
+        return {
+            'error': (
+                f'{technician.name} does not serve {city_label}. '
+                f'Configured service areas: {areas}. '
+                f'Add {city_label} on the technician profile to assign this booking.'
+            ),
+            'code': 'technician_outside_service_area',
+            'technician_id': technician.id,
+            'technician_name': technician.name,
+            'service_city_id': booking_city.id,
+            'service_city_name': city_label,
+            'technician_service_areas': areas,
+        }
+
+    return None
+
+
 def filter_technicians_for_city(
     qs: QuerySet[Technician],
     city: Optional[City],
 ) -> QuerySet[Technician]:
-    """Filter by service city when set; always include techs with no service cities (legacy)."""
+    """Filter by service city when set; exclude techs with no service areas."""
     if city is None:
         return qs
     match_ids = equivalent_city_ids(city)
     return qs.annotate(
         _service_city_count=Count('service_cities', distinct=True),
     ).filter(
-        Q(_service_city_count=0) | Q(service_cities__id__in=match_ids),
+        _service_city_count__gt=0,
+        service_cities__id__in=match_ids,
     ).distinct()
 
 
@@ -189,7 +242,7 @@ def eligible_technicians_queryset(
     job: Optional[JobCard] = None,
     active_only: bool = True,
 ) -> QuerySet[Technician]:
-    """Active technicians whose service_cities include the booking city (or unscoped)."""
+    """Active technicians whose service_cities include the booking city."""
     resolved = city
     if resolved is None and city_id:
         resolved = City.objects.filter(id=city_id, is_active=True).first()

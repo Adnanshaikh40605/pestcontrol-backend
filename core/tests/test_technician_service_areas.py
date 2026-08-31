@@ -66,7 +66,7 @@ class TechnicianServiceAreaTests(TestCase):
         self.assertEqual(res.status_code, 200)
         ids = {row['id'] for row in res.data}
         self.assertIn(self.tech_mumbai.id, ids)
-        self.assertIn(self.tech_unscoped.id, ids)
+        self.assertNotIn(self.tech_unscoped.id, ids)
         self.assertNotIn(self.tech_pune.id, ids)
 
     def test_active_filters_by_city_id(self):
@@ -76,13 +76,13 @@ class TechnicianServiceAreaTests(TestCase):
         )
         ids = {row['id'] for row in res.data}
         self.assertIn(self.tech_pune.id, ids)
-        self.assertIn(self.tech_unscoped.id, ids)
+        self.assertNotIn(self.tech_unscoped.id, ids)
         self.assertNotIn(self.tech_mumbai.id, ids)
 
-    def test_unscoped_included_when_city_known(self):
-        self.assertTrue(technician_serves_city(self.tech_unscoped, self.mumbai))
+    def test_unscoped_excluded_when_city_known(self):
+        self.assertFalse(technician_serves_city(self.tech_unscoped, self.mumbai))
         qs = eligible_technicians_queryset(city=self.mumbai)
-        self.assertIn(self.tech_unscoped.id, set(qs.values_list('id', flat=True)))
+        self.assertNotIn(self.tech_unscoped.id, set(qs.values_list('id', flat=True)))
 
     def test_unscoped_allowed_when_booking_has_no_city(self):
         job = JobCard.objects.create(
@@ -119,15 +119,14 @@ class TechnicianServiceAreaTests(TestCase):
         self.job_mumbai.refresh_from_db()
         self.assertEqual(self.job_mumbai.technician_id, self.tech_mumbai.id)
 
-    def test_assign_allows_unscoped_technician(self):
+    def test_assign_rejects_unscoped_technician(self):
         res = self.client_api.post(
             f'/api/v1/jobcards/{self.job_mumbai.id}/assign/',
             {'technician_id': self.tech_unscoped.id},
             format='json',
         )
-        self.assertEqual(res.status_code, 200)
-        self.job_mumbai.refresh_from_db()
-        self.assertEqual(self.job_mumbai.technician_id, self.tech_unscoped.id)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data.get('code'), 'technician_no_service_area')
 
     def test_assign_rejects_inactive(self):
         self.tech_mumbai.is_active = False

@@ -454,7 +454,7 @@ class TechnicianViewSet(BaseModelViewSet):
         - job_id: only techs whose service areas include the booking city
         - city_id / master_city: same using a City id
         - city_name: resolve city by name when id is unknown
-        Technicians with no service areas (legacy) are included for any city.
+        Only technicians with a matching Service Area are returned for city-scoped bookings.
         """
         from core.models import JobCard
         from core.city_utils import resolve_master_city
@@ -485,26 +485,7 @@ class TechnicianViewSet(BaseModelViewSet):
             active_only=True,
         )
         serializer = self.get_serializer(qs, many=True)
-        data = serializer.data
-
-        city = None
-        if job is not None:
-            city = job_service_city(job)
-        elif city_id and str(city_id).isdigit():
-            from core.models import City
-            city = City.objects.filter(id=int(city_id)).first()
-
-        # When filtering by a known city and nobody has that city explicitly linked,
-        # still return unscoped (no service cities) technicians so desk can assign.
-        if city is not None and not data:
-            unscoped = Technician.objects.filter(is_active=True).annotate(
-                _n=Count('service_cities', distinct=True),
-            ).filter(_n=0).order_by('name')
-            if unscoped.exists():
-                serializer = self.get_serializer(unscoped, many=True)
-                return response.Response(serializer.data)
-            return response.Response([])
-        return response.Response(data)
+        return response.Response(serializer.data)
 
     @action(detail=True, methods=['get', 'put', 'patch'], url_path='service-areas')
     def service_areas(self, request, pk=None):
@@ -2534,23 +2515,14 @@ class JobCardViewSet(BaseModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            from core.city_utils import display_city_name
-            from core.technician_service_areas import job_service_city, technician_serves_city
+            from core.technician_service_areas import (
+                assignment_service_area_error,
+                job_service_city,
+            )
             booking_city = job_service_city(instance)
-            if booking_city and not technician_serves_city(technician, booking_city):
-                return response.Response(
-                    {
-                        'error': (
-                            f'{technician.name} does not serve '
-                            f'{display_city_name(booking_city.name) or booking_city.name}. '
-                            f'Update their Service Areas first.'
-                        ),
-                        'code': 'technician_outside_service_area',
-                        'service_city_id': booking_city.id,
-                        'service_city_name': booking_city.name,
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+            area_error = assignment_service_area_error(technician, booking_city)
+            if area_error:
+                return response.Response(area_error, status=status.HTTP_400_BAD_REQUEST)
 
             # Block desk-assign once a partner has already claimed / started the job.
             if instance.partner_id and instance.partner_status in (
