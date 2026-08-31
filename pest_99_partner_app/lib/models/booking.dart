@@ -34,6 +34,7 @@ class PartnerBooking {
     this.canCompleteJob = false,
     this.jobStartSelfieUrl,
     this.startedAt,
+    this.completedAt,
     this.notes,
   });
 
@@ -71,6 +72,7 @@ class PartnerBooking {
   final bool canCompleteJob;
   final String? jobStartSelfieUrl;
   final String? startedAt;
+  final String? completedAt;
   final String? notes;
 
   /// Pool booking sent from CRM — partner can accept from app.
@@ -154,6 +156,7 @@ class PartnerBooking {
       canCompleteJob: canComplete,
       jobStartSelfieUrl: json['job_start_selfie_url']?.toString(),
       startedAt: json['started_at']?.toString(),
+      completedAt: json['completed_at']?.toString(),
       notes: json['notes']?.toString(),
     );
   }

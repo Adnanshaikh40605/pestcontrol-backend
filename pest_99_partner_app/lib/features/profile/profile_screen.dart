@@ -2,15 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/api_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../core/user_error.dart';
-import '../../models/partner_earnings.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/bookings_provider.dart';
 import '../../providers/profile_provider.dart';
-import '../../services/earnings_service.dart';
 import '../../shared/widgets/app_snackbar.dart';
 import '../../shared/widgets/app_top_bar.dart';
 import '../../shared/widgets/legal_support_card.dart';
@@ -75,11 +71,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _SuspendedBanner(reason: p?.presence?.suspendReason ?? ''),
                   ],
                   const SizedBox(height: AppSpacing.sectionGap),
-                  _PresenceToggle(
-                    presence: p?.presence,
-                    onChanged: (online) => _setPresence(context, online),
-                  ),
-                  const SizedBox(height: AppSpacing.sectionGap),
                   _EarningsProgressCard(
                     jobsDone: completed,
                     totalEarnings: p?.stats?.totalEarnings ?? '0',
@@ -125,22 +116,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context.go('/login');
     } else {
       AppSnackBar.error(context, auth.error ?? 'Account deletion failed');
-    }
-  }
-
-  Future<void> _setPresence(BuildContext context, bool online) async {
-    try {
-      await EarningsService(context.read<ApiClient>()).setPresence(
-        online ? 'online' : 'offline',
-      );
-      if (!context.mounted) return;
-      await context.read<ProfileProvider>().loadProfile(force: true);
-    } catch (e) {
-      if (!context.mounted) return;
-      AppSnackBar.error(
-        context,
-        userErrorMessage(e, fallback: 'Could not update presence.'),
-      );
     }
   }
 }
@@ -484,47 +459,6 @@ class _SuspendedBanner extends StatelessWidget {
                 ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PresenceToggle extends StatelessWidget {
-  const _PresenceToggle({required this.presence, required this.onChanged});
-
-  final PartnerPresence? presence;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final suspended = presence?.isSuspended == true;
-    final status = presence?.presenceStatus ?? 'offline';
-    final locked = suspended ||
-        status == 'busy' ||
-        status == 'on_service' ||
-        status == 'on_leave';
-    final online = presence?.isOnline == true;
-    final label = suspended
-        ? 'Suspended'
-        : status.replaceAll('_', ' ');
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        title: const Text('Availability'),
-        subtitle: Text(
-          locked && !suspended
-              ? '$label — finish current job before changing'
-              : label,
-        ),
-        value: online && !locked,
-        onChanged: locked ? null : onChanged,
       ),
     );
   }

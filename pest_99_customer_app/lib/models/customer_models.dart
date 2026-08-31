@@ -98,6 +98,12 @@ class CustomerBooking {
     this.myRating,
     this.serviceCycle,
     this.maxCycle,
+    this.priceConfirmationPending = false,
+    this.canCancel = false,
+    this.technicianName,
+    this.technicianMobile,
+    this.technicianPhotoUrl,
+    this.partnerStatus,
   });
 
   final int id;
@@ -120,30 +126,59 @@ class CustomerBooking {
   final Map<String, dynamic>? myRating;
   final int? serviceCycle;
   final int? maxCycle;
+  final bool priceConfirmationPending;
+  final bool canCancel;
+  final String? technicianName;
+  final String? technicianMobile;
+  final String? technicianPhotoUrl;
+  final String? partnerStatus;
 
   bool get isDone => (status ?? '').toLowerCase() == 'done';
-  bool get isPaid => (paymentStatus ?? '').toLowerCase().contains('paid');
+  bool get isCancelled => (status ?? '').toLowerCase().contains('cancel');
+  bool get hasAssignedTechnician {
+    final name = (technicianName ?? '').trim();
+    return name.isNotEmpty;
+  }
+  bool get isPaid {
+    final raw = (paymentStatus ?? '').trim().toLowerCase();
+    // "Unpaid".contains("paid") is true — check exact / prefix carefully.
+    if (raw == 'paid') return true;
+    if (raw.startsWith('paid')) return true;
+    return false;
+  }
 
   /// Customer-facing visit status (hides CRM jargon like Pending / On Process).
   String get visitStatusLabel {
     final s = (status ?? '').trim().toLowerCase();
-    if (s.isEmpty || s == 'pending' || s == 'upcoming') return 'Scheduled';
-    if (s == 'done' || s == 'completed') return 'Completed';
     if (s.contains('cancel')) return 'Cancelled';
+    if (s == 'done' || s == 'completed') return 'Completed';
+
+    final ps = (partnerStatus ?? '').trim().toLowerCase();
+    if (ps == 'in_service' || ps.contains('service')) return 'In progress';
+    if (ps == 'accepted') return 'Technician assigned';
+    if (ps == 'completed') return 'Completed';
+
+    if (s.isEmpty || s == 'pending' || s == 'upcoming') return 'Scheduled';
     if (s.contains('process') || s.contains('accept')) return 'In progress';
     return status!.trim();
   }
 
   /// Customer-facing payment label.
   String get paymentStatusLabel {
+    if (priceConfirmationPending) return 'Price Confirmation Pending';
     if (isPaid) return 'Paid';
     final raw = (paymentStatus ?? '').trim().toLowerCase();
     if (raw.contains('partial')) return 'Partially paid';
-    return 'Pay after service';
+    if (raw == 'pending') return 'Unpaid';
+    return 'Unpaid';
   }
 
-  /// One-Time / AMC — never show raw CRM booking_type strings.
+  /// One-Time / AMC / 2-Service — never show raw CRM booking_type strings.
   String? get planTypeLabel {
+    final service = serviceType.toLowerCase();
+    if ((maxCycle ?? 0) == 2 && (service.contains('bed') || service.contains('bug'))) {
+      return '2-Service Package';
+    }
     final bt = (bookingType ?? '').trim().toLowerCase();
     if (bt.isEmpty) return null;
     if (bt.contains('amc')) return 'AMC plan';
@@ -185,6 +220,13 @@ class CustomerBooking {
           : null,
       serviceCycle: json['service_cycle'] is int ? json['service_cycle'] as int : int.tryParse('${json['service_cycle'] ?? ''}'),
       maxCycle: json['max_cycle'] is int ? json['max_cycle'] as int : int.tryParse('${json['max_cycle'] ?? ''}'),
+      priceConfirmationPending: json['price_confirmation_pending'] == true ||
+          json['is_price_estimated'] == true,
+      canCancel: json['can_cancel'] == true,
+      technicianName: json['technician_name'] as String?,
+      technicianMobile: json['technician_mobile'] as String?,
+      technicianPhotoUrl: json['technician_photo_url'] as String?,
+      partnerStatus: json['partner_status'] as String?,
     );
   }
 }

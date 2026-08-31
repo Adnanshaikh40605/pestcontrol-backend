@@ -1,9 +1,14 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-/// Custom sounds in `android/app/src/main/res/raw/` (reference without `.mp3`).
+/// Custom sound in `android/app/src/main/res/raw/partner_notification_bell.wav`
+/// (reference without extension). Used for booking alerts and login success.
 abstract final class NotificationSounds {
-  static const bookingAlertUrgent =
-      RawResourceAndroidNotificationSound('booking_alert_urgent');
-  static const loginSuccessLoud =
-      RawResourceAndroidNotificationSound('login_success_loud');
+  static const partnerBell =
+      RawResourceAndroidNotificationSound('partner_notification_bell');
+
+  /// Alias — new booking alerts.
+  static const bookingAlertUrgent = partnerBell;
+
+  /// Alias — login success.
+  static const loginSuccessLoud = partnerBell;
 }

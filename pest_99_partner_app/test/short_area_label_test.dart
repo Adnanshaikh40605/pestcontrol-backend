@@ -40,4 +40,38 @@ void main() {
       expect(BookingMapper.shortAreaLabel(b), 'Mumbai');
     });
   });
+
+  group('BookingMapper.fromPartner completed fields', () {
+    test('maps completed_at to completionDate', () {
+      final b = PartnerBooking(
+        id: 469,
+        serviceType: 'Cockroach / Ants',
+        clientName: 'Adnan Shaikh',
+        scheduleDatetime: '2026-05-20T10:00:00Z',
+        completedAt: '2026-05-27T14:30:00Z',
+        paymentStatus: 'Paid',
+        paymentModel: 'revenue_sharing',
+        visitPayoutAmount: '1800.00',
+        technicianSharePercent: '40.00',
+        payoutStatus: 'pending',
+      );
+      final ui = BookingMapper.fromPartner(b);
+      expect(ui.completionDate, 'Wed, 27 May');
+      expect(ui.customerName, 'Adnan Shaikh');
+      expect(ui.isPaid, isTrue);
+      expect(ui.hasRevenuePayout, isTrue);
+      expect(ui.yourShareAmount, '1800.00');
+    });
+
+    test('falls back to schedule date when completed_at missing', () {
+      final b = PartnerBooking(
+        id: 1,
+        serviceType: 'General Pest',
+        scheduleDatetime: '2026-05-20T10:00:00Z',
+      );
+      final ui = BookingMapper.fromPartner(b);
+      expect(ui.completionDate, isNotNull);
+      expect(ui.completionDate, isNot(equals('—')));
+    });
+  });
 }

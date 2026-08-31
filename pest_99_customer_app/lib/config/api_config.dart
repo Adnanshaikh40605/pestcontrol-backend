@@ -20,6 +20,7 @@ class ApiConfig {
   static String get bookings => '$prefix/bookings/';
   static String bookingDetail(int id) => '$prefix/bookings/$id/';
   static String bookingPay(int id) => '$prefix/bookings/$id/pay/';
+  static String bookingCancel(int id) => '$prefix/bookings/$id/cancel/';
   static String bookingRate(int id) => '$prefix/bookings/$id/rate/';
   static String bookingInvoice(int id) => '$prefix/bookings/$id/invoice/';
   static String get history => '$prefix/history/';

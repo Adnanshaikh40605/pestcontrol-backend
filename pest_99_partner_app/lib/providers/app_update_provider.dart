@@ -8,6 +8,7 @@ enum AppUpdateCheckStatus {
   checking,
   upToDate,
   forceUpdateRequired,
+  updateAvailable,
   checkFailed,
 }
 
@@ -22,15 +23,15 @@ class AppUpdateProvider extends ChangeNotifier {
   String? checkError;
 
   /// Once true from a successful policy response, stays true until a later
-  /// successful response says the install is allowed again. Network failures
-  /// must not unlock a blocked technician.
+  /// successful response says the install is allowed again.
   bool _forceUpdateRequired = false;
+  bool _updateAvailable = false;
   bool _checking = false;
 
   bool get isChecking => _checking;
   bool get forceUpdateRequired => _forceUpdateRequired;
+  bool get updateAvailable => _updateAvailable;
 
-  /// [silent] — background check (app resume) without flipping UI to "checking".
   Future<void> checkForUpdate({bool silent = false}) async {
     if (!silent) {
       _checking = true;
@@ -44,21 +45,26 @@ class AppUpdateProvider extends ChangeNotifier {
       currentVersion = result.currentVersion;
       serverInfo = result.server;
 
+      final behind = _service.isUpdateAvailable(
+        currentVersion: currentVersion,
+        server: result.server,
+      );
       final blocked = _service.requiresForceUpdate(
         currentVersion: currentVersion,
         server: result.server,
       );
 
       _forceUpdateRequired = blocked;
+      _updateAvailable = behind;
       status = blocked
           ? AppUpdateCheckStatus.forceUpdateRequired
-          : AppUpdateCheckStatus.upToDate;
+          : behind
+              ? AppUpdateCheckStatus.updateAvailable
+              : AppUpdateCheckStatus.upToDate;
       checkError = null;
     } catch (e) {
       debugPrint('[AppUpdate] version check failed: $e');
       checkError = e.toString();
-      // Fail open only when we have never confirmed a block.
-      // If already blocked, keep the gate locked through API outages.
       if (!_forceUpdateRequired) {
         status = AppUpdateCheckStatus.checkFailed;
       }

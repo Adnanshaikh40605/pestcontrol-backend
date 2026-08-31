@@ -87,6 +87,23 @@ void main() {
       );
     });
 
+    test('updateAvailable when behind latest regardless of force flag', () {
+      expect(
+        service.isUpdateAvailable(
+          currentVersion: '2.0.7',
+          server: policy(force: false, min: '2.0.8', latest: '2.0.8'),
+        ),
+        isTrue,
+      );
+      expect(
+        service.isUpdateAvailable(
+          currentVersion: '2.0.8',
+          server: policy(force: true, min: '2.0.8', latest: '2.0.8'),
+        ),
+        isFalse,
+      );
+    });
+
     test('network failure after block does not unlock app', () async {
       final fake = _FakeVersionService();
       final provider = AppUpdateProvider(fake);

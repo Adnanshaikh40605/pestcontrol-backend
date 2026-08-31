@@ -1,14 +1,14 @@
-﻿/// New booking alerts — custom urgent sound (`booking_alert_urgent.mp3`).
+﻿/// New booking alerts — Mixkit bell (`partner_notification_bell.wav`).
 /// Channel id bumped when sound/settings change on installed devices.
-const String kNewBookingChannelId = 'pest99_booking_alerts_v7';
+const String kNewBookingChannelId = 'pest99_booking_alerts_v8';
 const String kNewBookingChannelName = 'New booking alerts';
 
-/// Other booking updates (assigned, cancelled) — default system sound.
-const String kBookingUpdatesChannelId = 'pest99_bookings';
+/// Other booking updates (assigned, cancelled) — same custom bell.
+const String kBookingUpdatesChannelId = 'pest99_bookings_v2';
 const String kBookingUpdatesChannelName = 'Booking updates';
 
-/// Login success — custom sound (`login_success_loud.mp3`).
-const String kLoginChannelId = 'pest99_login_v3';
+/// Login success — same Mixkit bell (`partner_notification_bell.wav`).
+const String kLoginChannelId = 'pest99_login_v4';
 const String kLoginChannelName = 'Login';
 
 /// Legacy id kept for any in-flight references; prefer [kLoginChannelId].

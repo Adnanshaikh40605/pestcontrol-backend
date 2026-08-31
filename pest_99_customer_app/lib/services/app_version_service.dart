@@ -30,4 +30,12 @@ class AppVersionService {
     }
     return isVersionBelow(currentVersion, server.latestVersion);
   }
+
+  /// True when the installed app is older than the published Play Store version.
+  bool isUpdateAvailable({
+    required String currentVersion,
+    required AppVersionInfo server,
+  }) {
+    return isVersionBelow(currentVersion, server.latestVersion);
+  }
 }

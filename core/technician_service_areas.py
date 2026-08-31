@@ -95,7 +95,7 @@ def job_service_city(job: JobCard) -> Optional[City]:
 def technician_serves_city(technician: Technician, city: Optional[City]) -> bool:
     """
     True when the technician may be assigned for this city.
-    Empty M2M = not eligible for a known city (must be explicitly linked).
+    Empty M2M = legacy / unscoped — eligible for any city (desk can assign anyone active).
     Bookings with no city remain open to any active technician.
     """
     if city is None:
@@ -105,18 +105,25 @@ def technician_serves_city(technician: Technician, city: Optional[City]) -> bool
         technician, '_prefetched_objects_cache', {}
     ):
         cities = list(technician.service_cities.all())
-        return any(c.id == city.id for c in cities)
-    return technician.service_cities.filter(id=city.id).exists()
+    else:
+        cities = list(technician.service_cities.all())
+    if not cities:
+        return True
+    return any(c.id == city.id for c in cities)
 
 
 def filter_technicians_for_city(
     qs: QuerySet[Technician],
     city: Optional[City],
 ) -> QuerySet[Technician]:
-    """Filter technicians by service city. Unscoped techs excluded when city is known."""
+    """Filter by service city when set; always include techs with no service cities (legacy)."""
     if city is None:
         return qs
-    return qs.filter(service_cities=city).distinct()
+    return qs.annotate(
+        _service_city_count=Count('service_cities', distinct=True),
+    ).filter(
+        Q(_service_city_count=0) | Q(service_cities=city),
+    ).distinct()
 
 
 def eligible_technicians_queryset(

@@ -644,7 +644,12 @@ class CompletedBookingCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final paid = booking.isPaid;
     final yourShare = booking.hasRevenuePayout ? booking.yourShareAmount : null;
-    final jobAmount = booking.jobAmount ?? booking.amount;
+    final companyShare = booking.companyShareAmount;
+    final showCompanyShare = companyShare != null &&
+        companyShare.isNotEmpty &&
+        companyShare != '0' &&
+        companyShare != '0.00';
+    final showMoneyBox = yourShare != null || showCompanyShare;
 
     return Container(
       decoration: BoxDecoration(
@@ -747,7 +752,7 @@ class CompletedBookingCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      if (yourShare != null || jobAmount != null) ...[
+                      if (showMoneyBox) ...[
                         const SizedBox(height: 12),
                         Container(
                           width: double.infinity,
@@ -758,36 +763,17 @@ class CompletedBookingCard extends StatelessWidget {
                           ),
                           child: Column(
                             children: [
-                              if (jobAmount != null)
-                                _MoneyLine(
-                                  label: 'Job / service amount',
-                                  value: MoneyFormat.rupees(jobAmount),
-                                  muted: true,
-                                ),
-                              if (yourShare != null) ...[
-                                if (jobAmount != null) const SizedBox(height: 6),
+                              if (yourShare != null)
                                 _MoneyLine(
                                   label: booking.yourShareLabel,
                                   value: MoneyFormat.rupees(yourShare),
                                   emphasize: true,
                                 ),
-                              ],
-                              if (booking.companyShareAmount != null &&
-                                  booking.companyShareAmount!.isNotEmpty &&
-                                  booking.companyShareAmount != '0' &&
-                                  booking.companyShareAmount != '0.00') ...[
-                                const SizedBox(height: 6),
+                              if (showCompanyShare) ...[
+                                if (yourShare != null) const SizedBox(height: 6),
                                 _MoneyLine(
                                   label: booking.companyShareLabel,
-                                  value: MoneyFormat.rupees(booking.companyShareAmount),
-                                  muted: true,
-                                ),
-                              ],
-                              if (booking.payoutStatus != null && booking.payoutStatus!.isNotEmpty) ...[
-                                const SizedBox(height: 6),
-                                _MoneyLine(
-                                  label: 'Payout status',
-                                  value: booking.payoutStatus!,
+                                  value: MoneyFormat.rupees(companyShare),
                                   muted: true,
                                 ),
                               ],

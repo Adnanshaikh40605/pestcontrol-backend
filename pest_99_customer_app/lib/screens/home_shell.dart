@@ -10,7 +10,7 @@ class HomeShell extends StatelessWidget {
 
   final StatefulNavigationShell shell;
 
-  static const _branchRoutes = ['/home', '/bookings', '/amc', '/payments', '/account'];
+  static const _branchRoutes = ['/home', '/bookings', '/support', '/account'];
 
   void _onSelect(BuildContext context, int index) {
     if (index == 0) {
@@ -34,9 +34,12 @@ class HomeShell extends StatelessWidget {
         decoration: const BoxDecoration(
           color: AppColors.surface,
           border: Border(top: BorderSide(color: AppColors.divider)),
+          boxShadow: [
+            BoxShadow(color: Color(0x0D000000), blurRadius: 12, offset: Offset(0, -2)),
+          ],
         ),
         child: NavigationBar(
-          selectedIndex: shell.currentIndex,
+          selectedIndex: shell.currentIndex.clamp(0, 3),
           onDestinationSelected: (i) => _onSelect(context, i),
           backgroundColor: AppColors.surface,
           indicatorColor: AppColors.successBg,
@@ -55,19 +58,14 @@ class HomeShell extends StatelessWidget {
               label: 'Bookings',
             ),
             NavigationDestination(
-              icon: Icon(Icons.workspace_premium_outlined),
-              selectedIcon: Icon(Icons.workspace_premium, color: AppColors.primary),
-              label: 'AMC',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              selectedIcon: Icon(Icons.account_balance_wallet, color: AppColors.primary),
-              label: 'Payments',
+              icon: Icon(Icons.headset_mic_outlined),
+              selectedIcon: Icon(Icons.headset_mic_rounded, color: AppColors.primary),
+              label: 'Support',
             ),
             NavigationDestination(
               icon: Icon(Icons.person_outline_rounded),
               selectedIcon: Icon(Icons.person_rounded, color: AppColors.primary),
-              label: 'Account',
+              label: 'Profile',
             ),
           ],
         ),

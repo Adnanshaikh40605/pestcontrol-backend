@@ -69,7 +69,15 @@ class ProfileProvider extends ChangeNotifier {
       if (partner is Map<String, dynamic>) {
         _profile = PartnerProfile.fromJson(partner).copyWithStats(_profile?.stats);
       }
-      await loadProfile(force: true);
+
+      // Always re-fetch after save (avoid loadProfile early-return while _loading).
+      try {
+        final fresh = await _service.getProfile();
+        _profile = PartnerProfile.fromProfileResponse(fresh);
+      } catch (_) {
+        // Keep the updated partner payload if refresh fails.
+      }
+      _error = null;
       return true;
     } on ApiException catch (e) {
       _error = userErrorMessage(e, fallback: 'Could not save profile.');

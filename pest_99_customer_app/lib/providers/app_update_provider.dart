@@ -8,6 +8,7 @@ enum AppUpdateCheckStatus {
   checking,
   upToDate,
   forceUpdateRequired,
+  updateAvailable,
   checkFailed,
 }
 
@@ -22,10 +23,12 @@ class AppUpdateProvider extends ChangeNotifier {
   String? checkError;
 
   bool _forceUpdateRequired = false;
+  bool _updateAvailable = false;
   bool _checking = false;
 
   bool get isChecking => _checking;
   bool get forceUpdateRequired => _forceUpdateRequired;
+  bool get updateAvailable => _updateAvailable;
 
   Future<void> checkForUpdate({bool silent = false}) async {
     if (!silent) {
@@ -40,15 +43,22 @@ class AppUpdateProvider extends ChangeNotifier {
       currentVersion = result.currentVersion;
       serverInfo = result.server;
 
+      final behind = _service.isUpdateAvailable(
+        currentVersion: currentVersion,
+        server: result.server,
+      );
       final blocked = _service.requiresForceUpdate(
         currentVersion: currentVersion,
         server: result.server,
       );
 
       _forceUpdateRequired = blocked;
+      _updateAvailable = behind;
       status = blocked
           ? AppUpdateCheckStatus.forceUpdateRequired
-          : AppUpdateCheckStatus.upToDate;
+          : behind
+              ? AppUpdateCheckStatus.updateAvailable
+              : AppUpdateCheckStatus.upToDate;
       checkError = null;
     } catch (e) {
       debugPrint('[AppUpdate] version check failed: $e');

@@ -56,3 +56,29 @@ class PartnerAppVersionAPITests(TestCase):
         self.assertTrue(data['force_update'])
         self.assertEqual(data['latest_version'], '1.0.4')
         self.assertIn('pest_99_customer_app', data['store_url'])
+
+    def test_crm_latest_bump_auto_enables_force_update(self):
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        admin = User.objects.create_superuser(
+            username='versionadmin',
+            email='versionadmin@example.com',
+            password='testpass123',
+        )
+        self.client.force_authenticate(user=admin)
+        PartnerAppVersionConfig.objects.filter(pk=1).update(
+            latest_version='2.0.9',
+            minimum_supported_version='2.0.8',
+            force_update=False,
+        )
+        response = self.client.patch(
+            '/api/v1/partner-app-version/?app=partner',
+            {'latest_version': '2.1.3'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['latest_version'], '2.1.3')
+        self.assertTrue(data['force_update'])
+        self.assertEqual(data['minimum_supported_version'], '2.1.3')

@@ -134,6 +134,7 @@ class BookingService {
     String notes = '',
     String? scheduleDatetime,
     String? timeSlot,
+    bool priceConfirmationPending = false,
   }) async {
     final body = <String, dynamic>{
       'service_type': serviceType,
@@ -141,6 +142,7 @@ class BookingService {
       'address': address,
       'property_type': propertyType,
       'booking_type': bookingType,
+      'price_confirmation_pending': priceConfirmationPending,
       if (pricingRateId > 0) 'pricing_rate_id': pricingRateId,
       if (city.isNotEmpty) 'city': city,
       if (area.isNotEmpty) 'area': area,
@@ -150,6 +152,14 @@ class BookingService {
       if (timeSlot != null) 'time_slot': timeSlot,
     };
     final data = await _api.post(ApiConfig.bookings, body: body);
+    return CustomerBooking.fromJson(data['booking'] as Map<String, dynamic>);
+  }
+
+  Future<CustomerBooking> cancel(int id, {required String reason}) async {
+    final data = await _api.post(
+      ApiConfig.bookingCancel(id),
+      body: {'reason': reason.trim()},
+    );
     return CustomerBooking.fromJson(data['booking'] as Map<String, dynamic>);
   }
 

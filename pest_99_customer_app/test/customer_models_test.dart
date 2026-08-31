@@ -16,19 +16,46 @@ void main() {
     expect(rate.premiumAmount, '1150.00');
   });
 
-  test('CustomerBooking parses rating flags', () {
-    final booking = CustomerBooking.fromJson({
-      'id': 9,
-      'code': 'JC-9',
+  test('CustomerBooking isPaid does not match Unpaid', () {
+    final unpaid = CustomerBooking.fromJson({
+      'id': 1,
       'service_type': 'General Pest',
-      'status': 'Done',
-      'payment_status': 'Paid',
-      'can_rate': true,
-      'invoice_amount': '1000.00',
+      'payment_status': 'Unpaid',
     });
-    expect(booking.isDone, isTrue);
-    expect(booking.isPaid, isTrue);
-    expect(booking.canRate, isTrue);
+    final pending = CustomerBooking.fromJson({
+      'id': 2,
+      'service_type': 'General Pest',
+      'payment_status': 'Pending',
+      'price_confirmation_pending': true,
+    });
+    final paid = CustomerBooking.fromJson({
+      'id': 3,
+      'service_type': 'General Pest',
+      'payment_status': 'Paid',
+    });
+    expect(unpaid.isPaid, isFalse);
+    expect(unpaid.paymentStatusLabel, 'Unpaid');
+    expect(pending.isPaid, isFalse);
+    expect(pending.paymentStatusLabel, 'Price Confirmation Pending');
+    expect(paid.isPaid, isTrue);
+    expect(paid.paymentStatusLabel, 'Paid');
+  });
+
+  test('CustomerBooking shows technician status after accept', () {
+    final booking = CustomerBooking.fromJson({
+      'id': 4,
+      'service_type': 'General Pest',
+      'status': 'Pending',
+      'partner_status': 'accepted',
+      'payment_status': 'Unpaid',
+      'technician_name': 'Ravi Tech',
+      'technician_mobile': '9876543210',
+      'can_cancel': true,
+    });
+    expect(booking.hasAssignedTechnician, isTrue);
+    expect(booking.visitStatusLabel, 'Technician assigned');
+    expect(booking.canCancel, isTrue);
+    expect(booking.isPaid, isFalse);
   });
 
   test('CustomerProfile fromJson', () {

@@ -60,12 +60,45 @@ class BookingFlowProvider extends ChangeNotifier {
   ];
 
   static const timeSlots = <String>[
-    '10:00 AM – 12:00 PM',
-    '12:00 PM – 02:00 PM',
-    '02:00 PM – 04:00 PM',
-    '04:00 PM – 06:00 PM',
-    '06:00 PM – 08:00 PM',
+    '10:00 AM',
+    '10:30 AM',
+    '11:00 AM',
+    '11:30 AM',
+    '12:00 PM',
+    '12:30 PM',
+    '01:00 PM',
+    '01:30 PM',
+    '02:00 PM',
+    '02:30 PM',
+    '03:00 PM',
+    '03:30 PM',
+    '04:00 PM',
+    '04:30 PM',
+    '05:00 PM',
+    '05:30 PM',
+    '06:00 PM',
+    '06:30 PM',
+    '07:00 PM',
+    '07:30 PM',
   ];
+
+  /// Plan options allowed per service catalog id.
+  static List<String> planOptionsFor(String serviceId) {
+    switch (serviceId) {
+      case 'bedbug':
+        return const ['2_service'];
+      case 'termite':
+        return const ['one_time'];
+      case 'general':
+      case 'cockroach':
+      case 'ant':
+      case 'rodent':
+      case 'mosquito':
+        return const ['one_time', 'amc'];
+      default:
+        return const ['one_time'];
+    }
+  }
 
   /// 'home' | 'commercial'
   String propertyCategory = 'home';
@@ -144,17 +177,45 @@ class BookingFlowProvider extends ChangeNotifier {
       planIsAmc.remove(id);
     } else {
       selectedServiceIds.add(id);
+      final options = planOptionsFor(id);
+      planIsAmc[id] = options.contains('amc') && options.first == 'amc';
+      if (options.contains('2_service')) {
+        planIsAmc[id] = false; // Bed Bugs uses one-time package path with 2 visits
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Start booking flow with a single popular service pre-selected.
+  void selectOnlyService(String id) {
+    selectedServiceIds
+      ..clear()
+      ..add(id);
+    planIsAmc.clear();
+    final options = planOptionsFor(id);
+    planIsAmc[id] = options.contains('amc') && options.first == 'amc';
+    if (options.contains('2_service')) {
       planIsAmc[id] = false;
     }
     notifyListeners();
   }
 
   void setPlan(String serviceId, {required bool isAmc}) {
+    final options = planOptionsFor(serviceId);
+    if (isAmc && !options.contains('amc')) return;
+    if (!isAmc && !options.contains('one_time') && !options.contains('2_service')) return;
     planIsAmc[serviceId] = isAmc;
     notifyListeners();
   }
 
   String planLabel(String serviceId) {
+    final options = planOptionsFor(serviceId);
+    if (options.length == 1 && options.first == '2_service') {
+      return '2-Service Package';
+    }
+    if (options.length == 1 && options.first == 'one_time') {
+      return 'One-Time Service';
+    }
     final isAmc = planIsAmc[serviceId] ?? false;
     final rate = matchRateForService(serviceId, isAmc: isAmc);
     if (rate != null && rate.planType.trim().isNotEmpty) {

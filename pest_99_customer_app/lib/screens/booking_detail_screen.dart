@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api_client.dart';
 import '../core/theme/app_colors.dart';
@@ -23,6 +24,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   CustomerBooking? _booking;
   Map<String, dynamic>? _invoice;
   bool _loading = true;
+  bool _cancelling = false;
   String? _error;
 
   @override
@@ -66,6 +68,81 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
       return DateFormat('EEE, d MMM yyyy · h:mm a').format(DateTime.parse(raw).toLocal());
     } catch (_) {
       return raw;
+    }
+  }
+
+  Future<void> _callTechnician(String mobile) async {
+    final cleaned = mobile.replaceAll(RegExp(r'[^\d+]'), '');
+    if (cleaned.isEmpty) return;
+    final uri = Uri.parse(cleaned.startsWith('+') ? 'tel:$cleaned' : 'tel:+91$cleaned');
+    await launchUrl(uri);
+  }
+
+  Future<void> _cancelBooking() async {
+    final controller = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel booking'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Please share a short reason for cancellation.',
+              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              maxLines: 3,
+              maxLength: 500,
+              decoration: const InputDecoration(
+                hintText: 'e.g. Plans changed, wrong date selected',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Keep booking')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Cancel booking', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (reason == null || !mounted) return;
+    if (reason.trim().length < 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a reason (at least 4 characters).'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+    setState(() => _cancelling = true);
+    try {
+      final updated = await BookingService(context.read<ApiClient>()).cancel(
+        widget.bookingId,
+        reason: reason,
+      );
+      if (!mounted) return;
+      setState(() {
+        _booking = updated;
+        _cancelling = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Booking cancelled.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _cancelling = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e'), backgroundColor: AppColors.danger),
+      );
     }
   }
 
@@ -144,13 +221,17 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                                 label: b.visitStatusLabel,
                                 tone: b.isDone
                                     ? StatusTone.success
-                                    : (b.visitStatusLabel.toLowerCase().contains('cancel')
+                                    : (b.isCancelled
                                         ? StatusTone.danger
                                         : StatusTone.info),
                               ),
                               StatusChip(
                                 label: b.paymentStatusLabel,
-                                tone: b.isPaid ? StatusTone.success : StatusTone.warning,
+                                tone: b.isPaid
+                                    ? StatusTone.success
+                                    : (b.priceConfirmationPending
+                                        ? StatusTone.info
+                                        : StatusTone.warning),
                               ),
                               if (b.planTypeLabel != null)
                                 StatusChip(
@@ -162,10 +243,12 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                           const SizedBox(height: 14),
                           _DetailRow(label: 'Schedule', value: _formatDate(b.scheduleDatetime)),
                           if (b.timeSlot != null && b.timeSlot!.isNotEmpty)
-                            _DetailRow(label: 'Time slot', value: b.timeSlot!),
+                            _DetailRow(label: 'Preferred time', value: b.timeSlot!),
                           _DetailRow(
-                            label: 'Amount',
-                            value: '₹${b.invoiceAmount ?? b.price ?? '—'}',
+                            label: 'Total booking amount',
+                            value: b.priceConfirmationPending
+                                ? 'Pending confirmation'
+                                : '₹${b.invoiceAmount ?? b.price ?? '—'}',
                           ),
                           if (b.clientAddress != null && b.clientAddress!.isNotEmpty)
                             _DetailRow(label: 'Address', value: b.clientAddress!),
@@ -186,6 +269,80 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                         ],
                       ),
                     ),
+                    if (b.hasAssignedTechnician) ...[
+                      const SizedBox(height: 16),
+                      SectionCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Assigned technician',
+                              style: Theme.of(context).textTheme.headlineSmall,
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 28,
+                                  backgroundColor: AppColors.primary.withValues(alpha: 0.12),
+                                  backgroundImage: (b.technicianPhotoUrl != null &&
+                                          b.technicianPhotoUrl!.trim().isNotEmpty)
+                                      ? NetworkImage(b.technicianPhotoUrl!)
+                                      : null,
+                                  child: (b.technicianPhotoUrl == null ||
+                                          b.technicianPhotoUrl!.trim().isEmpty)
+                                      ? Text(
+                                          b.technicianName!.trim().isNotEmpty
+                                              ? b.technicianName!.trim()[0].toUpperCase()
+                                              : 'T',
+                                          style: const TextStyle(
+                                            color: AppColors.primary,
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 20,
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        b.technicianName!,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        b.visitStatusLabel,
+                                        style: const TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if ((b.technicianMobile ?? '').trim().isNotEmpty)
+                                  IconButton.filled(
+                                    onPressed: () => _callTechnician(b.technicianMobile!),
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: AppColors.primary,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    icon: const Icon(Icons.call_rounded),
+                                    tooltip: 'Call technician',
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     if (_invoice != null) ...[
                       const SizedBox(height: 16),
                       SectionCard(
@@ -221,20 +378,55 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                       ),
                     ],
                     const SizedBox(height: 24),
-                    if (!b.isPaid)
+                    if (!b.isPaid && !b.isCancelled)
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: AppColors.successSoft,
+                          color: b.priceConfirmationPending
+                              ? const Color(0xFFFFF7ED)
+                              : AppColors.successSoft,
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                          border: Border.all(
+                            color: (b.priceConfirmationPending ? AppColors.warning : AppColors.primary)
+                                .withValues(alpha: 0.3),
+                          ),
                         ),
-                        child: const Text(
-                          'Pay after service. Online payment will be enabled once the payment gateway is live.',
-                          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                        child: Text(
+                          b.priceConfirmationPending
+                              ? 'Price confirmation pending. Our team will confirm the final amount shortly.'
+                              : 'Payment status: Unpaid. Pay after service once the amount is confirmed.',
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                         ),
                       ),
+                    if (b.canCancel) ...[
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 46,
+                        child: OutlinedButton.icon(
+                          onPressed: _cancelling ? null : _cancelBooking,
+                          icon: _cancelling
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.cancel_outlined, color: AppColors.danger),
+                          label: Text(
+                            _cancelling ? 'Cancelling…' : 'Cancel Booking',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.danger,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppColors.danger),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ),
+                    ],
                     if (b.canRate) ...[
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
@@ -250,14 +442,16 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                         style: Theme.of(context).textTheme.bodyLarge,
                       ),
                     ],
-                    const SizedBox(height: 16),
-                    Text(
-                      'Our team will confirm your booking shortly.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
-                    ),
+                    if (!b.hasAssignedTechnician && !b.isCancelled && !b.isDone) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'Our team will confirm your booking shortly. Technician details appear after assignment.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                      ),
+                    ],
                   ],
                 ),
     );
@@ -278,16 +472,22 @@ class _DetailRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 96,
+            width: 120,
             child: Text(
               label,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
                   ),
             ),
           ),
           Expanded(
-            child: Text(value, style: Theme.of(context).textTheme.bodyLarge),
+            child: Text(
+              value,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
           ),
         ],
       ),

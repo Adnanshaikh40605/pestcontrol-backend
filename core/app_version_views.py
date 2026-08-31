@@ -77,6 +77,7 @@ class PartnerAppVersionCRMAPIView(APIView):
     def patch(self, request):
         app = _resolve_app(request)
         config = _config_for_app(app)
+        previous_latest = (config.latest_version or '').strip()
         allowed = {
             'latest_version',
             'minimum_supported_version',
@@ -88,6 +89,18 @@ class PartnerAppVersionCRMAPIView(APIView):
             if key not in allowed:
                 continue
             setattr(config, key, value)
+
+        new_latest = (config.latest_version or '').strip()
+        latest_bumped = bool(new_latest) and new_latest != previous_latest
+
+        # Publishing a new Play Store version: require older installs to update
+        # unless the admin explicitly sent force_update/minimum in this request.
+        if latest_bumped:
+            if 'force_update' not in request.data:
+                config.force_update = True
+            if 'minimum_supported_version' not in request.data:
+                config.minimum_supported_version = new_latest
+
         # Keep min in sync with latest when enabling force update without an explicit min.
         if (
             config.force_update

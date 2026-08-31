@@ -10,6 +10,7 @@ import '../../core/constants/app_assets.dart';
 import '../../shared/widgets/app_snackbar.dart';
 import '../../shared/widgets/app_text_field.dart';
 import '../../shared/widgets/legal_footer_links.dart';
+import '../../shared/widgets/pest_logo.dart';
 import '../../shared/widgets/primary_button.dart';
 import '../../shared/widgets/stitch_illustration.dart';
 
@@ -75,9 +76,11 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             children: [
               const SizedBox(height: 16),
+              const PestLogo(height: 56),
+              const SizedBox(height: 16),
               const StitchIllustration(
                 asset: AppAssets.loginIllustration,
-                height: 240,
+                height: 200,
                 semanticLabel: 'Partner login illustration',
               ),
               const SizedBox(height: 24),

@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/models/booking_type.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/utils/money_format.dart';
 import 'primary_button.dart';
 
 /// Returns local image path after capture, or null if cancelled.
@@ -18,12 +19,19 @@ Future<String?> showSelfieVerificationModal(BuildContext context) {
   );
 }
 
-Future<PaymentMode?> showEndServiceModal(BuildContext context) {
+Future<PaymentMode?> showEndServiceModal(
+  BuildContext context, {
+  String? payableAmount,
+  String? jobAmount,
+}) {
   return showModalBottomSheet<PaymentMode>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (context) => const _EndServiceSheet(),
+    builder: (context) => _EndServiceSheet(
+      payableAmount: payableAmount,
+      jobAmount: jobAmount,
+    ),
   );
 }
 
@@ -147,7 +155,10 @@ class _SelfieVerificationSheetState extends State<_SelfieVerificationSheet> {
 }
 
 class _EndServiceSheet extends StatefulWidget {
-  const _EndServiceSheet();
+  const _EndServiceSheet({this.payableAmount, this.jobAmount});
+
+  final String? payableAmount;
+  final String? jobAmount;
 
   @override
   State<_EndServiceSheet> createState() => _EndServiceSheetState();
@@ -158,6 +169,8 @@ class _EndServiceSheetState extends State<_EndServiceSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final payable = (widget.payableAmount ?? '').trim();
+    final job = (widget.jobAmount ?? '').trim();
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -180,9 +193,42 @@ class _EndServiceSheetState extends State<_EndServiceSheet> {
           Text('Complete Service', style: Theme.of(context).textTheme.headlineMedium),
           const SizedBox(height: 8),
           Text(
-            'Please record the final payment mode to close the job.',
+            'Confirm the final payable amount and payment mode to close the job.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.onSurfaceVariant),
           ),
+          if (payable.isNotEmpty || job.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFA7F3D0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (job.isNotEmpty)
+                    Text(
+                      'Final payable amount: ${MoneyFormat.rupees(job)}',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            color: const Color(0xFF047857),
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                  if (payable.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Your share: ${MoneyFormat.rupees(payable)}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 24),
           Text('Payment Mode', style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),

@@ -2,18 +2,29 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/app_assets.dart';
 
+/// Official Pest Control 99 brand mark (matches Customer App).
 class PestLogo extends StatelessWidget {
-  const PestLogo({super.key, this.height = 32});
+  const PestLogo({super.key, this.height = 32, this.width});
 
   final double height;
+  final double? width;
 
   @override
   Widget build(BuildContext context) {
     return Image.asset(
       AppAssets.logo,
       height: height,
+      width: width,
       fit: BoxFit.contain,
-      errorBuilder: (_, _, _) => const Icon(Icons.shield, color: Colors.white),
+      filterQuality: FilterQuality.high,
+      errorBuilder: (_, _, _) => Text(
+        'PestControl99',
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: height * 0.4,
+        ),
+      ),
     );
   }
 }
@@ -40,8 +51,12 @@ class PestLogoCard extends StatelessWidget {
           ),
         ],
       ),
-      padding: const EdgeInsets.all(8),
-      child: Image.asset(AppAssets.logo, fit: BoxFit.contain),
+      padding: const EdgeInsets.all(12),
+      child: Image.asset(
+        AppAssets.logo,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+      ),
     );
   }
 }

@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -27,26 +30,29 @@ Future<void> main() async {
 }
 
 Future<void> _startApp() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   final sessionCoordinator = SessionCoordinator();
   final api = ApiClient(sessionCoordinator: sessionCoordinator);
   final notificationApi = NotificationApiService(api);
 
-  await PushNotificationService.instance.initialize();
-  PushNotificationService.instance.configure(
-    api: notificationApi,
-    onOpenBooking: (id, data) {
-      final router = _routerHolder.router;
-      if (router != null) {
-        NotificationNavigation.openBookingFromPush(
-          id,
-          router: router,
-          data: data,
-        );
-      }
-    },
-  );
+  // Keep splash up — FCM init must not block first paint.
+  unawaited(PushNotificationService.instance.initialize().then((_) {
+    PushNotificationService.instance.configure(
+      api: notificationApi,
+      onOpenBooking: (id, data) {
+        final router = _routerHolder.router;
+        if (router != null) {
+          NotificationNavigation.openBookingFromPush(
+            id,
+            router: router,
+            data: data,
+          );
+        }
+      },
+    );
+  }));
 
   final appUpdate = AppUpdateProvider(AppVersionService(api));
   final auth = AuthProvider(AuthService(api), sessionCoordinator);

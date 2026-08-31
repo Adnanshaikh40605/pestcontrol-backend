@@ -297,19 +297,32 @@ class _ServiceTile extends StatelessWidget {
                 child: Text('More Options', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12.5)),
               ),
               const SizedBox(height: 8),
-              _ModeRow(
-                title: 'One-Time Service',
-                subtitle: flow.priceLabelForService(service.id, isAmc: false),
-                selected: !isAmc,
-                onTap: () => flow.setPlan(service.id, isAmc: false),
-              ),
-              const SizedBox(height: 8),
-              _ModeRow(
-                title: 'AMC Package',
-                subtitle: flow.priceLabelForService(service.id, isAmc: true),
-                selected: isAmc,
-                onTap: () => flow.setPlan(service.id, isAmc: true),
-              ),
+              ...() {
+                final options = BookingFlowProvider.planOptionsFor(service.id);
+                final widgets = <Widget>[];
+                if (options.contains('one_time') || options.contains('2_service')) {
+                  widgets.add(
+                    _ModeRow(
+                      title: options.contains('2_service') ? '2-Service Package' : 'One-Time Service',
+                      subtitle: flow.priceLabelForService(service.id, isAmc: false),
+                      selected: !isAmc,
+                      onTap: () => flow.setPlan(service.id, isAmc: false),
+                    ),
+                  );
+                }
+                if (options.contains('amc')) {
+                  if (widgets.isNotEmpty) widgets.add(const SizedBox(height: 8));
+                  widgets.add(
+                    _ModeRow(
+                      title: 'AMC Package',
+                      subtitle: flow.priceLabelForService(service.id, isAmc: true),
+                      selected: isAmc,
+                      onTap: () => flow.setPlan(service.id, isAmc: true),
+                    ),
+                  );
+                }
+                return widgets;
+              }(),
             ],
           ],
         ),
@@ -459,17 +472,17 @@ class DateTimeSelectionScreen extends StatelessWidget {
             },
           ),
           const SizedBox(height: 18),
-          const Text('Select Time Slot', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+          const Text('Select exact service time', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
           const SizedBox(height: 4),
-          const Text('Day slots · 10 AM to 8 PM', style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
+          const Text('Choose a preferred start time · 10 AM to 7:30 PM', style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
           const SizedBox(height: 10),
           GridView.count(
-            crossAxisCount: 2,
+            crossAxisCount: 3,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: 8,
             crossAxisSpacing: 8,
-            childAspectRatio: 3.6,
+            childAspectRatio: 2.4,
             children: BookingFlowProvider.timeSlots.map((slot) {
               final selected = flow.selectedSlot == slot;
               return InkWell(
@@ -488,6 +501,7 @@ class DateTimeSelectionScreen extends StatelessWidget {
                   ),
                   child: Text(
                     slot,
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 11.5,
                       fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
@@ -562,17 +576,29 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         final catalog = await CatalogService(api).list();
         flow.setRates(catalog);
       }
-      final rate = flow.matchRate();
-      if (rate == null) {
-        throw Exception('No CRM price found for this selection. Please change property size or service.');
-      }
       final first = flow.selectedServices.first;
       final isAmc = flow.planIsAmc[first.id] ?? false;
+      // Any selected service without a CRM fixed rate → Price Confirmation Pending.
+      var pricePending = false;
+      final missing = <String>[];
+      for (final s in flow.selectedServices) {
+        final amt = flow.amountForService(s.id);
+        if (amt == null || amt <= 0) {
+          pricePending = true;
+          missing.add(s.name);
+        }
+      }
+      final rate = flow.matchRate();
+      if (rate == null) pricePending = true;
       final amount = flow.amountForService(first.id);
-      final hour = _slotStartHour(flow.selectedSlot);
+      final rateId = pricePending ? 0 : (rate?.id ?? 0);
+      final parts = _slotParts(flow.selectedSlot);
+      final pendingNote = missing.isEmpty
+          ? 'Price Confirmation Pending'
+          : 'Price Confirmation Pending (${missing.join(', ')})';
       final booking = await BookingService(api).book(
         serviceType: flow.selectedServices.map((s) => s.name).join(', '),
-        pricingRateId: rate.id,
+        pricingRateId: rateId,
         packageTier: 'standard',
         address: flow.serviceAddress.trim(),
         city: flow.serviceCity.trim(),
@@ -580,14 +606,16 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         bhkSize: flow.bhkSizeForApi,
         propertyType: flow.propertyTypeForApi,
         bookingType: isAmc ? 'amc' : 'one_time',
+        priceConfirmationPending: pricePending,
         notes:
             'App booking · ${flow.propertyLabel} · ${flow.propertyConfig} · ${flow.selectedSlot}'
-            '${amount != null && amount > 0 ? ' · CRM ₹${amount.round()}' : ''}',
+            '${pricePending ? ' · $pendingNote' : ' · CRM ₹${(amount ?? 0).round()}'}',
         scheduleDatetime: DateTime(
           flow.selectedDate.year,
           flow.selectedDate.month,
           flow.selectedDate.day,
-          hour,
+          parts.$1,
+          parts.$2,
         ).toUtc().toIso8601String(),
         timeSlot: flow.selectedSlot,
       );
@@ -604,22 +632,29 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     }
   }
 
-  int _slotStartHour(String? slot) {
-    if (slot == null || slot.isEmpty) return 10;
+  /// Returns (hour, minute) in 24h for a label like "10:30 AM".
+  (int, int) _slotParts(String? slot) {
+    if (slot == null || slot.isEmpty) return (10, 0);
     final match = RegExp(r'(\d{1,2}):(\d{2})\s*(AM|PM)', caseSensitive: false).firstMatch(slot);
-    if (match == null) return 10;
+    if (match == null) return (10, 0);
     var hour = int.tryParse(match.group(1)!) ?? 10;
+    final minute = int.tryParse(match.group(2)!) ?? 0;
     final meridiem = (match.group(3) ?? 'AM').toUpperCase();
     if (meridiem == 'PM' && hour < 12) hour += 12;
     if (meridiem == 'AM' && hour == 12) hour = 0;
-    return hour;
+    return (hour, minute);
   }
 
   @override
   Widget build(BuildContext context) {
     final flow = context.watch<BookingFlowProvider>();
     final total = flow.estimatedTotal;
-    final hasPriced = total > 0;
+    final allPriced = flow.selectedServices.isNotEmpty &&
+        flow.selectedServices.every((s) {
+          final amount = flow.amountForService(s.id);
+          return amount != null && amount > 0;
+        });
+    final hasPriced = allPriced && total > 0;
     final loggedIn = context.watch<AuthProvider>().loggedIn;
 
     return Pc99Scaffold(
@@ -628,32 +663,39 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       floatingBottom: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (hasPriced)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: AppColors.successSoft,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.currency_rupee_rounded, color: AppColors.primary, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Total ${BookingFlowProvider.formatInr(total)} · pay after service',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-                    ),
-                  ),
-                ],
-              ),
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: hasPriced ? AppColors.successSoft : const Color(0xFFFFF7ED),
+              borderRadius: BorderRadius.circular(10),
             ),
+            child: Row(
+              children: [
+                Icon(
+                  hasPriced ? Icons.currency_rupee_rounded : Icons.schedule_outlined,
+                  color: hasPriced ? AppColors.primary : AppColors.warning,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    hasPriced
+                        ? 'Total ${BookingFlowProvider.formatInr(total)} · Unpaid until payment received'
+                        : 'Fixed rate not found · booking will be created as Price Confirmation Pending',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                  ),
+                ),
+              ],
+            ),
+          ),
           Pc99PrimaryButton(
             label: _busy
                 ? 'Confirming…'
-                : (loggedIn ? 'Continue to Payment' : 'Login to Confirm'),
+                : (loggedIn
+                    ? (hasPriced ? 'Confirm Booking' : 'Request Price Confirmation')
+                    : 'Login to Confirm'),
             onPressed: _confirm,
             busy: _busy,
           ),

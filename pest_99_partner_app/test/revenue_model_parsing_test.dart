@@ -99,6 +99,22 @@ void main() {
       });
       expect(booking.hasRevenuePayout, isFalse);
     });
+
+    test('parses completed_at from list payload', () {
+      final booking = PartnerBooking.fromJson({
+        'id': 469,
+        'service_type': 'Cockroach / Ants',
+        'partner_status': 'completed',
+        'client_name': 'Adnan Shaikh',
+        'payment_status': 'Paid',
+        'completed_at': '2026-05-27T14:30:00Z',
+        'visit_payout_amount': '0.00',
+        'payout_status': 'legacy_exempt',
+      });
+      expect(booking.completedAt, '2026-05-27T14:30:00Z');
+      expect(booking.clientName, 'Adnan Shaikh');
+      expect(booking.hasRevenuePayout, isFalse);
+    });
   });
 
   group('PartnerLeaveRequest', () {

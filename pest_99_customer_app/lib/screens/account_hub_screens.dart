@@ -58,6 +58,7 @@ class _AmcDashboardScreenState extends State<AmcDashboardScreen> {
 
     return Pc99Scaffold(
       title: 'My AMC Dashboard',
+      onBack: () => context.canPop() ? context.pop() : context.go('/home'),
       child: _loading
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
           : Column(
@@ -478,6 +479,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     final rows = _filtered;
     return Pc99Scaffold(
       brandTitle: true,
+      onBack: () => context.canPop() ? context.pop() : context.go('/home'),
       child: RefreshIndicator(
         color: AppColors.primary,
         onRefresh: _load,
@@ -662,8 +664,8 @@ class AccountScreen extends StatelessWidget {
             child: Column(
               children: [
                 _Menu(Icons.home_work_outlined, 'Book a Service', () => pushAuthed(context, '/book/property')),
-                _Menu(Icons.workspace_premium_outlined, 'My AMC', () => context.go('/amc')),
-                _Menu(Icons.receipt_long_outlined, 'Payments & Invoices', () => context.go('/payments')),
+                _Menu(Icons.workspace_premium_outlined, 'My AMC', () => context.push('/amc')),
+                _Menu(Icons.receipt_long_outlined, 'Payments & Invoices', () => context.push('/payments')),
                 _Menu(Icons.support_agent_rounded, 'Complaint / Re-Service', () => context.push('/complaint')),
                 _Menu(Icons.help_outline, 'Help & Support', () => openLegalUrl(LegalConfig.contact)),
                 _Menu(Icons.privacy_tip_outlined, 'Privacy Policy', () => openLegalUrl(LegalConfig.privacyPolicy)),

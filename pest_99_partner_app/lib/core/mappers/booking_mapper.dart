@@ -9,6 +9,7 @@ class BookingMapper {
     final schedule = _parseSchedule(b.scheduleDatetime);
     final started = _startedLabels(b.startedAt);
     final amount = b.totalBookingAmount ?? b.priceDisplay ?? b.price;
+    final completionDate = _formatCompletionDate(b.completedAt) ?? schedule.dateLabel;
     return Booking(
       id: '${b.id}',
       pestType: b.serviceType,
@@ -36,6 +37,7 @@ class BookingMapper {
       amount: amount,
       paymentStatus: _paymentStatus(b.paymentStatus),
       paymentMode: _paymentMode(b.paymentMode),
+      completionDate: completionDate,
       isPaid: (b.paymentStatus ?? '').toLowerCase() == 'paid',
       jobAmount: amount,
       yourShareAmount: b.visitPayoutAmount,
@@ -196,6 +198,17 @@ class BookingMapper {
       return (startedLabel, running);
     } catch (_) {
       return ('Service in progress', null);
+    }
+  }
+
+  /// Formats API `completed_at` for Completed Jobs cards (e.g. "Wed, 27 May").
+  static String? _formatCompletionDate(String? iso) {
+    if (iso == null || iso.isEmpty) return null;
+    try {
+      final dt = DateTime.parse(iso).toLocal();
+      return DateFormat('EEE, d MMM').format(dt);
+    } catch (_) {
+      return iso;
     }
   }
 }

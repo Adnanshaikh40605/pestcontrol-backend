@@ -4,12 +4,14 @@ import '../../core/models/booking_type.dart';
 import '../../core/theme/app_colors.dart';
 
 class BookingTypeTag extends StatelessWidget {
-  const BookingTypeTag({super.key, required this.type});
+  const BookingTypeTag({super.key, required this.type, this.labelOverride});
 
   final BookingType type;
+  final String? labelOverride;
 
   @override
   Widget build(BuildContext context) {
+    final label = (labelOverride ?? type.label).trim();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -17,7 +19,7 @@ class BookingTypeTag extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        type.label.toUpperCase(),
+        label.toUpperCase(),
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: type.color,
               fontSize: 10,

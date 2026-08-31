@@ -482,9 +482,15 @@ class TechnicianViewSet(BaseModelViewSet):
             from core.models import City
             city = City.objects.filter(id=int(city_id)).first()
 
-        # When filtering by a known city and nobody matches, return empty list
-        # (frontend shows "No available technicians found for this service area.")
+        # When filtering by a known city and nobody has that city explicitly linked,
+        # still return unscoped (no service cities) technicians so desk can assign.
         if city is not None and not data:
+            unscoped = Technician.objects.filter(is_active=True).annotate(
+                _n=Count('service_cities', distinct=True),
+            ).filter(_n=0).order_by('name')
+            if unscoped.exists():
+                serializer = self.get_serializer(unscoped, many=True)
+                return response.Response(serializer.data)
             return response.Response([])
         return response.Response(data)
 

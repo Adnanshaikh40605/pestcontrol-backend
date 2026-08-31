@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/auth_gate.dart';
 import '../features/force_update/force_update_screen.dart';
+import '../features/splash/splash_screen.dart';
 import '../providers/app_update_provider.dart';
 import '../providers/auth_provider.dart';
 import '../screens/account_hub_screens.dart';
@@ -14,11 +15,12 @@ import '../screens/home_shell.dart';
 import '../screens/invoice_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/register_screen.dart';
+import '../screens/support_hub_screen.dart';
 
 class AppRouter {
   AppRouter(this._auth, this._appUpdate) {
     router = GoRouter(
-      initialLocation: '/home',
+      initialLocation: '/splash',
       refreshListenable: Listenable.merge([_auth, _appUpdate]),
       redirect: (context, state) {
         final loc = state.matchedLocation;
@@ -27,10 +29,13 @@ class AppRouter {
           return loc == '/force-update' ? null : '/force-update';
         }
         if (loc == '/force-update') {
-          return '/home';
+          return '/splash';
         }
 
-        if (!_auth.ready) return null;
+        // Splash owns bootstrap + version check.
+        if (loc == '/splash') return null;
+
+        if (!_auth.ready) return '/splash';
         final onAuth = loc == '/login' || loc == '/register' || loc == '/otp';
 
         // Guests may browse Home; any other feature requires login.
@@ -46,6 +51,10 @@ class AppRouter {
         return null;
       },
       routes: [
+        GoRoute(
+          path: '/splash',
+          pageBuilder: (_, _) => const NoTransitionPage(child: SplashScreen()),
+        ),
         GoRoute(
           path: '/force-update',
           builder: (_, _) => ForceUpdateScreen(
@@ -91,16 +100,15 @@ class AppRouter {
               GoRoute(path: '/bookings', builder: (_, _) => const BookingsScreen()),
             ]),
             StatefulShellBranch(routes: [
-              GoRoute(path: '/amc', builder: (_, _) => const AmcDashboardScreen()),
-            ]),
-            StatefulShellBranch(routes: [
-              GoRoute(path: '/payments', builder: (_, _) => const PaymentsScreen()),
+              GoRoute(path: '/support', builder: (_, _) => const SupportHubScreen()),
             ]),
             StatefulShellBranch(routes: [
               GoRoute(path: '/account', builder: (_, _) => const AccountScreen()),
             ]),
           ],
         ),
+        GoRoute(path: '/amc', builder: (_, _) => const AmcDashboardScreen()),
+        GoRoute(path: '/payments', builder: (_, _) => const PaymentsScreen()),
         GoRoute(path: '/book/property', builder: (_, _) => const PropertySelectionScreen()),
         GoRoute(path: '/book/datetime', builder: (_, _) => const DateTimeSelectionScreen()),
         GoRoute(path: '/book/summary', builder: (_, _) => const BookingSummaryScreen()),

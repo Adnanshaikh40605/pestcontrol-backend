@@ -6,16 +6,12 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/api_client.dart';
 import '../../core/theme/app_colors.dart';
 import '../../providers/app_update_provider.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/profile_provider.dart';
-import '../../services/profile_service.dart';
-import '../../services/push_notification_service.dart';
 
-/// Matches the native Android/iOS splash (white + official logo) so the handoff
-/// from OS splash → Flutter has no visible second design.
+/// Matches native Android/iOS splash (white + official logo) so users never see
+/// a second, different splash design after launch.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -35,62 +31,34 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _boot() async {
     try {
+      final auth = context.read<AuthProvider>();
       final appUpdate = context.read<AppUpdateProvider>();
-      await appUpdate.checkForUpdate();
+
+      await Future.wait([
+        auth.bootstrap(),
+        appUpdate.checkForUpdate(),
+      ]);
+
       if (!mounted) return;
+
       if (appUpdate.forceUpdateRequired) {
         context.go('/force-update');
         return;
       }
 
-      final auth = context.read<AuthProvider>();
-      await auth.init();
-      if (!mounted) return;
-
-      _navigateForSession(auth);
-      unawaited(_warmSessionInBackground(auth));
+      if (!auth.loggedIn) {
+        context.go('/home');
+        return;
+      }
+      context.go(auth.takePendingRoute() ?? '/home');
     } catch (e, stack) {
       debugPrint('[Splash] boot error: $e\n$stack');
       if (!mounted) return;
       final auth = context.read<AuthProvider>();
-      if (!auth.ready) await auth.init();
+      if (!auth.ready) await auth.bootstrap();
       if (!mounted) return;
-      _navigateForSession(auth);
+      context.go('/home');
     }
-  }
-
-  void _navigateForSession(AuthProvider auth) {
-    if (!auth.loggedIn) {
-      context.go('/login');
-      return;
-    }
-    if (!auth.appApproved) {
-      context.go('/pending-approval');
-      return;
-    }
-    context.go('/bookings');
-    PushNotificationService.instance.processPendingNavigation();
-  }
-
-  Future<void> _warmSessionInBackground(AuthProvider auth) async {
-    if (!auth.loggedIn) return;
-
-    await auth.warmSessionAfterLogin();
-    if (!mounted) return;
-
-    try {
-      final data = await ProfileService(context.read<ApiClient>())
-          .getProfile()
-          .timeout(const Duration(seconds: 12));
-      await auth.refreshApprovalFromProfile(data);
-    } catch (_) {
-      /* offline or expired — router/auth redirect will handle */
-    }
-
-    if (!mounted) return;
-    if (!auth.loggedIn || !auth.appApproved) return;
-
-    unawaited(context.read<ProfileProvider>().loadProfile(force: true));
   }
 
   @override
@@ -109,7 +77,6 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 }
 
-/// Shared splash body — keep identical to Customer app.
 class BrandSplashBody extends StatelessWidget {
   const BrandSplashBody({super.key});
 
@@ -135,17 +102,13 @@ class BrandSplashBody extends StatelessWidget {
             left: 40,
             right: 40,
             bottom: 48,
-            child: Column(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: const LinearProgressIndicator(
-                    minHeight: 3,
-                    backgroundColor: Color(0xFFE8F5EC),
-                    color: AppColors.primary,
-                  ),
-                ),
-              ],
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: const LinearProgressIndicator(
+                minHeight: 3,
+                backgroundColor: Color(0xFFE8F5E9),
+                color: AppColors.primary,
+              ),
             ),
           ),
         ],

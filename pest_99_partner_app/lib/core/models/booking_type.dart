@@ -3,11 +3,12 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
 enum BookingType {
-  booking('Booking', AppColors.primary),
+  booking('One-Time', AppColors.primary),
+  oneTime('One-Time', AppColors.primary),
   serviceCall('Service Call', AppColors.tagPurple),
   complaintCall('Complaint Call', AppColors.danger),
   followUp('Follow-up', AppColors.infoBlue),
-  amcVisit('AMC Visit', AppColors.tagOrange);
+  amcVisit('AMC', AppColors.tagOrange);
 
   const BookingType(this.label, this.color);
 

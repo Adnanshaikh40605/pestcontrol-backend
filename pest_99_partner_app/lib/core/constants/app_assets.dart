@@ -1,4 +1,5 @@
 abstract final class AppAssets {
+  /// Official brand logo — same house-shield mark as Customer App.
   static const String logo = 'assets/images/pest99_logo.png';
   static const String loginIllustration = 'assets/images/login_illustration.png';
   static const String registrationSuccessIllustration = 'assets/images/registration_success.png';

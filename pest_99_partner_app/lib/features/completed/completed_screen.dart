@@ -20,6 +20,15 @@ class CompletedScreen extends StatefulWidget {
 
 class _CompletedScreenState extends State<CompletedScreen> {
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<BookingsProvider>().refreshListsLight();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final bookings = context.watch<BookingsProvider>();
     final completed = bookings.completed;

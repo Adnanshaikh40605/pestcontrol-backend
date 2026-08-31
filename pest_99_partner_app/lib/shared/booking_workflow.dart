@@ -44,7 +44,12 @@ class BookingWorkflow {
   }
 
   static Future<void> completeFromCard(BuildContext context, int bookingId) async {
-    final mode = await showEndServiceModal(context);
+    final booking = _findBooking(context, bookingId);
+    final mode = await showEndServiceModal(
+      context,
+      payableAmount: booking?.visitPayoutAmount,
+      jobAmount: booking?.totalBookingAmount ?? booking?.priceDisplay ?? booking?.price,
+    );
     if (mode == null || !context.mounted) return;
     await _runComplete(context, bookingId, mode);
   }
@@ -53,9 +58,24 @@ class BookingWorkflow {
     BuildContext context,
     int bookingId,
   ) async {
-    final mode = await showEndServiceModal(context);
+    final booking = _findBooking(context, bookingId);
+    final mode = await showEndServiceModal(
+      context,
+      payableAmount: booking?.visitPayoutAmount,
+      jobAmount: booking?.totalBookingAmount ?? booking?.priceDisplay ?? booking?.price,
+    );
     if (mode == null || !context.mounted) return;
     await _runComplete(context, bookingId, mode);
+  }
+
+  static api.PartnerBooking? _findBooking(BuildContext context, int bookingId) {
+    final provider = context.read<BookingsProvider>();
+    for (final list in [provider.accepted, provider.available, provider.completed]) {
+      for (final b in list) {
+        if (b.id == bookingId) return b;
+      }
+    }
+    return null;
   }
 
   static Future<BookingActionResult?> accept(

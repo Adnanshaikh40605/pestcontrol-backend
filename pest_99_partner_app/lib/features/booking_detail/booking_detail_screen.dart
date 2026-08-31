@@ -482,7 +482,7 @@ class _MoneyBreakdownCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _DetailMoneyRow(
-            label: 'Job / service amount',
+            label: 'Total booking amount',
             value: MoneyFormat.rupees(jobAmount),
             muted: true,
           ),
