@@ -235,6 +235,26 @@ def filter_technicians_for_city(
     ).distinct()
 
 
+def crm_assign_technicians_queryset() -> QuerySet[Technician]:
+    """All active technicians for CRM desk assign — no service-area filter."""
+    return (
+        Technician.objects.select_related('partner_account')
+        .annotate(
+            active_jobs=Count('jobcards', filter=Q(jobcards__status__iexact='On Process'))
+        )
+        .filter(is_active=True)
+        .prefetch_related(
+            Prefetch(
+                'service_cities',
+                queryset=City.objects.select_related('state')
+                .filter(is_active=True)
+                .order_by('name'),
+            )
+        )
+        .order_by('name')
+    )
+
+
 def eligible_technicians_queryset(
     *,
     city: Optional[City] = None,

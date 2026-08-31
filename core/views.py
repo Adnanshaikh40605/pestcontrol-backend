@@ -448,42 +448,14 @@ class TechnicianViewSet(BaseModelViewSet):
 
     @action(detail=False, methods=['get'])
     def active(self, request):
-        """Active technicians for assignment dropdowns.
+        """Active technicians for CRM assignment dropdowns.
 
-        Optional query params (server-side city filter):
-        - job_id: only techs whose service areas include the booking city
-        - city_id / master_city: same using a City id
-        - city_name: resolve city by name when id is unknown
-        Only technicians with a matching Service Area are returned for city-scoped bookings.
+        CRM desk staff may assign any active technician to any booking.
+        Service Areas are shown for reference only (partner app pool still uses them).
         """
-        from core.models import JobCard
-        from core.city_utils import resolve_master_city
-        from core.technician_service_areas import (
-            eligible_technicians_queryset,
-            job_service_city,
-        )
+        from core.technician_service_areas import crm_assign_technicians_queryset
 
-        job = None
-        city_id = request.query_params.get('city_id') or request.query_params.get('master_city')
-        city_name = (request.query_params.get('city_name') or '').strip()
-        job_id = request.query_params.get('job_id')
-        if job_id:
-            job = JobCard.objects.select_related(
-                'master_city',
-                'master_location__city',
-            ).filter(pk=job_id).first()
-
-        resolved_city_id = int(city_id) if city_id and str(city_id).isdigit() else None
-        if resolved_city_id is None and city_name:
-            resolved = resolve_master_city(city_name)
-            if resolved:
-                resolved_city_id = resolved.id
-
-        qs = eligible_technicians_queryset(
-            city_id=resolved_city_id,
-            job=job,
-            active_only=True,
-        )
+        qs = crm_assign_technicians_queryset()
         serializer = self.get_serializer(qs, many=True)
         return response.Response(serializer.data)
 
@@ -2514,15 +2486,6 @@ class JobCardViewSet(BaseModelViewSet):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-
-            from core.technician_service_areas import (
-                assignment_service_area_error,
-                job_service_city,
-            )
-            booking_city = job_service_city(instance)
-            area_error = assignment_service_area_error(technician, booking_city)
-            if area_error:
-                return response.Response(area_error, status=status.HTTP_400_BAD_REQUEST)
 
             assigned_partner = getattr(technician, 'partner_account', None)
 

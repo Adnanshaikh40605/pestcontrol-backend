@@ -58,7 +58,7 @@ class TechnicianServiceAreaTests(TestCase):
         names = sorted(c['name'] for c in res.data['service_cities'])
         self.assertEqual(names, ['Mumbai', 'Thane'])
 
-    def test_active_filters_by_job_city(self):
+    def test_active_lists_all_active_technicians_for_crm(self):
         res = self.client_api.get(
             '/api/v1/technicians/active/',
             {'job_id': self.job_mumbai.id},
@@ -66,18 +66,18 @@ class TechnicianServiceAreaTests(TestCase):
         self.assertEqual(res.status_code, 200)
         ids = {row['id'] for row in res.data}
         self.assertIn(self.tech_mumbai.id, ids)
-        self.assertNotIn(self.tech_unscoped.id, ids)
-        self.assertNotIn(self.tech_pune.id, ids)
+        self.assertIn(self.tech_unscoped.id, ids)
+        self.assertIn(self.tech_pune.id, ids)
 
-    def test_active_filters_by_city_id(self):
+    def test_active_lists_all_by_city_param_ignored_for_crm(self):
         res = self.client_api.get(
             '/api/v1/technicians/active/',
             {'city_id': self.pune.id},
         )
         ids = {row['id'] for row in res.data}
         self.assertIn(self.tech_pune.id, ids)
-        self.assertNotIn(self.tech_unscoped.id, ids)
-        self.assertNotIn(self.tech_mumbai.id, ids)
+        self.assertIn(self.tech_unscoped.id, ids)
+        self.assertIn(self.tech_mumbai.id, ids)
 
     def test_unscoped_excluded_when_city_known(self):
         self.assertFalse(technician_serves_city(self.tech_unscoped, self.mumbai))
@@ -100,14 +100,23 @@ class TechnicianServiceAreaTests(TestCase):
         self.assertIn(self.tech_mumbai.id, ids)
         self.assertIn(self.tech_pune.id, ids)
 
-    def test_assign_rejects_wrong_city(self):
-        res = self.client_api.post(
-            f'/api/v1/jobcards/{self.job_mumbai.id}/assign/',
-            {'technician_id': self.tech_pune.id},
-            format='json',
-        )
-        self.assertEqual(res.status_code, 400)
-        self.assertEqual(res.data.get('code'), 'technician_outside_service_area')
+    def test_crm_assign_allows_any_active_technician(self):
+        for tech in (self.tech_pune, self.tech_unscoped, self.tech_mumbai):
+            job = JobCard.objects.create(
+                client=self.customer,
+                service_type='Cockroach',
+                status=JobCard.JobStatus.PENDING,
+                master_city=self.mumbai,
+                city='Mumbai',
+            )
+            res = self.client_api.post(
+                f'/api/v1/jobcards/{job.id}/assign/',
+                {'technician_id': tech.id},
+                format='json',
+            )
+            self.assertEqual(res.status_code, 200, res.data)
+            job.refresh_from_db()
+            self.assertEqual(job.technician_id, tech.id)
 
     def test_assign_allows_matching_city(self):
         res = self.client_api.post(
@@ -119,14 +128,15 @@ class TechnicianServiceAreaTests(TestCase):
         self.job_mumbai.refresh_from_db()
         self.assertEqual(self.job_mumbai.technician_id, self.tech_mumbai.id)
 
-    def test_assign_rejects_unscoped_technician(self):
+    def test_assign_allows_unscoped_technician(self):
         res = self.client_api.post(
             f'/api/v1/jobcards/{self.job_mumbai.id}/assign/',
             {'technician_id': self.tech_unscoped.id},
             format='json',
         )
-        self.assertEqual(res.status_code, 400)
-        self.assertEqual(res.data.get('code'), 'technician_no_service_area')
+        self.assertEqual(res.status_code, 200)
+        self.job_mumbai.refresh_from_db()
+        self.assertEqual(self.job_mumbai.technician_id, self.tech_unscoped.id)
 
     def test_assign_rejects_inactive(self):
         self.tech_mumbai.is_active = False
@@ -208,4 +218,5 @@ class TechnicianServiceAreaTests(TestCase):
         )
         ids = {row['id'] for row in res.data}
         self.assertIn(self.tech_mumbai.id, ids)
-        self.assertNotIn(self.tech_pune.id, ids)
+        self.assertIn(self.tech_pune.id, ids)
+        self.assertIn(self.tech_unscoped.id, ids)
