@@ -6,8 +6,41 @@ from typing import Iterable, Optional
 
 from django.db.models import Count, Prefetch, Q, QuerySet
 
-from core.city_utils import display_city_name, resolve_master_city
+from core.city_utils import canonical_city_label, display_city_name, resolve_master_city
 from core.models import City, JobCard, Technician
+
+
+def city_match_key(city: City | None) -> str:
+    """Stable key for matching equivalent city rows (case / alias / display)."""
+    if not city:
+        return ''
+    return canonical_city_label(city.name).casefold()
+
+
+def equivalent_city_ids(city: City | None) -> list[int]:
+    """All active City PKs that represent the same place as `city`."""
+    if not city:
+        return []
+    key = city_match_key(city)
+    if not key:
+        return [city.id]
+    ids: set[int] = {city.id}
+    for row in City.objects.filter(is_active=True).only('id', 'name'):
+        if city_match_key(row) == key:
+            ids.add(row.id)
+    return sorted(ids)
+
+
+def canonical_city_record(city: City) -> City:
+    """Pick one representative City row per logical city name."""
+    key = city_match_key(city)
+    if not key:
+        return city
+    rows = list(City.objects.filter(is_active=True).only('id', 'name'))
+    matches = [row for row in rows if city_match_key(row) == key]
+    if not matches:
+        return city
+    return min(matches, key=lambda row: row.id)
 
 
 def _split_legacy_tokens(raw: str | None) -> list[str]:
@@ -53,8 +86,16 @@ def set_technician_service_cities(
             continue
         seen.add(cid)
         ids.append(cid)
-    cities = list(City.objects.filter(id__in=ids, is_active=True))
-    technician.service_cities.set(cities)
+    raw_cities = list(City.objects.filter(id__in=ids, is_active=True))
+    canonical: list[City] = []
+    seen_keys: set[str] = set()
+    for city in raw_cities:
+        key = city_match_key(city)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        canonical.append(canonical_city_record(city))
+    technician.service_cities.set(canonical)
     sync_legacy_city_labels(technician)
     return technician
 
@@ -86,9 +127,20 @@ def job_service_city(job: JobCard) -> Optional[City]:
     """Canonical City for a booking (master_city preferred, legacy text fallback)."""
     if job.master_city_id:
         # Prefer already-select_related instance when present
-        return getattr(job, 'master_city', None) or City.objects.filter(id=job.master_city_id).first()
+        city = getattr(job, 'master_city', None) or City.objects.filter(id=job.master_city_id).first()
+        if city:
+            return canonical_city_record(city)
+    location = getattr(job, 'master_location', None)
+    if location is not None and getattr(location, 'city_id', None):
+        loc_city = getattr(location, 'city', None)
+        if loc_city is None:
+            loc_city = City.objects.filter(id=location.city_id, is_active=True).first()
+        if loc_city:
+            return canonical_city_record(loc_city)
     if job.city:
-        return resolve_master_city(job.city)
+        resolved = resolve_master_city(job.city)
+        if resolved:
+            return canonical_city_record(resolved)
     return None
 
 
@@ -109,7 +161,10 @@ def technician_serves_city(technician: Technician, city: Optional[City]) -> bool
         cities = list(technician.service_cities.all())
     if not cities:
         return True
-    return any(c.id == city.id for c in cities)
+    target_key = city_match_key(city)
+    if not target_key:
+        return any(c.id == city.id for c in cities)
+    return any(city_match_key(c) == target_key for c in cities)
 
 
 def filter_technicians_for_city(
@@ -119,10 +174,11 @@ def filter_technicians_for_city(
     """Filter by service city when set; always include techs with no service cities (legacy)."""
     if city is None:
         return qs
+    match_ids = equivalent_city_ids(city)
     return qs.annotate(
         _service_city_count=Count('service_cities', distinct=True),
     ).filter(
-        Q(_service_city_count=0) | Q(service_cities=city),
+        Q(_service_city_count=0) | Q(service_cities__id__in=match_ids),
     ).distinct()
 
 

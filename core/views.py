@@ -453,9 +453,11 @@ class TechnicianViewSet(BaseModelViewSet):
         Optional query params (server-side city filter):
         - job_id: only techs whose service areas include the booking city
         - city_id / master_city: same using a City id
-        Technicians must be explicitly linked to the booking city (empty M2M = excluded).
+        - city_name: resolve city by name when id is unknown
+        Technicians with no service areas (legacy) are included for any city.
         """
         from core.models import JobCard
+        from core.city_utils import resolve_master_city
         from core.technician_service_areas import (
             eligible_technicians_queryset,
             job_service_city,
@@ -463,12 +465,22 @@ class TechnicianViewSet(BaseModelViewSet):
 
         job = None
         city_id = request.query_params.get('city_id') or request.query_params.get('master_city')
+        city_name = (request.query_params.get('city_name') or '').strip()
         job_id = request.query_params.get('job_id')
         if job_id:
-            job = JobCard.objects.select_related('master_city').filter(pk=job_id).first()
+            job = JobCard.objects.select_related(
+                'master_city',
+                'master_location__city',
+            ).filter(pk=job_id).first()
+
+        resolved_city_id = int(city_id) if city_id and str(city_id).isdigit() else None
+        if resolved_city_id is None and city_name:
+            resolved = resolve_master_city(city_name)
+            if resolved:
+                resolved_city_id = resolved.id
 
         qs = eligible_technicians_queryset(
-            city_id=int(city_id) if city_id and str(city_id).isdigit() else None,
+            city_id=resolved_city_id,
             job=job,
             active_only=True,
         )
@@ -2522,6 +2534,7 @@ class JobCardViewSet(BaseModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            from core.city_utils import display_city_name
             from core.technician_service_areas import job_service_city, technician_serves_city
             booking_city = job_service_city(instance)
             if booking_city and not technician_serves_city(technician, booking_city):
@@ -2529,7 +2542,8 @@ class JobCardViewSet(BaseModelViewSet):
                     {
                         'error': (
                             f'{technician.name} does not serve '
-                            f'{booking_city.name}. Update their Service Areas first.'
+                            f'{display_city_name(booking_city.name) or booking_city.name}. '
+                            f'Update their Service Areas first.'
                         ),
                         'code': 'technician_outside_service_area',
                         'service_city_id': booking_city.id,

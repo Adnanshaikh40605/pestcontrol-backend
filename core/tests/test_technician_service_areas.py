@@ -2,7 +2,7 @@
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from core.models import City, Country, JobCard, State, Technician, Client
+from core.models import City, Country, JobCard, Location, State, Technician, Client
 from core.technician_service_areas import (
     eligible_technicians_queryset,
     migrate_legacy_service_areas_for_technician,
@@ -166,5 +166,47 @@ class TechnicianServiceAreaTests(TestCase):
     def test_eligible_queryset_helper(self):
         qs = eligible_technicians_queryset(city=self.mumbai)
         ids = set(qs.values_list('id', flat=True))
+        self.assertIn(self.tech_mumbai.id, ids)
+        self.assertNotIn(self.tech_pune.id, ids)
+
+    def test_duplicate_city_rows_still_match(self):
+        """Tech linked to duplicate 'mumbai' row must match booking on canonical 'Mumbai'."""
+        dup_mumbai = City.objects.create(state=self.state, name='mumbai')
+        tech = Technician.objects.create(name='Dup Row Tech', mobile='6650925077', is_active=True)
+        set_technician_service_cities(tech, [dup_mumbai.id])
+
+        self.assertTrue(technician_serves_city(tech, self.mumbai))
+
+        res = self.client_api.get(
+            '/api/v1/technicians/active/',
+            {'job_id': self.job_mumbai.id},
+        )
+        self.assertEqual(res.status_code, 200)
+        ids = {row['id'] for row in res.data}
+        self.assertIn(tech.id, ids)
+
+        res = self.client_api.post(
+            f'/api/v1/jobcards/{self.job_mumbai.id}/assign/',
+            {'technician_id': tech.id},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.job_mumbai.refresh_from_db()
+        self.assertEqual(self.job_mumbai.technician_id, tech.id)
+
+    def test_job_uses_master_location_city_when_master_city_missing(self):
+        location = Location.objects.create(city=self.mumbai, name='Andheri West')
+        job = JobCard.objects.create(
+            client=self.customer,
+            service_type='Cockroach',
+            status=JobCard.JobStatus.PENDING,
+            master_location=location,
+            city='Andheri West',
+        )
+        res = self.client_api.get(
+            '/api/v1/technicians/active/',
+            {'job_id': job.id},
+        )
+        ids = {row['id'] for row in res.data}
         self.assertIn(self.tech_mumbai.id, ids)
         self.assertNotIn(self.tech_pune.id, ids)
