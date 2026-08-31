@@ -15,23 +15,21 @@ import '../../features/profile/edit_profile_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/referral/refer_client_screen.dart';
 import '../../features/referral/referral_progress_screen.dart';
-import '../../features/force_update/force_update_screen.dart';
 import '../../features/splash/splash_screen.dart';
 import 'booking_open_args.dart';
 import '../../debug/debug_config.dart';
 import '../../debug/debug_dio_interceptor.dart';
-import '../../providers/app_update_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../shared/widgets/app_bottom_nav.dart';
 
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 class AppRouter {
-  AppRouter(this._auth, this._appUpdate) {
+  AppRouter(this._auth) {
     router = GoRouter(
       navigatorKey: rootNavigatorKey,
       initialLocation: '/splash',
-      refreshListenable: Listenable.merge([_auth, _appUpdate]),
+      refreshListenable: _auth,
       redirect: _redirect,
       observers: DebugConfig.enabled ? [DebugRouteObserver()] : [],
       routes: [
@@ -39,15 +37,6 @@ class AppRouter {
           path: '/splash',
           pageBuilder: (context, state) =>
               const NoTransitionPage(child: SplashScreen()),
-        ),
-        GoRoute(
-          path: '/force-update',
-          pageBuilder: (context, state) {
-            final storeUrl = _appUpdate.serverInfo?.storeUrl;
-            return NoTransitionPage(
-              child: ForceUpdateScreen(storeUrl: storeUrl),
-            );
-          },
         ),
         GoRoute(
           path: '/login',
@@ -161,24 +150,10 @@ class AppRouter {
   }
 
   final AuthProvider _auth;
-  final AppUpdateProvider _appUpdate;
   late final GoRouter router;
 
   String? _redirect(BuildContext context, GoRouterState state) {
     final path = state.matchedLocation;
-
-    // Mandatory update always wins over auth redirects.
-    if (_appUpdate.forceUpdateRequired) {
-      return path == '/force-update' ? null : '/force-update';
-    }
-    if (path == '/force-update') {
-      return '/splash';
-    }
-
-    // Let splash finish the version check before auth routing kicks in.
-    if (path == '/splash' && _appUpdate.isChecking) {
-      return null;
-    }
 
     if (!_auth.ready) return null;
     final onAuth = path == '/login' ||

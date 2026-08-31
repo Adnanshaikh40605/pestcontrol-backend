@@ -51,7 +51,6 @@ from .booking_report_views import (
 )
 from .ecard_views import ECardTrackView, ECardTrackingListView
 from .ecard_send_views import ECardMarkSentView, ECardSentCheckView
-from .app_version_views import PartnerAppVersionCRMAPIView
 # Create router for v1 API
 router = DefaultRouter()
 router.register(r'clients', ClientViewSet, basename='client')
@@ -122,11 +121,6 @@ urlpatterns = [
     path('users/theme/', UserThemeView.as_view(), name='user-theme'),
     path('media-file/', MediaFileView.as_view(), name='media-file'),
     path('pricing-config/', PricingConfigAPIView.as_view(), name='pricing-config'),
-    path(
-        'partner-app-version/',
-        PartnerAppVersionCRMAPIView.as_view(),
-        name='partner-app-version-crm',
-    ),
     path('health/', health_check, name='health_check'),
     path('feature-flags/', feature_flags, name='feature-flags'),
     path('global-search/', GlobalSearchView.as_view(), name='global_search'),

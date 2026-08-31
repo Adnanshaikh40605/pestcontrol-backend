@@ -36,7 +36,7 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         if not data.get('service_type'):
             data = {**data, 'service_type': rate.service_package}
 
-    if amount is None:
+    if amount is None and not data.get('price_confirmation_pending'):
         raise CustomerAppError('amount or pricing_rate_id is required.', code='amount_required')
 
     service_type = (data.get('service_type') or '').strip()
@@ -46,9 +46,16 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         raise CustomerAppError('service_type is required.', code='service_required')
     data = {**data, 'service_type': service_type}
 
-    amount = Decimal(str(amount))
+    amount = Decimal(str(amount)) if amount is not None else Decimal('0.00')
+    price_confirmation_pending = bool(data.get('price_confirmation_pending')) or (
+        (not rate_id) and amount <= 0
+    )
+    if bool(data.get('price_confirmation_pending')):
+        price_confirmation_pending = True
+        amount = Decimal('0.00')
+
     package_tier = data.get('package_tier') or JobCard.PackageTier.STANDARD
-    if package_tier == JobCard.PackageTier.PREMIUM:
+    if package_tier == JobCard.PackageTier.PREMIUM and amount > 0 and not price_confirmation_pending:
         amount = (amount * Decimal('1.15')).quantize(Decimal('0.01'))
 
     booking_kind = (data.get('booking_type') or 'one_time').lower()
@@ -98,30 +105,44 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         'price': str(amount),
         'total_amount': amount,
         'status': JobCard.JobStatus.PENDING,
-        'payment_status': JobCard.PaymentStatus.UNPAID,
+        'payment_status': (
+            JobCard.PaymentStatus.PENDING
+            if price_confirmation_pending
+            else JobCard.PaymentStatus.UNPAID
+        ),
+        'is_price_estimated': price_confirmation_pending,
         'package_tier': package_tier,
         'reference': 'Customer App',
         'job_type': job_type,
         'commercial_type': commercial_type,
     }
+    if price_confirmation_pending:
+        note = (data.get('notes') or '').strip()
+        pending_note = 'Price Confirmation Pending'
+        payload['notes'] = f'{note} · {pending_note}'.strip(' ·') if note else pending_note
     if master_city:
         payload['master_city'] = master_city.id
     if contract_duration:
         payload['contract_duration'] = contract_duration
-    if booking_kind == 'amc':
-        # Termite / Bed Bugs never use AMC visit packages from the customer app.
-        from core.booking_schedule_engine import is_fixed_visit_service
+    # Termite / Bed Bugs never use AMC packages; lock visit counts on create.
+    from core.booking_schedule_engine import (
+        fixed_visit_count_for_service,
+        is_fixed_visit_service,
+    )
 
-        service_name = payload.get('service_type') or ''
+    service_name = payload.get('service_type') or ''
+    fixed_visits = fixed_visit_count_for_service(service_name)
+    if fixed_visits:
+        payload['service_category'] = JobCard.ServiceCategory.ONE_TIME
+        payload['service_cycle'] = 1
+        payload['max_cycle'] = fixed_visits
+        payload['planned_visit_count'] = fixed_visits
+    elif booking_kind == 'amc':
         if is_fixed_visit_service(service_name):
             payload['service_category'] = JobCard.ServiceCategory.ONE_TIME
-            if 'termite' in service_name.lower():
-                payload['max_cycle'] = 1
-                payload['planned_visit_count'] = 1
-            else:
-                payload['max_cycle'] = 2
-                payload['planned_visit_count'] = 2
             payload['service_cycle'] = 1
+            payload['max_cycle'] = 1
+            payload['planned_visit_count'] = 1
         else:
             payload['service_cycle'] = 1
             payload['max_cycle'] = 3
@@ -138,7 +159,15 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
 
     job.creation_source = JobCard.CreationSource.CUSTOMER_APP
     job.package_tier = package_tier
-    job.save(update_fields=['creation_source', 'package_tier', 'updated_at'])
+    if price_confirmation_pending:
+        job.is_price_estimated = True
+        job.payment_status = JobCard.PaymentStatus.PENDING
+        job.save(update_fields=[
+            'creation_source', 'package_tier', 'is_price_estimated',
+            'payment_status', 'updated_at',
+        ])
+    else:
+        job.save(update_fields=['creation_source', 'package_tier', 'updated_at'])
 
     # Always push into the Partner App open pool (CRM Action not required).
     try:
@@ -167,6 +196,63 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
             updates.append('updated_at')
             client.save(update_fields=updates)
 
+    return job
+
+
+@transaction.atomic
+def cancel_customer_booking(
+    account: CustomerAccount,
+    job: JobCard,
+    *,
+    reason: str,
+) -> JobCard:
+    if job.client_id != account.client_id:
+        raise CustomerAppError('Booking not found.', code='forbidden')
+    if job.status == JobCard.JobStatus.CANCELLED:
+        return job
+    if job.status == JobCard.JobStatus.DONE:
+        raise CustomerAppError(
+            'Completed bookings cannot be cancelled.',
+            code='already_done',
+        )
+    if (job.partner_status or '') in (
+        JobCard.PartnerStatus.IN_SERVICE,
+        JobCard.PartnerStatus.COMPLETED,
+    ):
+        raise CustomerAppError(
+            'This booking is already in progress and cannot be cancelled from the app. Please contact support.',
+            code='in_progress',
+        )
+
+    clean_reason = (reason or '').strip()
+    if len(clean_reason) < 4:
+        raise CustomerAppError(
+            'Please enter a cancellation reason (at least 4 characters).',
+            code='reason_required',
+        )
+    # JobCard validation rejects special characters in cancellation_reason.
+    import re
+    safe = re.sub(r'[^a-zA-Z0-9\s]', ' ', clean_reason)
+    safe = ' '.join(safe.split())
+    if len(safe) < 4:
+        raise CustomerAppError(
+            'Cancellation reason must use letters and numbers only.',
+            code='invalid_reason',
+        )
+
+    job.status = JobCard.JobStatus.CANCELLED
+    job.cancellation_reason = safe[:500]
+    job.partner_status = JobCard.PartnerStatus.REJECTED
+    update_fields = [
+        'status', 'cancellation_reason', 'partner_status', 'updated_at',
+    ]
+    if job.payout_status not in (
+        JobCard.PayoutStatus.APPROVED,
+        JobCard.PayoutStatus.PAID,
+    ):
+        job.payout_status = JobCard.PayoutStatus.CANCELLED
+        update_fields.append('payout_status')
+    job.save(update_fields=update_fields)
     return job
 
 

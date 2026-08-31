@@ -6,7 +6,6 @@ import 'core/theme/app_theme.dart';
 import 'debug/debug_config.dart';
 import 'debug/debug_dio_interceptor.dart';
 import 'debug/debug_overlay.dart';
-import 'shared/widgets/update_available_host.dart';
 
 class Pest99PartnerApp extends StatelessWidget {
   const Pest99PartnerApp({super.key, required this.router});
@@ -30,10 +29,7 @@ class Pest99PartnerApp extends StatelessWidget {
         }
         return DebugOverlay(
           child: PartnerAppLifecycle(
-            child: UpdateAvailableHost(
-              playStorePackageId: 'com.pestcontrol99.partner',
-              child: child ?? const SizedBox.shrink(),
-            ),
+            child: child ?? const SizedBox.shrink(),
           ),
         );
       },

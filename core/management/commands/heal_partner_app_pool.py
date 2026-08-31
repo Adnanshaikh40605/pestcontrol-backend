@@ -38,6 +38,7 @@ class Command(BaseCommand):
                 sent_to_app_at__isnull=True,
                 is_followup_visit=False,
                 is_complaint_call=False,
+                is_service_call=False,
             )
             .filter(
                 Q(partner_status='')

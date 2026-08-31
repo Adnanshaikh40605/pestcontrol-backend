@@ -137,6 +137,40 @@ def effective_service_total(jobcard) -> Decimal:
     return items_total
 
 
+def partner_booking_display_amount(jobcard) -> Decimal:
+    """
+    Customer-facing service amount for Partner App New Bookings cards.
+
+    Unlike ``effective_service_total``, this never hides the package price on visit 1
+    and resolves parent/shell pricing when a line item row has ₹0 stored locally.
+    """
+    if is_bed_bug_included_visit(jobcard):
+        return Decimal('0.00')
+
+    price_total = parse_jobcard_price(jobcard.price)
+    items_total = _service_items_total(jobcard)
+    stored_total = quantize_money(jobcard.total_amount or 0)
+
+    if price_total > 0:
+        return price_total
+    if items_total > 0:
+        return items_total
+    if stored_total > 0:
+        return stored_total
+
+    parent = getattr(jobcard, 'parent_job', None)
+    if parent is not None:
+        for candidate in (
+            parse_jobcard_price(parent.price),
+            _service_items_total(parent),
+            quantize_money(parent.total_amount or 0),
+        ):
+            if candidate > 0:
+                return candidate
+
+    return Decimal('0.00')
+
+
 def sync_jobcard_amounts_from_price(jobcard, *, save: bool = True) -> list[str]:
     """
     Keep total_amount / pending_amount aligned with the current quoted service price.

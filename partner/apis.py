@@ -388,10 +388,15 @@ class AvailableBookingsAPIView(PartnerAPIView):
         jobs = JobCard.objects.filter(
             broadcast_pending_filter()
             | Q(partner=partner, partner_status=JobCard.PartnerStatus.PENDING)
-        ).select_related('client', 'master_city', 'master_location').order_by('schedule_datetime')
+        ).select_related(
+            'client', 'master_city', 'master_location', 'parent_job',
+        ).order_by('schedule_datetime')
 
-        serializer = PartnerBookingListSerializer(jobs, many=True, context={'request': request})
-        return Response({"count": jobs.count(), "results": serializer.data, "is_suspended": False})
+        from partner.services import apply_partner_pool_filters
+
+        filtered = apply_partner_pool_filters(list(jobs), partner, available_only=True)
+        serializer = PartnerBookingListSerializer(filtered, many=True, context={'request': request})
+        return Response({"count": len(filtered), "results": serializer.data, "is_suspended": False})
 
 
 class AcceptedBookingsAPIView(PartnerAPIView):
@@ -419,8 +424,13 @@ class AcceptedBookingsAPIView(PartnerAPIView):
             ],
         ).select_related('client', 'master_city', 'master_location').order_by('schedule_datetime')
 
-        serializer = PartnerBookingListSerializer(jobs, many=True, context={'request': request})
-        return Response({"count": jobs.count(), "results": serializer.data})
+        from partner.services import apply_partner_pool_filters
+
+        filtered = apply_partner_pool_filters(
+            list(jobs), partner, today_tomorrow_only=False,
+        )
+        serializer = PartnerBookingListSerializer(filtered, many=True, context={'request': request})
+        return Response({"count": len(filtered), "results": serializer.data})
 
 
 class CompletedBookingsAPIView(PartnerAPIView):
@@ -497,9 +507,9 @@ class BookingCountsAPIView(PartnerAPIView):
     )
     def get(self, request):
         partner = request.partner
-        pool = JobCard.objects.filter(broadcast_pending_filter()).count()
-        mine = JobCard.objects.filter(partner=partner, partner_status='pending').count()
-        available = pool + mine
+        from partner.services import count_partner_available_bookings
+
+        available = count_partner_available_bookings(partner)
         accepted = JobCard.objects.filter(
             partner=partner, partner_status__in=['accepted', 'in_service']
         ).count()
@@ -840,11 +850,18 @@ class ProfileAPIView(PartnerAPIView):
         if not serializer.is_valid():
             return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer.save()
+        partner = serializer.save()
+        partner.refresh_from_db()
+        # Keep linked CRM technician name in sync with partner profile.
+        tech = getattr(partner, 'core_technician', None)
+        if tech and partner.full_name and tech.name != partner.full_name:
+            tech.name = partner.full_name
+            tech.save(update_fields=['name', 'updated_at'])
+
         ctx = {"request": request}
         return Response({
             "message": "Profile updated successfully.",
-            "partner": PartnerSerializer(request.partner, context=ctx).data,
+            "partner": PartnerSerializer(partner, context=ctx).data,
         })
 
 

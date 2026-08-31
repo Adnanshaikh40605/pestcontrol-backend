@@ -25,6 +25,7 @@ from .serializers import (
     CatalogRateSerializer,
     CustomerBookSerializer,
     CustomerBookingSerializer,
+    CustomerCancelSerializer,
     CustomerComplaintSerializer,
     CustomerDeleteAccountSerializer,
     CustomerLoginSerializer,
@@ -39,6 +40,7 @@ from .serializers import (
 )
 from .services import (
     CustomerAppError,
+    cancel_customer_booking,
     confirm_customer_payment,
     create_customer_booking,
     create_customer_complaint,
@@ -388,10 +390,14 @@ class BookingListCreateAPIView(CustomerAPIView):
     @extend_schema(tags=['Customer Bookings'], summary='List my bookings')
     def get(self, request):
         status_filter = (request.query_params.get('status') or '').strip()
-        qs = JobCard.objects.filter(client=request.customer.client).select_related('client').order_by('-created_at')
+        qs = JobCard.objects.filter(client=request.customer.client).select_related(
+            'client', 'technician', 'partner', 'partner__core_technician',
+        ).order_by('-created_at')
         if status_filter:
             qs = qs.filter(status__iexact=status_filter)
-        return Response({'results': CustomerBookingSerializer(qs[:100], many=True).data})
+        return Response({
+            'results': CustomerBookingSerializer(qs[:100], many=True, context={'request': request}).data,
+        })
 
     @extend_schema(tags=['Customer Bookings'], summary='Book a service')
     def post(self, request):
@@ -405,7 +411,7 @@ class BookingListCreateAPIView(CustomerAPIView):
         return Response(
             {
                 'message': 'Booking created. Our team will confirm shortly.',
-                'booking': CustomerBookingSerializer(job).data,
+                'booking': CustomerBookingSerializer(job, context={'request': request}).data,
             },
             status=201,
         )
@@ -416,7 +422,9 @@ class BookingDetailAPIView(CustomerAPIView):
 
     def _get_job(self, request, id):
         try:
-            return JobCard.objects.select_related('client').get(id=id, client=request.customer.client)
+            return JobCard.objects.select_related(
+                'client', 'technician', 'partner', 'partner__core_technician',
+            ).get(id=id, client=request.customer.client)
         except JobCard.DoesNotExist:
             return None
 
@@ -425,7 +433,35 @@ class BookingDetailAPIView(CustomerAPIView):
         job = self._get_job(request, id)
         if not job:
             return Response({'error': 'Booking not found.'}, status=404)
-        return Response(CustomerBookingSerializer(job).data)
+        return Response(CustomerBookingSerializer(job, context={'request': request}).data)
+
+
+class CancelBookingAPIView(CustomerAPIView):
+    permission_classes = [IsCustomer]
+
+    @extend_schema(tags=['Customer Bookings'], summary='Cancel a booking with reason')
+    def post(self, request, id):
+        serializer = CustomerCancelSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'errors': serializer.errors}, status=400)
+        try:
+            job = JobCard.objects.select_related(
+                'client', 'technician', 'partner', 'partner__core_technician',
+            ).get(id=id, client=request.customer.client)
+        except JobCard.DoesNotExist:
+            return Response({'error': 'Booking not found.'}, status=404)
+        try:
+            job = cancel_customer_booking(
+                request.customer,
+                job,
+                reason=serializer.validated_data['reason'],
+            )
+        except CustomerAppError as exc:
+            return Response({'error': exc.message, 'code': exc.code}, status=400)
+        return Response({
+            'message': 'Booking cancelled.',
+            'booking': CustomerBookingSerializer(job, context={'request': request}).data,
+        })
 
 
 class ConfirmPaymentAPIView(CustomerAPIView):

@@ -1,10 +1,7 @@
-import 'package:flutter/foundation.dart' show Listenable;
 import 'package:go_router/go_router.dart';
 
 import '../core/auth_gate.dart';
-import '../features/force_update/force_update_screen.dart';
 import '../features/splash/splash_screen.dart';
-import '../providers/app_update_provider.dart';
 import '../providers/auth_provider.dart';
 import '../screens/account_hub_screens.dart';
 import '../screens/booking_detail_screen.dart';
@@ -18,21 +15,14 @@ import '../screens/register_screen.dart';
 import '../screens/support_hub_screen.dart';
 
 class AppRouter {
-  AppRouter(this._auth, this._appUpdate) {
+  AppRouter(this._auth) {
     router = GoRouter(
       initialLocation: '/splash',
-      refreshListenable: Listenable.merge([_auth, _appUpdate]),
+      refreshListenable: _auth,
       redirect: (context, state) {
         final loc = state.matchedLocation;
 
-        if (_appUpdate.forceUpdateRequired) {
-          return loc == '/force-update' ? null : '/force-update';
-        }
-        if (loc == '/force-update') {
-          return '/splash';
-        }
-
-        // Splash owns bootstrap + version check.
+        // Splash owns bootstrap + Play Store update check.
         if (loc == '/splash') return null;
 
         if (!_auth.ready) return '/splash';
@@ -54,12 +44,6 @@ class AppRouter {
         GoRoute(
           path: '/splash',
           pageBuilder: (_, _) => const NoTransitionPage(child: SplashScreen()),
-        ),
-        GoRoute(
-          path: '/force-update',
-          builder: (_, _) => ForceUpdateScreen(
-            storeUrl: _appUpdate.serverInfo?.storeUrl,
-          ),
         ),
         GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
         GoRoute(
@@ -109,7 +93,12 @@ class AppRouter {
         ),
         GoRoute(path: '/amc', builder: (_, _) => const AmcDashboardScreen()),
         GoRoute(path: '/payments', builder: (_, _) => const PaymentsScreen()),
-        GoRoute(path: '/book/property', builder: (_, _) => const PropertySelectionScreen()),
+        GoRoute(
+          path: '/book/property',
+          builder: (_, state) => PropertySelectionScreen(
+            initialServiceId: state.uri.queryParameters['service'],
+          ),
+        ),
         GoRoute(path: '/book/datetime', builder: (_, _) => const DateTimeSelectionScreen()),
         GoRoute(path: '/book/summary', builder: (_, _) => const BookingSummaryScreen()),
         GoRoute(path: '/book/confirmed', builder: (_, _) => const BookingConfirmedScreen()),
@@ -139,6 +128,5 @@ class AppRouter {
   }
 
   final AuthProvider _auth;
-  final AppUpdateProvider _appUpdate;
   late final GoRouter router;
 }

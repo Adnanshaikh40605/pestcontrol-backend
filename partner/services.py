@@ -153,8 +153,10 @@ def auto_send_new_booking_to_partner_app(job: JobCard, sent_by_user=None) -> boo
         return False
     if job.sent_to_app_at:
         return False
-    # Follow-ups / complaint calls are not open-pool lineup jobs.
-    if job.is_followup_visit or job.is_complaint_call:
+    # Follow-ups / complaint calls / package line rows are not open-pool lineup jobs.
+    if job.is_followup_visit or job.is_complaint_call or job.is_service_call:
+        return False
+    if not is_partner_pool_booking(job):
         return False
     if job.partner_id is not None:
         return False
@@ -537,13 +539,72 @@ def filter_jobs_today_tomorrow(jobs):
     return kept
 
 
-def apply_partner_pool_filters(jobs, partner: Partner, *, today_tomorrow_only: bool = True):
+def is_partner_pool_booking(job: JobCard) -> bool:
+    """
+    True when a pending job belongs in Partner App New Bookings.
+
+    Excludes historical service calls, AMC follow-ups, and multi-service day-1
+    child rows (the package shell is the single accept target).
+    """
+    if job.is_followup_visit or job.is_service_call or job.is_complaint_call:
+        return False
+    if (job.service_cycle or 1) > 1:
+        return False
+    if job.status != JobCard.JobStatus.PENDING:
+        return False
+
+    from core.booking_schedule_engine import is_day1_package_service_line
+
+    if is_day1_package_service_line(job):
+        return False
+
+    return True
+
+
+def dedupe_partner_pool_jobs(jobs):
+    """Keep one row per booking id (stable order)."""
+    seen: set[int] = set()
+    kept = []
+    for job in jobs:
+        if job.id in seen:
+            continue
+        seen.add(job.id)
+        kept.append(job)
+    return kept
+
+
+def filter_partner_pool_bookings(jobs):
+    """Eligible New Bookings only — deduped by booking id."""
+    eligible = [j for j in jobs if is_partner_pool_booking(j)]
+    return dedupe_partner_pool_jobs(eligible)
+
+
+def apply_partner_pool_filters(
+    jobs,
+    partner: Partner,
+    *,
+    today_tomorrow_only: bool = True,
+    available_only: bool = False,
+):
     """
     City/area filter for partner booking lists.
     Available pool also limits to Today/Tomorrow; accepted work keeps all dates
     so in-progress jobs never disappear from the Accepted tab.
+
+    When ``available_only`` is True, also drop follow-ups, service calls, and
+    multi-service day-1 child rows so New Bookings shows one card per request.
     """
-    scoped = [j for j in jobs if job_matches_partner_service_area(j, partner)]
+    scoped = filter_partner_pool_bookings(jobs) if available_only else dedupe_partner_pool_jobs(jobs)
+    scoped = [j for j in scoped if job_matches_partner_service_area(j, partner)]
     if today_tomorrow_only:
         return filter_jobs_today_tomorrow(scoped)
     return scoped
+
+
+def count_partner_available_bookings(partner: Partner) -> int:
+    """Badge count aligned with GET /api/partner/bookings/available/."""
+    jobs = JobCard.objects.filter(
+        broadcast_pending_filter()
+        | Q(partner=partner, partner_status=JobCard.PartnerStatus.PENDING)
+    ).select_related('client', 'master_city', 'master_location', 'parent_job')
+    return len(apply_partner_pool_filters(list(jobs), partner, available_only=True))

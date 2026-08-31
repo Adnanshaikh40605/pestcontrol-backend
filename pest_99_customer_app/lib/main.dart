@@ -11,8 +11,6 @@ import 'core/theme/app_theme.dart';
 import 'providers/app_update_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/booking_flow_provider.dart';
-import 'services/app_version_service.dart';
-import 'shared/widgets/update_available_host.dart';
 
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
@@ -20,8 +18,8 @@ Future<void> main() async {
 
   final api = ApiClient();
   final auth = AuthProvider(api);
-  final appUpdate = AppUpdateProvider(AppVersionService(api));
-  final appRouter = AppRouter(auth, appUpdate);
+  final appUpdate = AppUpdateProvider();
+  final appRouter = AppRouter(auth);
 
   runApp(
     MultiProvider(
@@ -61,15 +59,7 @@ class _CustomerAppState extends State<CustomerApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
-    final appUpdate = context.read<AppUpdateProvider>();
-    unawaited(
-      appUpdate.checkForUpdate(silent: true).then((_) {
-        if (!mounted) return;
-        if (appUpdate.forceUpdateRequired) {
-          widget.router.go('/force-update');
-        }
-      }),
-    );
+    unawaited(context.read<AppUpdateProvider>().checkForUpdate(silent: true));
   }
 
   @override
@@ -79,12 +69,6 @@ class _CustomerAppState extends State<CustomerApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       routerConfig: widget.router,
-      builder: (context, child) {
-        return UpdateAvailableHost(
-          playStorePackageId: 'com.pestcontrol99.pest_99_customer_app',
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
     );
   }
 }

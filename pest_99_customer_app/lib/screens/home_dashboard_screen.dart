@@ -45,7 +45,10 @@ class HomeDashboardScreen extends StatelessWidget {
     if (serviceId != null) {
       flow.selectOnlyService(serviceId);
     }
-    pushAuthed(context, '/book/property');
+    final route = serviceId == null
+        ? '/book/property'
+        : '/book/property?service=$serviceId';
+    pushAuthed(context, route);
   }
 
   @override

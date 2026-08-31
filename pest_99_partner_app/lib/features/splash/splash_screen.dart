@@ -35,13 +35,9 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _boot() async {
     try {
-      final appUpdate = context.read<AppUpdateProvider>();
-      await appUpdate.checkForUpdate();
+      // Native Play Store update prompt when a newer release is live.
+      await context.read<AppUpdateProvider>().checkForUpdate();
       if (!mounted) return;
-      if (appUpdate.forceUpdateRequired) {
-        context.go('/force-update');
-        return;
-      }
 
       final auth = context.read<AuthProvider>();
       await auth.init();

@@ -224,10 +224,10 @@ def send_push_to_tokens(
     }
     if not data_only:
         android_kwargs['notification'] = messaging.AndroidNotification(
-            channel_id='pest99_booking_alerts_v7',
-            sound='booking_alert_urgent',
+            channel_id='pest99_booking_alerts_v8',
+            sound='partner_notification_bell',
             default_vibrate_timings=True,
-            default_sound=True,
+            default_sound=False,
         )
     android_config = messaging.AndroidConfig(**android_kwargs)
 

@@ -14,7 +14,9 @@ import 'package:intl/intl.dart';
 /// Booking page — Home / Commercial tabs, property configuration,
 /// then service selection with per-service "More Options".
 class PropertySelectionScreen extends StatefulWidget {
-  const PropertySelectionScreen({super.key});
+  const PropertySelectionScreen({super.key, this.initialServiceId});
+
+  final String? initialServiceId;
 
   @override
   State<PropertySelectionScreen> createState() => _PropertySelectionScreenState();
@@ -26,7 +28,18 @@ class _PropertySelectionScreenState extends State<PropertySelectionScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCatalog());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadCatalog();
+      _applyInitialService();
+    });
+  }
+
+  void _applyInitialService() {
+    final id = widget.initialServiceId?.trim();
+    if (id == null || id.isEmpty) return;
+    final flow = context.read<BookingFlowProvider>();
+    if (flow.serviceById(id) == null) return;
+    flow.selectOnlyService(id);
   }
 
   Future<void> _loadCatalog() async {
@@ -77,6 +90,10 @@ class _PropertySelectionScreenState extends State<PropertySelectionScreen> {
           const Text('Book Service', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
           const Text('Select your property type to get started', style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
+          if (flow.selectedServiceIds.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _PreselectedServiceBanner(flow: flow),
+          ],
           const SizedBox(height: 16),
           _CategoryTabs(
             category: flow.propertyCategory,
@@ -147,6 +164,59 @@ class _PropertySelectionScreenState extends State<PropertySelectionScreen> {
                 )),
             const SizedBox(height: 8),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PreselectedServiceBanner extends StatelessWidget {
+  const _PreselectedServiceBanner({required this.flow});
+
+  final BookingFlowProvider flow;
+
+  @override
+  Widget build(BuildContext context) {
+    final id = flow.selectedServiceIds.first;
+    final service = flow.serviceById(id);
+    if (service == null) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle, size: 20, color: AppColors.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  service.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Selected — choose property size below to continue',
+                  style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () => flow.toggleService(id),
+            child: const Text('Change'),
+          ),
         ],
       ),
     );

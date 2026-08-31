@@ -16,6 +16,7 @@ urlpatterns = [
     path('catalog/', apis.CatalogAPIView.as_view(), name='catalog'),
     path('bookings/', apis.BookingListCreateAPIView.as_view(), name='bookings'),
     path('bookings/<int:id>/', apis.BookingDetailAPIView.as_view(), name='booking-detail'),
+    path('bookings/<int:id>/cancel/', apis.CancelBookingAPIView.as_view(), name='booking-cancel'),
     path('bookings/<int:id>/pay/', apis.ConfirmPaymentAPIView.as_view(), name='booking-pay'),
     path('bookings/<int:id>/rate/', apis.RateBookingAPIView.as_view(), name='booking-rate'),
     path('bookings/<int:id>/invoice/', apis.InvoiceAPIView.as_view(), name='booking-invoice'),

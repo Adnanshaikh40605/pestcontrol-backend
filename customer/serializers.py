@@ -160,6 +160,7 @@ class CustomerBookSerializer(serializers.Serializer):
         default='one_time',
         required=False,
     )
+    price_confirmation_pending = serializers.BooleanField(required=False, default=False)
 
 
 class CustomerBookingSerializer(serializers.ModelSerializer):
@@ -168,6 +169,11 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
     my_rating = serializers.SerializerMethodField()
     invoice_amount = serializers.SerializerMethodField()
     amc_parent_id = serializers.IntegerField(source='parent_job_id', read_only=True, allow_null=True)
+    price_confirmation_pending = serializers.SerializerMethodField()
+    technician_name = serializers.SerializerMethodField()
+    technician_mobile = serializers.SerializerMethodField()
+    technician_photo_url = serializers.SerializerMethodField()
+    can_cancel = serializers.SerializerMethodField()
 
     class Meta:
         model = JobCard
@@ -176,7 +182,10 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
             'property_type', 'bhk_size', 'client_name', 'client_address',
             'city', 'schedule_datetime', 'time_slot',
             'status', 'partner_status', 'payment_status', 'payment_mode',
-            'price', 'total_amount', 'invoice_amount',
+            'price', 'total_amount', 'invoice_amount', 'is_price_estimated',
+            'price_confirmation_pending',
+            'technician_name', 'technician_mobile', 'technician_photo_url',
+            'can_cancel',
             'notes', 'completed_at', 'created_at',
             'can_rate', 'my_rating', 'amc_parent_id', 'service_cycle', 'max_cycle',
         ]
@@ -185,6 +194,87 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
         if obj.total_amount is not None:
             return str(obj.total_amount)
         return obj.price
+
+    def get_price_confirmation_pending(self, obj):
+        if getattr(obj, 'is_price_estimated', False):
+            return True
+        note = (obj.notes or '').lower()
+        return 'price confirmation pending' in note
+
+    def _assigned_technician(self, obj):
+        tech = getattr(obj, 'technician', None)
+        if tech:
+            return tech
+        partner = getattr(obj, 'partner', None)
+        if partner:
+            return getattr(partner, 'core_technician', None)
+        return None
+
+    def get_technician_name(self, obj):
+        # Only reveal after partner has accepted the job.
+        if (obj.partner_status or '') not in (
+            JobCard.PartnerStatus.ACCEPTED,
+            JobCard.PartnerStatus.IN_SERVICE,
+            JobCard.PartnerStatus.COMPLETED,
+        ):
+            return None
+        tech = self._assigned_technician(obj)
+        if tech and tech.name:
+            return tech.name
+        partner = getattr(obj, 'partner', None)
+        if partner and partner.full_name:
+            return partner.full_name
+        return None
+
+    def get_technician_mobile(self, obj):
+        if (obj.partner_status or '') not in (
+            JobCard.PartnerStatus.ACCEPTED,
+            JobCard.PartnerStatus.IN_SERVICE,
+            JobCard.PartnerStatus.COMPLETED,
+        ):
+            return None
+        tech = self._assigned_technician(obj)
+        if tech and tech.mobile:
+            return tech.mobile
+        partner = getattr(obj, 'partner', None)
+        if partner and partner.mobile:
+            return partner.mobile
+        return None
+
+    def get_technician_photo_url(self, obj):
+        if (obj.partner_status or '') not in (
+            JobCard.PartnerStatus.ACCEPTED,
+            JobCard.PartnerStatus.IN_SERVICE,
+            JobCard.PartnerStatus.COMPLETED,
+        ):
+            return None
+        request = self.context.get('request')
+        partner = getattr(obj, 'partner', None)
+        image = None
+        if partner and partner.profile_image:
+            image = partner.profile_image.url
+        else:
+            tech = self._assigned_technician(obj)
+            if tech and getattr(tech, 'photo', None):
+                try:
+                    image = tech.photo.url
+                except ValueError:
+                    image = None
+        if not image:
+            return None
+        if request and not str(image).startswith('http'):
+            return request.build_absolute_uri(image)
+        return image
+
+    def get_can_cancel(self, obj):
+        if obj.status in (JobCard.JobStatus.CANCELLED, JobCard.JobStatus.DONE):
+            return False
+        if (obj.partner_status or '') in (
+            JobCard.PartnerStatus.IN_SERVICE,
+            JobCard.PartnerStatus.COMPLETED,
+        ):
+            return False
+        return True
 
     def get_can_rate(self, obj):
         if obj.status != JobCard.JobStatus.DONE:
@@ -200,6 +290,10 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
             'remark': fb.remark,
             'technician_behavior': fb.technician_behavior,
         }
+
+
+class CustomerCancelSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500, min_length=4)
 
 
 class CustomerRateSerializer(serializers.Serializer):

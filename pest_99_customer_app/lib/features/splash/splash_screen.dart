@@ -41,11 +41,6 @@ class _SplashScreenState extends State<SplashScreen> {
 
       if (!mounted) return;
 
-      if (appUpdate.forceUpdateRequired) {
-        context.go('/force-update');
-        return;
-      }
-
       if (!auth.loggedIn) {
         context.go('/home');
         return;

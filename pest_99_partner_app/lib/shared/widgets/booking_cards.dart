@@ -76,6 +76,25 @@ class AvailableBookingCard extends StatelessWidget {
                   fontSize: 20,
                 ),
           ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              BookingTypeTag(
+                type: booking.bookingType,
+                labelOverride: booking.displayPlanLabel.toUpperCase(),
+              ),
+              const Spacer(),
+              if (booking.displayAmount.trim().isNotEmpty &&
+                  booking.displayAmount.trim() != '—')
+                Text(
+                  formatMoneyLabel(booking.displayAmount),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+            ],
+          ),
           const SizedBox(height: 10),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,

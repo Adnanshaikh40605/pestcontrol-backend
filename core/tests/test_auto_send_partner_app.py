@@ -4,6 +4,7 @@ from datetime import datetime, timezone as dt_timezone
 
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from core.models import City, Client, Country, JobCard, Location, State, Technician
@@ -20,7 +21,9 @@ from partner.utils import generate_partner_tokens
 class AutoSendBookingToPartnerAppTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='crm_auto', password='pass1234', is_staff=True)
-        self.schedule = datetime(2026, 8, 20, 10, 0, tzinfo=dt_timezone.utc)
+        self.schedule = timezone.localtime(
+            timezone.now().replace(hour=10, minute=0, second=0, microsecond=0)
+        )
         self.client_record = Client.objects.create(full_name='Auto Send Client', mobile='9888877777')
         country, _ = Country.objects.get_or_create(name='India')
         state, _ = State.objects.get_or_create(country=country, name='Maharashtra Auto')
@@ -49,6 +52,7 @@ class AutoSendBookingToPartnerAppTests(TestCase):
         )
         self.partner.set_password('testpass')
         self.partner.save()
+        self.tech.service_cities.add(city)
         tokens = generate_partner_tokens(self.partner)
         self.partner_api = APIClient()
         self.partner_api.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")

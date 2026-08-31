@@ -235,13 +235,30 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
         return 'One-Time'
 
     def get_total_booking_amount(self, obj):
-        from core.payment_utils import effective_service_total, parse_jobcard_price
+        from core.payment_utils import partner_booking_display_amount
 
-        total = effective_service_total(obj)
+        total = partner_booking_display_amount(obj)
         if total > 0:
             return str(total)
-        price = parse_jobcard_price(obj.price)
-        return str(price) if price > 0 else (obj.price or '0')
+        if obj.is_complaint_call or obj.included_in_amc:
+            return '0'
+        if (
+            (obj.service_cycle or 1) <= 1
+            and not obj.is_followup_visit
+            and not obj.is_service_call
+            and obj.status == JobCard.JobStatus.PENDING
+        ):
+            import logging
+
+            logging.getLogger(__name__).warning(
+                'Partner booking #%s shows ₹0 for pending new booking '
+                '(service=%r price=%r total_amount=%s)',
+                obj.id,
+                obj.service_type,
+                obj.price,
+                obj.total_amount,
+            )
+        return '0'
 
     def get_city_name(self, obj):
         if obj.master_city_id and getattr(obj, 'master_city', None):
@@ -374,13 +391,30 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
         return 'One-Time'
 
     def get_total_booking_amount(self, obj):
-        from core.payment_utils import effective_service_total, parse_jobcard_price
+        from core.payment_utils import partner_booking_display_amount
 
-        total = effective_service_total(obj)
+        total = partner_booking_display_amount(obj)
         if total > 0:
             return str(total)
-        price = parse_jobcard_price(obj.price)
-        return str(price) if price > 0 else (obj.price or '0')
+        if obj.is_complaint_call or obj.included_in_amc:
+            return '0'
+        if (
+            (obj.service_cycle or 1) <= 1
+            and not obj.is_followup_visit
+            and not obj.is_service_call
+            and obj.status == JobCard.JobStatus.PENDING
+        ):
+            import logging
+
+            logging.getLogger(__name__).warning(
+                'Partner booking #%s shows ₹0 for pending new booking '
+                '(service=%r price=%r total_amount=%s)',
+                obj.id,
+                obj.service_type,
+                obj.price,
+                obj.total_amount,
+            )
+        return '0'
 
 
 class PartnerCompleteBookingSerializer(serializers.Serializer):

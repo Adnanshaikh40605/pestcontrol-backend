@@ -70,10 +70,8 @@ Login uses **mobile + password** (not OTP).
 2. Copy `android/key.properties.example` → `android/key.properties` and fill paths.
 3. Build: `flutter build appbundle --release`
 
-## Partner app version (CRM admin)
+## Partner / Customer app updates
 
-Django admin → **Partner App Version**:
-
-- `force_update`: off for review unless testing
-- `minimum_supported_version`: `2.0.4` or lower
-- `latest_version`: `2.0.4`
+Apps use **Google Play In-App Updates**. After a release goes live on Play Store,
+opening the app (or returning from background) shows the native Play “Update available”
+dialog automatically. No CRM version settings are required.

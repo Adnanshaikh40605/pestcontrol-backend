@@ -5,10 +5,6 @@ class ApiConfig {
     defaultValue: 'https://api.vacationbna.site',
   );
 
-  /// Public — no auth. Checked on every partner app launch.
-  /// Public force-update policy (defaults to partner when ?app= omitted).
-  static const String appVersion = '/api/app/version/?app=partner';
-
   static const String partnerPrefix = '/api/partner';
 
   static String get register => '$partnerPrefix/register/';

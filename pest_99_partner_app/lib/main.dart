@@ -16,7 +16,6 @@ import 'providers/app_update_provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/bookings_provider.dart';
 import 'providers/profile_provider.dart';
-import 'services/app_version_service.dart';
 import 'services/auth_service.dart';
 import 'services/booking_service.dart';
 import 'services/notification_api_service.dart';
@@ -54,10 +53,10 @@ Future<void> _startApp() async {
     );
   }));
 
-  final appUpdate = AppUpdateProvider(AppVersionService(api));
+  final appUpdate = AppUpdateProvider();
   final auth = AuthProvider(AuthService(api), sessionCoordinator);
 
-  final appRouter = AppRouter(auth, appUpdate);
+  final appRouter = AppRouter(auth);
   _routerHolder.router = appRouter.router;
 
   runApp(

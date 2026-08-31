@@ -46,7 +46,7 @@ class BookingFlowProvider extends ChangeNotifier {
 
   static const catalog = <ServiceOption>[
     ServiceOption(id: 'cockroach', name: 'Cockroach Control', icon: 'cockroach', matchKeys: ['cockroach']),
-    ServiceOption(id: 'ant', name: 'Ant Control', icon: 'ant', matchKeys: ['ant', 'cockroach']),
+    ServiceOption(id: 'ant', name: 'Ant Control', icon: 'ant', matchKeys: ['ant']),
     ServiceOption(id: 'mosquito', name: 'Mosquito Control', icon: 'mosquito', matchKeys: ['mosquito']),
     ServiceOption(id: 'termite', name: 'Termite Control', icon: 'termite', matchKeys: ['termite']),
     ServiceOption(id: 'bedbug', name: 'Bed Bug Control', icon: 'bedbug', matchKeys: ['bed bug', 'bedbug', 'bed bugs']),

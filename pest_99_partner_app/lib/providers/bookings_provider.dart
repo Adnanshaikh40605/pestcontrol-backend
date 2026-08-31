@@ -36,6 +36,15 @@ class BookingsProvider extends ChangeNotifier {
 
   bool get isGlobalBusy => _processingIds.isNotEmpty;
 
+  static List<PartnerBooking> _dedupeById(List<PartnerBooking> rows) {
+    final seen = <int>{};
+    final out = <PartnerBooking>[];
+    for (final row in rows) {
+      if (seen.add(row.id)) out.add(row);
+    }
+    return out;
+  }
+
   static const _minRefreshGap = Duration(seconds: 8);
 
   Future<void>? _refreshInFlight;
@@ -99,7 +108,7 @@ class BookingsProvider extends ChangeNotifier {
       ]);
       counts = results[0] as BookingCounts;
       final availableResult = results[1] as AvailableBookingsResult;
-      available = availableResult.bookings;
+      available = _dedupeById(availableResult.bookings);
       isSuspended = availableResult.isSuspended;
       suspendReason = availableResult.suspendReason;
       suspendMessage = availableResult.message;
