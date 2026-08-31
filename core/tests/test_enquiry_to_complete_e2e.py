@@ -280,7 +280,7 @@ class EnquiryToCompleteE2ETests(TestCase):
         ids = [row['id'] for row in available.data['results']]
         self.assertNotIn(job.id, ids)
 
-    def test_cannot_desk_assign_after_partner_accepted(self):
+    def test_crm_desk_assign_overrides_partner_accepted(self):
         client = Client.objects.create(full_name='Taken Job', mobile='9555666777')
         job = JobCard.objects.create(
             client=client,
@@ -308,8 +308,8 @@ class EnquiryToCompleteE2ETests(TestCase):
             {'technician_id': desk_tech.id},
             format='json',
         )
-        self.assertEqual(assign.status_code, 400, assign.data)
-        self.assertEqual(assign.data.get('code'), 'partner_in_progress')
+        self.assertEqual(assign.status_code, 200, assign.data)
+        self.assertTrue(assign.data.get('partner_override'))
         job.refresh_from_db()
-        self.assertEqual(job.partner_id, self.partner.id)
-        self.assertEqual(job.technician_id, self.tech.id)
+        self.assertEqual(job.technician_id, desk_tech.id)
+        self.assertEqual(job.status, JobCard.JobStatus.ON_PROCESS)

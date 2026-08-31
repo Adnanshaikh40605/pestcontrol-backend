@@ -2524,29 +2524,39 @@ class JobCardViewSet(BaseModelViewSet):
             if area_error:
                 return response.Response(area_error, status=status.HTTP_400_BAD_REQUEST)
 
-            # Block desk-assign once a partner has already claimed / started the job.
-            if instance.partner_id and instance.partner_status in (
+            assigned_partner = getattr(technician, 'partner_account', None)
+
+            # Idempotent — already on this technician.
+            if (
+                instance.technician_id == technician.id
+                and instance.status == JobCard.JobStatus.ON_PROCESS
+            ):
+                from core.payout_engine import ensure_lead_participation
+
+                ensure_lead_participation(instance)
+                return response.Response(self.get_serializer(instance).data)
+
+            partner_override = False
+            pulled_from_app = False
+            partner_in_app = instance.partner_id and instance.partner_status in (
                 JobCard.PartnerStatus.ACCEPTED,
                 JobCard.PartnerStatus.IN_SERVICE,
                 JobCard.PartnerStatus.COMPLETED,
-            ):
-                return response.Response(
-                    {
-                        'error': (
-                            'Booking is already with a partner technician in the app. '
-                            'Remove/reassign from the partner workflow first.'
-                        ),
-                        'code': 'partner_in_progress',
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
+            )
+            if partner_in_app:
+                same_partner = bool(
+                    assigned_partner and instance.partner_id == assigned_partner.id
                 )
-
-            # If still sitting in the open app pool, pull it back so partners cannot accept mid-assign.
-            pulled_from_app = bool(
+                if instance.technician_id == technician.id or same_partner:
+                    pass
+                else:
+                    partner_override = True
+            elif (
                 instance.sent_to_app_at
                 and instance.partner_id is None
                 and instance.partner_status == JobCard.PartnerStatus.PENDING
-            )
+            ):
+                pulled_from_app = True
 
             previous_technician_id = instance.technician_id
             instance.technician = technician
@@ -2560,22 +2570,30 @@ class JobCardViewSet(BaseModelViewSet):
                 'removal_remarks',
                 'updated_at',
             ]
-            if pulled_from_app:
+
+            if partner_override or pulled_from_app:
+                instance.sent_to_app_at = None
+                update_fields.append('sent_to_app_at')
+
+            if assigned_partner:
+                instance.partner = assigned_partner
+                instance.partner_status = JobCard.PartnerStatus.ACCEPTED
+                instance.is_accepted = True
+                if not instance.accepted_at:
+                    instance.accepted_at = timezone.now()
+                update_fields.extend(
+                    ['partner', 'partner_status', 'is_accepted', 'accepted_at']
+                )
+            elif partner_override or pulled_from_app:
                 instance.partner = None
                 instance.partner_status = JobCard.PartnerStatus.REJECTED
-                instance.sent_to_app_at = None
                 instance.is_accepted = False
                 instance.accepted_at = None
                 update_fields.extend(
-                    [
-                        'partner',
-                        'partner_status',
-                        'sent_to_app_at',
-                        'is_accepted',
-                        'accepted_at',
-                    ]
+                    ['partner', 'partner_status', 'is_accepted', 'accepted_at']
                 )
-            instance.save(update_fields=update_fields)
+
+            instance.save(update_fields=list(dict.fromkeys(update_fields)))
 
             from core.booking_schedule_engine import (
                 BookingScheduleEngine,
@@ -2597,6 +2615,17 @@ class JobCardViewSet(BaseModelViewSet):
             
             serializer = self.get_serializer(instance)
             data = serializer.data
+            if partner_override:
+                return response.Response(
+                    {
+                        **data,
+                        'partner_override': True,
+                        'message': (
+                            f'Assigned to {technician.name} in CRM '
+                            f'(replaced previous partner app assignment).'
+                        ),
+                    }
+                )
             if pulled_from_app:
                 return response.Response(
                     {
