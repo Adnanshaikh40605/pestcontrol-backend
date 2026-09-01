@@ -15,7 +15,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from core.models import JobCard, PricingRate, PricingRegion
+from core.models import City, JobCard, Location, PricingRate, PricingRegion
 from core.staff_partner_sync import normalize_mobile
 
 from .account_deletion import CustomerAccountDeletionError, permanently_delete_customer_account
@@ -26,9 +26,11 @@ from .serializers import (
     CustomerBookSerializer,
     CustomerBookingSerializer,
     CustomerCancelSerializer,
+    CustomerCitySerializer,
     CustomerComplaintSerializer,
     CustomerDeleteAccountSerializer,
     CustomerLoginSerializer,
+    CustomerLocationSerializer,
     CustomerOTPSendSerializer,
     CustomerOTPVerifySerializer,
     CustomerPaymentConfirmSerializer,
@@ -48,6 +50,7 @@ from .services import (
     rate_customer_booking,
 )
 from .utils import CustomerTokenError, generate_customer_tokens, refresh_customer_tokens
+from .places import PlacesProxyError, places_autocomplete, places_details, places_reverse_geocode
 from .views_base import CustomerAPIView, CustomerPublicAPIView
 
 logger = logging.getLogger(__name__)
@@ -382,6 +385,81 @@ class CatalogAPIView(CustomerPublicAPIView):
                 'results': CatalogRateSerializer(qs, many=True).data,
             }
         )
+
+
+class CitiesAPIView(CustomerPublicAPIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=['Customer Master Data'], summary='List active CRM cities')
+    def get(self, request):
+        qs = City.objects.filter(is_active=True).select_related('state').order_by('name')
+        return Response({
+            'results': CustomerCitySerializer(qs, many=True).data,
+        })
+
+
+class LocationsAPIView(CustomerPublicAPIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=['Customer Master Data'], summary='List active CRM areas for a city')
+    def get(self, request):
+        city_id = request.query_params.get('city_id') or request.query_params.get('city')
+        if not city_id:
+            return Response(
+                {'error': 'city_id query parameter is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            city_pk = int(city_id)
+        except (TypeError, ValueError):
+            return Response({'error': 'city_id must be an integer.'}, status=400)
+        if not City.objects.filter(id=city_pk, is_active=True).exists():
+            return Response({'error': 'City not found.'}, status=404)
+        qs = Location.objects.filter(city_id=city_pk, is_active=True).order_by('name')
+        return Response({
+            'results': CustomerLocationSerializer(qs, many=True).data,
+        })
+
+
+class PlacesAutocompleteAPIView(CustomerPublicAPIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=['Customer Places'], summary='Google Places autocomplete (server proxy)')
+    def get(self, request):
+        try:
+            results = places_autocomplete(request.query_params.get('input') or '')
+        except PlacesProxyError as exc:
+            return Response({'error': exc.message, 'code': exc.code}, status=exc.status)
+        return Response({'results': results})
+
+
+class PlacesDetailsAPIView(CustomerPublicAPIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=['Customer Places'], summary='Google Place details (server proxy)')
+    def get(self, request):
+        try:
+            data = places_details(request.query_params.get('place_id') or '')
+        except PlacesProxyError as exc:
+            return Response({'error': exc.message, 'code': exc.code}, status=exc.status)
+        return Response(data)
+
+
+class PlacesReverseGeocodeAPIView(CustomerPublicAPIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=['Customer Places'], summary='Reverse geocode lat/lng (server proxy)')
+    def get(self, request):
+        try:
+            latitude = float(request.query_params.get('latitude') or request.query_params.get('lat') or '')
+            longitude = float(request.query_params.get('longitude') or request.query_params.get('lng') or '')
+        except (TypeError, ValueError):
+            return Response({'error': 'latitude and longitude are required.'}, status=400)
+        try:
+            data = places_reverse_geocode(latitude, longitude)
+        except PlacesProxyError as exc:
+            return Response({'error': exc.message, 'code': exc.code}, status=exc.status)
+        return Response(data)
 
 
 class BookingListCreateAPIView(CustomerAPIView):

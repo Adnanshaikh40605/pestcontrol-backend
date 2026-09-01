@@ -81,6 +81,7 @@ FIREBASE_PRIVATE_KEY = config('FIREBASE_PRIVATE_KEY', default='')
 FIREBASE_PRIVATE_KEY_ID = config('FIREBASE_PRIVATE_KEY_ID', default='')
 FIREBASE_CLIENT_EMAIL = config('FIREBASE_CLIENT_EMAIL', default='')
 GOOGLE_APPLICATION_CREDENTIALS = config('GOOGLE_APPLICATION_CREDENTIALS', default='')
+GOOGLE_MAPS_API_KEY = config('GOOGLE_MAPS_API_KEY', default='')
 
 # Technician & Revenue Model v2 (40/60). Off by default until cutover.
 REVENUE_MODEL_V2 = config('REVENUE_MODEL_V2', default=False, cast=bool)

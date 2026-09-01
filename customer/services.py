@@ -67,17 +67,52 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
 
     address = (data.get('address') or '').strip()
     area = (data.get('area') or '').strip()
-    if area and area.lower() not in address.lower():
-        address = f'{address}, {area}'.strip(', ')
+    full_address = (data.get('full_address') or '').strip()
 
     from core.city_utils import canonical_city_label, resolve_master_city
+    from core.models import City, Location
+
+    master_city = None
+    master_location = None
+    master_city_id = data.get('master_city_id')
+    master_location_id = data.get('master_location_id')
+
+    if master_city_id:
+        master_city = City.objects.filter(id=master_city_id, is_active=True).first()
+        if not master_city:
+            raise CustomerAppError('Invalid city.', code='invalid_city')
+
+    if master_location_id:
+        master_location = Location.objects.filter(
+            id=master_location_id,
+            is_active=True,
+        ).select_related('city').first()
+        if not master_location:
+            raise CustomerAppError('Invalid area.', code='invalid_location')
+        if master_city and master_location.city_id != master_city.id:
+            raise CustomerAppError(
+                'Selected area does not belong to the selected city.',
+                code='location_city_mismatch',
+            )
+        if not master_city:
+            master_city = master_location.city
+        area = master_location.name
 
     raw_city = (data.get('city') or getattr(account.client, 'city', None) or '').strip()
-    master_city = resolve_master_city(raw_city)
+    if not master_city and raw_city:
+        master_city = resolve_master_city(raw_city)
+
     city_label = (
         canonical_city_label(master_city.name if master_city else raw_city)
         or raw_city
     )
+
+    if master_location:
+        client_address = address
+    elif area and area.lower() not in address.lower():
+        client_address = f'{address}, {area}'.strip(', ')
+    else:
+        client_address = address
 
     # Contractual = society/commercial crew jobs (revenue sharing when flag on).
     if booking_kind == 'contractual':
@@ -97,7 +132,7 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         'service_category': service_category,
         'property_type': property_type,
         'bhk_size': data.get('bhk_size') or '',
-        'client_address': address,
+        'client_address': client_address,
         'city': city_label,
         'schedule_datetime': data.get('schedule_datetime'),
         'time_slot': data.get('time_slot') or '',
@@ -122,6 +157,16 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         payload['notes'] = f'{note} · {pending_note}'.strip(' ·') if note else pending_note
     if master_city:
         payload['master_city'] = master_city.id
+    if master_location:
+        payload['master_location'] = master_location.id
+    if full_address:
+        payload['full_address'] = full_address
+    latitude = data.get('latitude')
+    longitude = data.get('longitude')
+    if latitude is not None:
+        payload['service_latitude'] = latitude
+    if longitude is not None:
+        payload['service_longitude'] = longitude
     if contract_duration:
         payload['contract_duration'] = contract_duration
     # Termite / Bed Bugs never use AMC packages; lock visit counts on create.
@@ -182,12 +227,12 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
 
     # Persist last service address on CRM client for future bookings.
     client = account.client
-    if client and address:
+    if client and client_address:
         updates = []
-        if address and client.address != address:
-            client.address = address
+        if client_address and client.address != client_address:
+            client.address = client_address
             updates.append('address')
-        city = (data.get('city') or '').strip()
+        city = city_label or (data.get('city') or '').strip()
         if city and getattr(client, 'city', None) != city:
             if hasattr(client, 'city'):
                 client.city = city

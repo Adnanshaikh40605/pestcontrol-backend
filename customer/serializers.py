@@ -3,7 +3,7 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from rest_framework import serializers
 
-from core.models import Client, Feedback, JobCard, PricingRate
+from core.models import City, Client, Feedback, JobCard, Location, PricingRate
 from core.staff_partner_sync import normalize_mobile
 
 from .models import CustomerAccount
@@ -165,6 +165,20 @@ class CatalogRateSerializer(serializers.ModelSerializer):
         }
 
 
+class CustomerCitySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = City
+        fields = ['id', 'name']
+        read_only_fields = fields
+
+
+class CustomerLocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Location
+        fields = ['id', 'name']
+        read_only_fields = fields
+
+
 class CustomerBookSerializer(serializers.Serializer):
     service_type = serializers.CharField(max_length=500, required=False, allow_blank=True, default='')
     plan_type = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
@@ -175,8 +189,23 @@ class CustomerBookSerializer(serializers.Serializer):
     property_type = serializers.CharField(max_length=50, required=False, allow_blank=True, default='Home / Flat')
     bhk_size = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
     address = serializers.CharField(max_length=1000)
+    full_address = serializers.CharField(max_length=2000, required=False, allow_blank=True, default='')
     city = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
     area = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
+    master_city_id = serializers.IntegerField(required=False, allow_null=True)
+    master_location_id = serializers.IntegerField(required=False, allow_null=True)
+    latitude = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        required=False,
+        allow_null=True,
+    )
+    longitude = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        required=False,
+        allow_null=True,
+    )
     schedule_datetime = serializers.DateTimeField(required=False, allow_null=True)
     time_slot = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
     pricing_rate_id = serializers.IntegerField(required=False, allow_null=True)
@@ -188,6 +217,30 @@ class CustomerBookSerializer(serializers.Serializer):
         required=False,
     )
     price_confirmation_pending = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        master_city_id = attrs.get('master_city_id')
+        master_location_id = attrs.get('master_location_id')
+        if master_city_id:
+            if not City.objects.filter(id=master_city_id, is_active=True).exists():
+                raise serializers.ValidationError({'master_city_id': 'Invalid city.'})
+        if master_location_id:
+            location = Location.objects.filter(
+                id=master_location_id,
+                is_active=True,
+            ).select_related('city').first()
+            if not location:
+                raise serializers.ValidationError({'master_location_id': 'Invalid area.'})
+            if master_city_id and location.city_id != master_city_id:
+                raise serializers.ValidationError({
+                    'master_location_id': 'Selected area does not belong to the selected city.',
+                })
+            attrs['area'] = location.name
+            if not attrs.get('city'):
+                attrs['city'] = location.city.name
+            if not master_city_id:
+                attrs['master_city_id'] = location.city_id
+        return attrs
 
 
 class CustomerBookingSerializer(serializers.ModelSerializer):

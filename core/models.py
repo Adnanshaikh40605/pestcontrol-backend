@@ -804,7 +804,21 @@ class JobCard(BaseModel):
     master_city = models.ForeignKey(City, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="City (Master)")
     master_location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Location (Master)")
     full_address = models.TextField(blank=True, null=True, verbose_name="Full Address")
-    
+    service_latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        blank=True,
+        null=True,
+        verbose_name="Service Latitude",
+    )
+    service_longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        blank=True,
+        null=True,
+        verbose_name="Service Longitude",
+    )
+
     client_address = models.TextField(
         blank=True,
         null=True,
@@ -2104,6 +2118,16 @@ class Quotation(BaseModel):
     discount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    gst_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('18.00'),
+        help_text='GST percentage applied to this quotation (e.g. 18.00)',
+    )
+    price_includes_gst = models.BooleanField(
+        default=True,
+        help_text='When True, line totals include GST; when False, GST is added after discount',
+    )
     
     # AMC Details
     is_amc = models.BooleanField(default=False)

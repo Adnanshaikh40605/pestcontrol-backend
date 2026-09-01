@@ -5,7 +5,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from core.models import Client, Feedback, JobCard, PricingRate, PricingRegion
+from core.models import City, Client, Country, Feedback, JobCard, Location, PricingRate, PricingRegion, State
 from customer.models import CustomerAccount
 from customer.utils import generate_customer_tokens
 
@@ -38,6 +38,25 @@ class CustomerApiTests(TestCase):
         self.rate.amount = Decimal('1000.00')
         self.rate.is_active = True
         self.rate.save(update_fields=['amount', 'is_active', 'updated_at'])
+        self.country, _ = Country.objects.get_or_create(
+            name='India Customer Test',
+            defaults={'is_active': True},
+        )
+        self.state, _ = State.objects.get_or_create(
+            country=self.country,
+            name='Maharashtra Customer Test',
+            defaults={'is_active': True},
+        )
+        self.city, _ = City.objects.get_or_create(
+            state=self.state,
+            name='Mumbai',
+            defaults={'is_active': True},
+        )
+        self.location, _ = Location.objects.get_or_create(
+            city=self.city,
+            name='Andheri West',
+            defaults={'is_active': True},
+        )
 
     def _register(self, mobile='9888777666', name='Cust User'):
         res = self.api.post(
@@ -340,3 +359,89 @@ class CustomerApiTests(TestCase):
         self.assertEqual(len(res.data['results']), 1)
         self.assertEqual(res.data['results'][0]['parent']['id'], parent_id)
         self.assertEqual(len(res.data['results'][0]['visits']), 1)
+
+    def test_cities_and_locations_public(self):
+        cities = self.api.get('/api/customer/cities/')
+        self.assertEqual(cities.status_code, 200, cities.data)
+        names = [row['name'] for row in cities.data['results']]
+        self.assertIn('Mumbai', names)
+
+        missing = self.api.get('/api/customer/locations/')
+        self.assertEqual(missing.status_code, 400)
+
+        locations = self.api.get(f'/api/customer/locations/?city_id={self.city.id}')
+        self.assertEqual(locations.status_code, 200, locations.data)
+        area_names = [row['name'] for row in locations.data['results']]
+        self.assertIn('Andheri West', area_names)
+
+    def test_booking_with_master_city_location_and_coordinates(self):
+        self._register()
+        with self.captureOnCommitCallbacks(execute=True):
+            book = self.api.post(
+                '/api/customer/bookings/',
+                {
+                    'service_type': 'General Pest Control',
+                    'pricing_rate_id': self.rate.id,
+                    'package_tier': 'standard',
+                    'address': 'Flat 12, Sunshine Apartments',
+                    'full_address': 'Flat 12, Sunshine Apartments, Andheri West, Mumbai, Maharashtra 400053, India',
+                    'city': 'Mumbai',
+                    'area': 'Andheri West',
+                    'master_city_id': self.city.id,
+                    'master_location_id': self.location.id,
+                    'latitude': '19.113600',
+                    'longitude': '72.869700',
+                    'bhk_size': '1 BHK',
+                },
+                format='json',
+            )
+        self.assertEqual(book.status_code, 201, book.data)
+        job = JobCard.objects.get(id=book.data['booking']['id'])
+        self.assertEqual(job.master_city_id, self.city.id)
+        self.assertEqual(job.master_location_id, self.location.id)
+        self.assertEqual(job.full_address, 'Flat 12, Sunshine Apartments, Andheri West, Mumbai, Maharashtra 400053, India')
+        self.assertEqual(str(job.service_latitude), '19.113600')
+        self.assertEqual(str(job.service_longitude), '72.869700')
+        self.assertEqual(job.client_address, 'Flat 12, Sunshine Apartments')
+
+    def test_booking_rejects_location_city_mismatch(self):
+        self._register(mobile='9000111333')
+        pune, _ = City.objects.get_or_create(
+            state=self.state,
+            name='Pune',
+            defaults={'is_active': True},
+        )
+        res = self.api.post(
+            '/api/customer/bookings/',
+            {
+                'pricing_rate_id': self.rate.id,
+                'package_tier': 'standard',
+                'address': 'Some Street',
+                'master_city_id': pune.id,
+                'master_location_id': self.location.id,
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertIn('master_location_id', str(res.data))
+
+    @override_settings(GOOGLE_MAPS_API_KEY='test-google-key')
+    def test_places_autocomplete_proxy(self):
+        from unittest.mock import patch
+
+        mock_payload = {
+            'status': 'OK',
+            'predictions': [
+                {
+                    'place_id': 'abc123',
+                    'description': 'Kurla, Mumbai, Maharashtra, India',
+                    'structured_formatting': {'main_text': 'Kurla'},
+                }
+            ],
+        }
+        with patch('customer.places.requests.get') as mock_get:
+            mock_get.return_value.status_code = 200
+            mock_get.return_value.json.return_value = mock_payload
+            res = self.api.get('/api/customer/places/autocomplete/?input=kurla')
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['results'][0]['main_text'], 'Kurla')
