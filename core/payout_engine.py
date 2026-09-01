@@ -361,8 +361,59 @@ def is_multi_service_package_shell(job) -> bool:
     return _shell(job)
 
 
+def is_one_time_service_line(job) -> bool:
+    """
+    True when this visit row should bill the full line package once (no AMC ÷N).
+
+    Termite on a commercial multi-service package must not inherit the Cockroach
+    AMC visit divisor via contractual economics.
+    """
+    from core.booking_schedule_engine import (
+        is_amc_plan,
+        is_termite_only_service,
+        service_line_names,
+    )
+    from core.models import JobCard
+
+    primary = (job.source_service or job.service_type or '').strip()
+    if is_termite_only_service(primary):
+        return True
+
+    items = job.service_items if isinstance(getattr(job, 'service_items', None), list) else []
+    line = None
+    if items:
+        if len(items) == 1:
+            line = items[0]
+        elif job.source_service:
+            for item in items:
+                svc = str((item or {}).get('service') or '').strip()
+                if svc.lower() == primary.lower():
+                    line = item
+                    break
+
+    if line is not None:
+        plan = str((line or {}).get('plan') or (line or {}).get('frequency') or '')
+        if plan and not is_amc_plan(plan):
+            return True
+
+    if (
+        job.service_category == JobCard.ServiceCategory.ONE_TIME
+        and not job.included_in_amc
+        and not job.is_followup_visit
+        and (job.service_cycle or 1) <= 1
+    ):
+        names = service_line_names(items) if items else []
+        if len(names) <= 1:
+            return True
+    return False
+
+
 def is_contractual_economics(job) -> bool:
     from core.models import JobCard
+
+    # One-time lines (Termite, single-visit) stay one-time even on Office/Society jobs.
+    if is_one_time_service_line(job):
+        return False
 
     if job.job_type == JobCard.JobType.SOCIETY:
         return True
@@ -694,6 +745,9 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
         if not job.planned_visit_count or int(job.planned_visit_count) < 2:
             job.planned_visit_count = 2
             job.save(update_fields=['planned_visit_count', 'updated_at'])
+    elif is_one_time_service_line(job):
+        economics = 'one_time'
+        visit_revenue = line_package
     elif is_contractual_economics(job):
         economics = 'contractual'
         package_total = line_package

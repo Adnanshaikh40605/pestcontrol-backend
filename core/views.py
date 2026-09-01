@@ -4354,6 +4354,11 @@ class CustomerHistoryView(views.APIView):
             is_billable_root_booking,
             is_complaint_job,
         )
+        from core.customer_revenue import (
+            count_billable_booking_units,
+            iter_revenue_contributions,
+            service_line_breakdown,
+        )
 
         jobcards = list(
             client.jobcards.all()
@@ -4366,12 +4371,15 @@ class CustomerHistoryView(views.APIView):
             item['history_role'] = role
             item['root_booking_id'] = history_root_id(jc)
             item['is_complaint_call'] = bool(item.get('is_complaint_call') or is_complaint_job(jc))
+            lines = service_line_breakdown(jc)
+            if lines:
+                item['service_lines'] = lines
 
         # 2. Feedback History
         feedbacks = Feedback.objects.filter(booking__client=client).order_by('-created_at')
         feedback_data = FeedbackSerializer(feedbacks, many=True).data
 
-        # 3. Revenue Summary — count each billable root booking once only.
+        # 3. Revenue Summary — split multi-service packages per service_items line.
         total_revenue = 0
         amc_revenue = 0
         paid_services = 0
@@ -4379,45 +4387,19 @@ class CustomerHistoryView(views.APIView):
         billable_roots = 0
 
         for jc in jobcards:
-            if is_billable_root_booking(jc):
-                billable_roots += 1
-            if jc.status == JobCard.JobStatus.CANCELLED:
-                continue
-            # Child / free follow-up / complaint rows never add to Total Revenue.
-            if (
-                jc.parent_job_id
-                or jc.included_in_amc
-                or is_complaint_job(jc)
-                or jc.is_followup_visit
-            ):
-                if jc.payment_status == JobCard.PaymentStatus.PAID:
-                    paid_services += 1
-                continue
+            billable_roots += count_billable_booking_units(jc)
 
-            try:
-                from core.payment_utils import effective_service_total
-
-                amount = float(effective_service_total(jc) or 0)
-                if amount <= 0:
-                    price_str = str(jc.price or '').replace('₹', '').replace(',', '').strip()
-                    amount = float(price_str) if price_str else 0
-                if amount <= 0:
-                    continue
-                # Dedupe accidental duplicate main rows (same service + same day).
-                day = None
-                if jc.schedule_datetime:
-                    day = timezone.localtime(jc.schedule_datetime).date().isoformat()
-                key = (jc.service_type or '', day or str(jc.id), round(amount, 2))
+            for contrib in iter_revenue_contributions(jc):
+                key = contrib.dedupe_key
                 if key in seen_revenue_keys:
                     continue
                 seen_revenue_keys.add(key)
+                amount = float(contrib.amount)
                 total_revenue += amount
-                if jc.service_category == JobCard.ServiceCategory.AMC:
+                if contrib.is_amc:
                     amc_revenue += amount
                 if jc.payment_status == JobCard.PaymentStatus.PAID:
                     paid_services += 1
-            except (TypeError, ValueError):
-                pass
 
         # 4. Reminders
         reminders = []
