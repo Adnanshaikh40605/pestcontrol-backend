@@ -8,7 +8,7 @@ Run after deploy or when staff report duplicate ledger entries:
 from django.core.management.base import BaseCommand
 
 from core.models import JobCard, JobCardTechnicianParticipation
-from core.payout_engine import enforce_single_lead_participation
+from core.payout_engine import enforce_single_lead_participation, reconcile_job_partner_earnings
 
 
 class Command(BaseCommand):
@@ -44,6 +44,8 @@ class Command(BaseCommand):
                 continue
 
             removed = enforce_single_lead_participation(job)
+            if job.status == JobCard.JobStatus.DONE:
+                reconcile_job_partner_earnings(job)
             if removed:
                 healed += 1
                 removed_total += removed

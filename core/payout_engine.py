@@ -504,7 +504,32 @@ def enforce_single_lead_participation(job) -> int:
         jobcard=job,
         role=JobCardTechnicianParticipation.Role.LEAD,
     ).exclude(technician_id=job.technician_id).delete()
+    if removed:
+        reconcile_job_partner_earnings(job)
     return removed
+
+
+def reconcile_job_partner_earnings(job):
+    """Rebuild revenue-share rows and drop partner earnings for unassigned crew."""
+    from partner.models import PartnerEarning
+
+    if job.status != job.JobStatus.DONE:
+        return None
+    payout = calculate_and_apply_payout(job, force=True)
+    job.refresh_from_db()
+    keep_partner_ids = set()
+    for row in job.technician_participations.select_related('partner', 'technician').all():
+        resolved = row.partner or getattr(row.technician, 'partner_account', None)
+        if resolved:
+            keep_partner_ids.add(resolved.id)
+    stale = PartnerEarning.objects.filter(
+        job=job,
+        earning_type=PartnerEarning.EarningType.REVENUE_SHARE,
+    )
+    if keep_partner_ids:
+        stale = stale.exclude(partner_id__in=keep_partner_ids)
+    stale.delete()
+    return payout
 
 
 def replace_stale_lead_participation(job, previous_technician_id) -> None:
@@ -528,7 +553,6 @@ def reassign_job_technician(job, technician) -> dict:
     while #2263 Termite stays Mustafa). Does not change sibling service lines.
     """
     from core.models import JobCardTechnicianParticipation
-    from partner.models import PartnerEarning
 
     previous_id = job.technician_id
     previous_name = job.technician.name if job.technician_id else (job.assigned_to or '')
@@ -548,20 +572,7 @@ def reassign_job_technician(job, technician) -> dict:
 
     payout = None
     if job.status == job.JobStatus.DONE:
-        payout = calculate_and_apply_payout(job, force=True)
-        job.refresh_from_db()
-        keep_partner_ids = set()
-        for row in job.technician_participations.select_related('partner', 'technician').all():
-            resolved = row.partner or getattr(row.technician, 'partner_account', None)
-            if resolved:
-                keep_partner_ids.add(resolved.id)
-        stale = PartnerEarning.objects.filter(
-            job=job,
-            earning_type=PartnerEarning.EarningType.REVENUE_SHARE,
-        )
-        if keep_partner_ids:
-            stale = stale.exclude(partner_id__in=keep_partner_ids)
-        stale.delete()
+        payout = reconcile_job_partner_earnings(job)
 
     return {
         'job_id': job.id,
