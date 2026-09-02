@@ -485,7 +485,26 @@ def ensure_lead_participation(job) -> Optional[object]:
             update_fields.append('is_payout_eligible')
         if update_fields:
             row.save(update_fields=update_fields + ['updated_at'])
+    enforce_single_lead_participation(job)
     return row
+
+
+def enforce_single_lead_participation(job) -> int:
+    """
+    Keep exactly one LEAD participation — the assigned JobCard.technician.
+
+    Prevents the same visit appearing on multiple technicians' ledgers because
+    package sync or manual edits added a second lead row.
+    """
+    from core.models import JobCardTechnicianParticipation
+
+    if not job.technician_id:
+        return 0
+    removed, _ = JobCardTechnicianParticipation.objects.filter(
+        jobcard=job,
+        role=JobCardTechnicianParticipation.Role.LEAD,
+    ).exclude(technician_id=job.technician_id).delete()
+    return removed
 
 
 def replace_stale_lead_participation(job, previous_technician_id) -> None:
@@ -525,6 +544,7 @@ def reassign_job_technician(job, technician) -> dict:
 
     replace_stale_lead_participation(job, previous_id)
     ensure_lead_participation(job)
+    enforce_single_lead_participation(job)
 
     payout = None
     if job.status == job.JobStatus.DONE:

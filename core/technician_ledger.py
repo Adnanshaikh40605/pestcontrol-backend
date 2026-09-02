@@ -156,10 +156,19 @@ def technician_jobs_queryset(technician: Technician):
         'settlement', 'job', 'participation',
     ).filter(settlement__technician=technician)
 
+    crew_role = JobCardTechnicianParticipation.Role.CREW
+
     return (
         JobCard.objects.filter(
             Q(technician=technician)
-            | Q(technician_participations__technician=technician)
+            | Q(
+                technician__isnull=True,
+                technician_participations__technician=technician,
+            )
+            | Q(
+                technician_participations__technician=technician,
+                technician_participations__role=crew_role,
+            )
             | Q(partner_earnings__partner__core_technician=technician)
         )
         .exclude(hidden_from_technician_ledger=True)

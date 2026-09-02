@@ -746,3 +746,114 @@ class TechnicianLedgerTests(TestCase):
         job.refresh_from_db()
         self.assertEqual(parse_jobcard_price(job.service_items[0]['amount']), Decimal('1000.00'))
         self.assertEqual(job.total_amount, Decimal('1000.00'))
+
+
+@override_settings(REVENUE_MODEL_V2=True)
+class TechnicianLedgerLeadParticipationTests(TestCase):
+    """Prevent duplicate LEAD rows from showing jobs on multiple ledgers."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='lead_ledger_admin',
+            password='pass1234',
+            is_staff=True,
+        )
+        self.api = APIClient()
+        self.api.force_authenticate(user=self.user)
+        self.client_obj = Client.objects.create(
+            full_name='Duplicate Lead Customer',
+            mobile='9555000099',
+        )
+        self.kuldip = Technician.objects.create(
+            name='Kuldip',
+            mobile='9444000020',
+            technician_type=Technician.TechnicianType.PARTNER,
+            is_active=True,
+        )
+        self.akshay = Technician.objects.create(
+            name='Akshay Kumar',
+            mobile='9444000005',
+            technician_type=Technician.TechnicianType.PARTNER,
+            is_active=True,
+        )
+        Partner.objects.create(
+            full_name='Kuldip',
+            mobile='9444000020',
+            password='x',
+            core_technician=self.kuldip,
+            is_app_approved=True,
+        )
+        Partner.objects.create(
+            full_name='Akshay Kumar',
+            mobile='9444000005',
+            password='x',
+            core_technician=self.akshay,
+            is_app_approved=True,
+        )
+
+    def _job(self, technician):
+        job = JobCard.objects.create(
+            client=self.client_obj,
+            technician=technician,
+            assigned_to=technician.name,
+            service_type='General Pest Control',
+            city='Pune',
+            price='1000',
+            total_amount=Decimal('1000.00'),
+            status=JobCard.JobStatus.DONE,
+            schedule_datetime=timezone.now(),
+            payment_model=JobCard.PaymentModel.REVENUE_SHARING,
+            created_by=self.user,
+        )
+        from core.payout_engine import ensure_lead_participation
+
+        ensure_lead_participation(job)
+        return job
+
+    def test_stale_lead_does_not_appear_on_wrong_ledger(self):
+        job = self._job(self.kuldip)
+        JobCardTechnicianParticipation.objects.create(
+            jobcard=job,
+            technician=self.akshay,
+            role=JobCardTechnicianParticipation.Role.LEAD,
+        )
+        from core.payout_engine import enforce_single_lead_participation
+
+        enforce_single_lead_participation(job)
+
+        kuldip_ids = {
+            r['job_id']
+            for r in self.api.get(
+                f'/api/v1/technicians/{self.kuldip.id}/ledger/',
+            ).data['results']
+        }
+        akshay_ids = {
+            r['job_id']
+            for r in self.api.get(
+                f'/api/v1/technicians/{self.akshay.id}/ledger/',
+            ).data['results']
+        }
+        self.assertIn(job.id, kuldip_ids)
+        self.assertNotIn(job.id, akshay_ids)
+
+    def test_participants_api_rejects_second_lead(self):
+        job = self._job(self.kuldip)
+        res = self.api.post(
+            f'/api/v1/jobcards/{job.id}/participants/',
+            {'technician_id': self.akshay.id, 'role': 'lead'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertEqual(res.data.get('code'), 'lead_already_assigned')
+
+    def test_reassign_clears_stale_lead(self):
+        job = self._job(self.akshay)
+        from core.payout_engine import reassign_job_technician
+
+        reassign_job_technician(job, self.kuldip)
+        leads = job.technician_participations.filter(
+            role=JobCardTechnicianParticipation.Role.LEAD,
+        )
+        self.assertEqual(leads.count(), 1)
+        self.assertEqual(leads.get().technician_id, self.kuldip.id)
+

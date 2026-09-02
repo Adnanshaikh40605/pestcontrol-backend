@@ -2494,9 +2494,10 @@ class JobCardViewSet(BaseModelViewSet):
                 instance.technician_id == technician.id
                 and instance.status == JobCard.JobStatus.ON_PROCESS
             ):
-                from core.payout_engine import ensure_lead_participation
+                from core.payout_engine import ensure_lead_participation, enforce_single_lead_participation
 
                 ensure_lead_participation(instance)
+                enforce_single_lead_participation(instance)
                 return response.Response(self.get_serializer(instance).data)
 
             partner_override = False
@@ -2564,11 +2565,13 @@ class JobCardViewSet(BaseModelViewSet):
             )
             from core.payout_engine import (
                 ensure_lead_participation,
+                enforce_single_lead_participation,
                 replace_stale_lead_participation,
             )
 
             replace_stale_lead_participation(instance, previous_technician_id)
             ensure_lead_participation(instance)
+            enforce_single_lead_participation(instance)
             # Package assign fills only unassigned service lines — never overwrites
             # a technician already set on Cockroach / Termite / etc.
             if is_multi_service_booking(instance):
@@ -2639,9 +2642,32 @@ class JobCardViewSet(BaseModelViewSet):
             )
 
         partner = getattr(technician, 'partner_account', None)
-        role = request.data.get('role') or JobCardTechnicianParticipation.Role.CREW
-        if role not in dict(JobCardTechnicianParticipation.Role.choices):
-            role = JobCardTechnicianParticipation.Role.CREW
+        role = (request.data.get('role') or JobCardTechnicianParticipation.Role.CREW).strip().lower()
+        valid_roles = {choice for choice, _ in JobCardTechnicianParticipation.Role.choices}
+        if role not in valid_roles:
+            return response.Response(
+                {'error': f'Invalid role. Use one of: {", ".join(sorted(valid_roles))}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if role == JobCardTechnicianParticipation.Role.LEAD:
+            if job.technician_id and job.technician_id != technician.id:
+                return response.Response(
+                    {
+                        'error': (
+                            'Lead technician is already assigned on this job. '
+                            'Use Assign Technician to change the lead, or add this '
+                            'technician as crew only.'
+                        ),
+                        'code': 'lead_already_assigned',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not job.technician_id:
+                job.technician = technician
+                job.assigned_to = technician.name
+                job.save(update_fields=['technician', 'assigned_to', 'updated_at'])
+
         is_salaried = technician.technician_type == Technician.TechnicianType.SALARIED
         row, created = JobCardTechnicianParticipation.objects.get_or_create(
             jobcard=job,
@@ -2657,6 +2683,9 @@ class JobCardViewSet(BaseModelViewSet):
                 {'error': 'Technician already on this job crew'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        from core.payout_engine import enforce_single_lead_participation
+
+        enforce_single_lead_participation(job)
         # Done jobs: re-split 40% across the full assigned crew immediately.
         if job.status == JobCard.JobStatus.DONE:
             try:
@@ -2702,8 +2731,28 @@ class JobCardViewSet(BaseModelViewSet):
 
         for field in ('role', 'attendance_status', 'is_payout_eligible'):
             if field in request.data:
+                new_role = request.data[field]
+                if (
+                    field == 'role'
+                    and new_role == JobCardTechnicianParticipation.Role.LEAD
+                    and job.technician_id
+                    and job.technician_id != row.technician_id
+                ):
+                    return response.Response(
+                        {
+                            'error': (
+                                'Cannot promote crew to lead while another technician '
+                                'is assigned. Use Assign Technician first.'
+                            ),
+                            'code': 'lead_already_assigned',
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 setattr(row, field, request.data[field])
         row.save()
+        from core.payout_engine import enforce_single_lead_participation
+
+        enforce_single_lead_participation(job)
         return response.Response(JobCardTechnicianParticipationSerializer(row).data)
 
     @action(detail=True, methods=['post'], url_path='payout-recalculate')

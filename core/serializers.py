@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from decimal import Decimal
 from rest_framework import serializers
 import logging
 from .models import (
@@ -807,6 +808,7 @@ class JobCardSerializer(serializers.ModelSerializer):
         completion_pending_amount = validated_data.pop('completion_pending_amount', None)
         payment_remarks = validated_data.pop('payment_remarks', '')
         old_status = instance.status
+        previous_technician_id = instance.technician_id
         new_status = validated_data.get('status', instance.status)
         payment_mode = validated_data.get('payment_mode', instance.payment_mode)
         requested_payment_status = validated_data.get('payment_status')
@@ -815,6 +817,17 @@ class JobCardSerializer(serializers.ModelSerializer):
 
         sync_jobcard_amounts_from_price(instance)
         instance.refresh_from_db()
+
+        if instance.technician_id != previous_technician_id:
+            from core.payout_engine import (
+                ensure_lead_participation,
+                enforce_single_lead_participation,
+                replace_stale_lead_participation,
+            )
+
+            replace_stale_lead_participation(instance, previous_technician_id)
+            ensure_lead_participation(instance)
+            enforce_single_lead_participation(instance)
 
         # Cancelling a visit/service must never create a new booking — only flip status —
         # and must clear any visit ledger so settlements stay clean.
@@ -1330,6 +1343,8 @@ def _sync_quotation_financials(quotation, items_data):
     """Line items are the source of truth; ignore visit_count mistaken as contract price."""
     from decimal import Decimal
 
+    from core.pricing.gst import gst_breakdown
+
     items_subtotal = sum(Decimal(str(item.get('total') or 0)) for item in items_data)
     discount = Decimal(str(quotation.discount or 0))
     stored_contract = Decimal(str(quotation.contract_amount or 0))
@@ -1351,13 +1366,25 @@ def _sync_quotation_financials(quotation, items_data):
     elif total_amount <= 0 and effective_contract > 0:
         total_amount = effective_contract
 
-    grand_total = max(Decimal('0'), total_amount - discount)
+    taxable_amount = max(Decimal('0'), total_amount - discount)
+    gst = gst_breakdown(
+        taxable_amount,
+        gst_percent=getattr(quotation, 'gst_percent', Decimal('18.00')),
+        price_includes_gst=getattr(quotation, 'price_includes_gst', True),
+    )
+    grand_total = gst['total_with_gst']
+    tax_amount = gst['gst_amount']
     contract_amount = max(effective_contract, grand_total) if quotation.is_amc else Decimal('0')
 
     quotation.total_amount = quantize_money(total_amount)
+    quotation.tax_amount = quantize_money(tax_amount)
     quotation.grand_total = quantize_money(grand_total)
     quotation.contract_amount = quantize_money(contract_amount)
-    quotation.save(update_fields=['total_amount', 'grand_total', 'contract_amount', 'updated_at'])
+    quotation.save(
+        update_fields=[
+            'total_amount', 'tax_amount', 'grand_total', 'contract_amount', 'updated_at',
+        ],
+    )
 
 
 class QuotationSerializer(serializers.ModelSerializer):
@@ -1366,6 +1393,7 @@ class QuotationSerializer(serializers.ModelSerializer):
     payment_terms = QuotationPaymentTermSerializer(many=True, required=False)
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
+    base_amount = serializers.SerializerMethodField()
 
     # Master Location Display Names
     master_country_name = serializers.CharField(source='master_country.name', read_only=True)
@@ -1382,12 +1410,34 @@ class QuotationSerializer(serializers.ModelSerializer):
             'contact_person', 'company_name', 'quotation_type',
             'property_type', 'template_service_type', 'status',
             'total_amount', 'discount', 'tax_amount', 'grand_total',
+            'gst_percent', 'price_includes_gst', 'base_amount',
             'is_amc', 'visit_count', 'contract_amount',
             'expiry_date', 'created_by', 'created_by_name', 'license_number',
             'notes', 'terms_and_conditions',
             'items', 'scopes', 'payment_terms', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'quotation_no', 'invoice_no', 'created_by', 'created_at', 'updated_at']
+        read_only_fields = [
+            'id', 'quotation_no', 'invoice_no', 'created_by', 'created_at', 'updated_at',
+            'base_amount',
+        ]
+
+    def get_base_amount(self, obj):
+        from core.pricing.gst import gst_breakdown
+
+        taxable = max(Decimal('0'), Decimal(str(obj.total_amount or 0)) - Decimal(str(obj.discount or 0)))
+        breakdown = gst_breakdown(
+            taxable,
+            gst_percent=getattr(obj, 'gst_percent', Decimal('18.00')),
+            price_includes_gst=getattr(obj, 'price_includes_gst', True),
+        )
+        return str(breakdown['base_amount'])
+
+    def validate_gst_percent(self, value):
+        if value is None:
+            return value
+        if value < 0 or value > 100:
+            raise serializers.ValidationError('GST percent must be between 0 and 100.')
+        return value
 
     def create(self, validated_data):
         items_data = validated_data.pop('items')
@@ -1432,7 +1482,14 @@ class QuotationSerializer(serializers.ModelSerializer):
             instance.items.all().delete()
             for item_data in items_data:
                 QuotationItem.objects.create(quotation=instance, **item_data)
-            _sync_quotation_financials(instance, items_data)
+
+        sync_items = items_data if items_data is not None else list(
+            instance.items.values(
+                'service_name', 'frequency', 'quantity', 'rate', 'total', 'description',
+            ),
+        )
+        if sync_items:
+            _sync_quotation_financials(instance, sync_items)
                 
         # Update scopes if provided
         if scopes_data is not None:

@@ -783,8 +783,15 @@ class BookingScheduleEngine:
 
             if has_own_crew:
                 ensure_lead_participation(child)
+                from core.payout_engine import enforce_single_lead_participation
+
+                enforce_single_lead_participation(child)
             else:
+                from core.models import JobCardTechnicianParticipation
+
                 for part in shell_parts:
+                    if part.role == JobCardTechnicianParticipation.Role.LEAD:
+                        continue
                     JobCardTechnicianParticipation.objects.update_or_create(
                         jobcard=child,
                         technician_id=part.technician_id,
@@ -798,6 +805,9 @@ class BookingScheduleEngine:
                         },
                     )
                 ensure_lead_participation(child)
+                from core.payout_engine import enforce_single_lead_participation
+
+                enforce_single_lead_participation(child)
 
             if completing and child.status == JobCard.JobStatus.DONE:
                 from core.payout_engine import try_apply_payout_after_completion
