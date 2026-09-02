@@ -171,3 +171,104 @@ class QuotationPropertyServiceTest(APITestCase):
         quotation = Quotation.objects.get(pk=response.data['id'])
         self.assertEqual(quotation.grand_total, Decimal('3500.00'))
         self.assertEqual(quotation.contract_amount, Decimal('3500.00'))
+
+
+class QuotationGstTest(APITestCase):
+    def setUp(self):
+        self.api = APIClient()
+        self.user = User.objects.create_user(username='quotation_gst', password='testpass123')
+        self.api.force_authenticate(user=self.user)
+
+    def _payload(self, **overrides):
+        data = {
+            'customer_name': 'GST Customer',
+            'mobile': '9876543211',
+            'address': 'Test Address',
+            'city': 'Mumbai',
+            'state': 'Maharashtra',
+            'quotation_type': 'Residential',
+            'property_type': 'Flat / Apartment',
+            'template_service_type': 'General Pest Control',
+            'status': 'Draft',
+            'total_amount': '1180.00',
+            'discount': '0.00',
+            'tax_amount': '0.00',
+            'grand_total': '1180.00',
+            'gst_percent': '18.00',
+            'price_includes_gst': True,
+            'is_amc': False,
+            'visit_count': 1,
+            'contract_amount': '0.00',
+            'license_number': 'LAID020185',
+            'items': [
+                {
+                    'service_name': 'General Pest Control',
+                    'frequency': 'One Time',
+                    'quantity': 1,
+                    'rate': '1180.00',
+                    'total': '1180.00',
+                }
+            ],
+            'scopes': [],
+            'payment_terms': [],
+        }
+        data.update(overrides)
+        return data
+
+    def test_inclusive_gst_extracts_tax_without_changing_grand_total(self):
+        response = self.api.post('/api/v1/quotations/', self._payload(), format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['grand_total'], '1180.00')
+        self.assertEqual(response.data['tax_amount'], '180.00')
+        self.assertEqual(response.data['base_amount'], '1000.00')
+        self.assertTrue(response.data['price_includes_gst'])
+
+    def test_exclusive_gst_adds_tax_on_top(self):
+        response = self.api.post(
+            '/api/v1/quotations/',
+            self._payload(
+                total_amount='1000.00',
+                grand_total='1000.00',
+                price_includes_gst=False,
+                items=[
+                    {
+                        'service_name': 'General Pest Control',
+                        'frequency': 'One Time',
+                        'quantity': 1,
+                        'rate': '1000.00',
+                        'total': '1000.00',
+                    }
+                ],
+            ),
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['grand_total'], '1180.00')
+        self.assertEqual(response.data['tax_amount'], '180.00')
+        self.assertEqual(response.data['base_amount'], '1000.00')
+
+    def test_gst_applied_after_discount(self):
+        response = self.api.post(
+            '/api/v1/quotations/',
+            self._payload(discount='180.00'),
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['grand_total'], '1000.00')
+        self.assertEqual(response.data['tax_amount'], '152.54')
+        self.assertEqual(response.data['base_amount'], '847.46')
+
+    def test_update_gst_only_recalculates_totals(self):
+        create = self.api.post('/api/v1/quotations/', self._payload(), format='json')
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED)
+        qid = create.data['id']
+
+        patch = self.api.patch(
+            f'/api/v1/quotations/{qid}/',
+            {'price_includes_gst': False},
+            format='json',
+        )
+        self.assertEqual(patch.status_code, status.HTTP_200_OK, patch.data)
+        self.assertEqual(patch.data['grand_total'], '1392.40')
+        self.assertEqual(patch.data['tax_amount'], '212.40')
+
