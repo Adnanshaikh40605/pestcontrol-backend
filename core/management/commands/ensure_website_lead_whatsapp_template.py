@@ -3,7 +3,7 @@ Ensure WhatsFlow draft exists for staff website-lead WhatsApp alert.
 
 Does NOT auto-approve on Meta. After create:
   1. Open WhatsFlow CRM → Templates
-  2. Open pc99_website_lead_alert
+  2. Open pc99_staff_inquiry_notice
   3. Submit to Meta for Utility review
   4. Wait until status = approved
   5. Set Railway WEBSITE_LEAD_STAFF_WHATSAPP to the staff personal number
@@ -18,7 +18,7 @@ from core.whatsflow_pc99 import STAFF_LEAD_TEMPLATE_BODY, ensure_staff_lead_temp
 
 
 class Command(BaseCommand):
-    help = 'Create/ensure WhatsFlow draft template pc99_website_lead_alert for staff lead alerts.'
+    help = 'Create/ensure WhatsFlow draft template pc99_staff_inquiry_notice for staff lead alerts.'
 
     def add_arguments(self, parser):
         parser.add_argument(

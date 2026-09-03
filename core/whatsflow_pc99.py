@@ -18,19 +18,24 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_API_BASE = "https://api.driveronhire.ai"
 INQUIRY_TEMPLATE = "pc99_inquiry_received"
-STAFF_LEAD_TEMPLATE_DEFAULT = "pc99_website_lead_alert"
+STAFF_LEAD_TEMPLATE_DEFAULT = "pc99_staff_inquiry_notice"
 LANGUAGE = "en_US"
 
+# Meta rejected pc99_website_lead_alert (INVALID_FORMAT): 7 vars and no examples.
+# This copy matches approved pc99_inquiry_received (4 vars + sample values).
 STAFF_LEAD_TEMPLATE_BODY = (
-    "New website inquiry received.\n\n"
-    "Lead ID: {{1}}\n"
-    "Customer: {{2}}\n"
-    "Phone: {{3}}\n"
-    "City: {{4}}\n"
-    "Service: {{5}}\n"
-    "Property: {{6}}\n"
-    "Message: {{7}}\n\n"
-    "Open CRM Website Leads to follow up."
+    "Dear Team,\n\n"
+    "A customer inquiry was received on PestControl99.com.\n\n"
+    "Inquiry Details:\n"
+    "- Customer Name: {{1}}\n"
+    "- Mobile Number: {{2}}\n"
+    "- Service Type: {{3}}\n"
+    "- Selected Area: {{4}}\n\n"
+    "Please contact the customer with pricing and booking details.\n\n"
+    "www.pestcontrol99.com\n"
+    "Call: 8080748282\n\n"
+    "Regards,\n"
+    "PestControl99.com"
 )
 
 
@@ -230,13 +235,10 @@ def notify_staff_website_lead(
         getattr(settings, "WEBSITE_LEAD_STAFF_WHATSAPP_TEMPLATE", "") or STAFF_LEAD_TEMPLATE_DEFAULT
     ).strip()
     params = [
-        _str(inquiry_id),
         _str(name, "Customer"),
         _str(mobile),
-        _str(city),
         _str(service, "Pest Control"),
-        _str(property_type, "Residential"),
-        _str(message, "—"),
+        _str(city),
     ]
     result = send_template_by_phone(
         phone=staff_phone,

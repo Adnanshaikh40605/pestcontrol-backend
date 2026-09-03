@@ -11,7 +11,7 @@ from core.models import Inquiry
     TELEGRAM_NOTIFICATIONS_ENABLED=False,
     WHATSFLOW_API_KEY='test-key',
     WEBSITE_LEAD_STAFF_WHATSAPP='917710032627',
-    WEBSITE_LEAD_STAFF_WHATSAPP_TEMPLATE='pc99_website_lead_alert',
+    WEBSITE_LEAD_STAFF_WHATSAPP_TEMPLATE='pc99_staff_inquiry_notice',
     WEBSITE_LEAD_STAFF_WHATSAPP_ENABLED=True,
 )
 class WebsiteLeadStaffWhatsAppTests(TestCase):

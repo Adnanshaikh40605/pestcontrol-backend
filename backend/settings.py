@@ -79,7 +79,7 @@ WHATSFLOW_API_KEY = config('WHATSFLOW_API_KEY', default='')
 WEBSITE_LEAD_STAFF_WHATSAPP = config('WEBSITE_LEAD_STAFF_WHATSAPP', default='')
 WEBSITE_LEAD_STAFF_WHATSAPP_TEMPLATE = config(
     'WEBSITE_LEAD_STAFF_WHATSAPP_TEMPLATE',
-    default='pc99_website_lead_alert',
+    default='pc99_staff_inquiry_notice',
 )
 WEBSITE_LEAD_STAFF_WHATSAPP_ENABLED = config(
     'WEBSITE_LEAD_STAFF_WHATSAPP_ENABLED',
