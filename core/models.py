@@ -486,6 +486,40 @@ class Inquiry(BaseModel):
         help_text="Whether user wants a one-time treatment or AMC"
     )
     remark = models.TextField(blank=True, null=True, verbose_name="Remark")
+
+    # Staff WhatsApp alert (company notify on website submit) — soft-fail status only.
+    class StaffWhatsAppStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        PROCESSING = 'processing', 'Processing'
+        SENT = 'sent', 'Sent'
+        FAILED = 'failed', 'Failed'
+        SKIPPED = 'skipped', 'Skipped'
+
+    staff_whatsapp_status = models.CharField(
+        max_length=20,
+        choices=StaffWhatsAppStatus.choices,
+        blank=True,
+        default='',
+        db_index=True,
+        verbose_name='Staff WhatsApp Status',
+        help_text='Status of internal staff WhatsApp alert for this website lead',
+    )
+    staff_whatsapp_message_id = models.CharField(
+        max_length=128,
+        blank=True,
+        default='',
+        verbose_name='Staff WhatsApp Message ID',
+    )
+    staff_whatsapp_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='Staff WhatsApp Sent At',
+    )
+    staff_whatsapp_error = models.TextField(
+        blank=True,
+        default='',
+        verbose_name='Staff WhatsApp Error',
+    )
     
     # Reminder fields
     reminder_date = models.DateField(null=True, blank=True, db_index=True, verbose_name="Reminder Date")

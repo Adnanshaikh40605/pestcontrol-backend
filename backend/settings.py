@@ -74,6 +74,19 @@ TELEGRAM_CHAT_ID = config('TELEGRAM_CHAT_ID', default='')
 WHATSFLOW_API_URL = config('WHATSFLOW_API_URL', default='https://api.driveronhire.ai')
 WHATSFLOW_API_KEY = config('WHATSFLOW_API_KEY', default='')
 
+# Staff WhatsApp alert for website leads (not the WABA sender number). Soft-fail.
+# Example: 917710032627  (E.164 digits without +)
+WEBSITE_LEAD_STAFF_WHATSAPP = config('WEBSITE_LEAD_STAFF_WHATSAPP', default='')
+WEBSITE_LEAD_STAFF_WHATSAPP_TEMPLATE = config(
+    'WEBSITE_LEAD_STAFF_WHATSAPP_TEMPLATE',
+    default='pc99_website_lead_alert',
+)
+WEBSITE_LEAD_STAFF_WHATSAPP_ENABLED = config(
+    'WEBSITE_LEAD_STAFF_WHATSAPP_ENABLED',
+    default=True,
+    cast=bool,
+)
+
 # Partner app FCM (Firebase Admin SDK) — project: pest-99-partner-app
 PARTNER_FIREBASE_PROJECT_ID = config('PARTNER_FIREBASE_PROJECT_ID', default='pest-99-partner-app')
 FIREBASE_SERVICE_ACCOUNT_JSON = config('FIREBASE_SERVICE_ACCOUNT_JSON', default='')

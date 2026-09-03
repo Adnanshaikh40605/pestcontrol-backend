@@ -78,7 +78,7 @@ def _is_cockroach_amc(service: str, plan: str) -> bool:
 
 
 from .telegram import notify_new_inquiry
-from .whatsflow_pc99 import notify_inquiry_received
+from .whatsflow_pc99 import notify_inquiry_received, notify_staff_website_lead
 
 logger = logging.getLogger(__name__)
 
@@ -365,7 +365,69 @@ class InquiryService:
                 exc_info=True,
             )
 
+        # Company/staff WhatsApp alert (soft-fail). Never blocks CRM lead save.
+        try:
+            InquiryService._notify_staff_website_lead_whatsapp(inquiry)
+        except Exception as exc:
+            logger.error(
+                "Failed staff WhatsApp lead alert for inquiry %s: %s",
+                inquiry.id,
+                exc,
+                exc_info=True,
+            )
+
         return inquiry
+
+    @staticmethod
+    def _notify_staff_website_lead_whatsapp(inquiry: Inquiry) -> None:
+        """Persist staff WhatsApp status on the lead; never raises to callers."""
+        from django.utils import timezone
+
+        # Idempotency: do not re-send if already marked sent.
+        if inquiry.staff_whatsapp_status == Inquiry.StaffWhatsAppStatus.SENT:
+            return
+
+        Inquiry.objects.filter(pk=inquiry.pk).update(
+            staff_whatsapp_status=Inquiry.StaffWhatsAppStatus.PROCESSING,
+            staff_whatsapp_error='',
+        )
+
+        premise = (inquiry.premise_type or "").lower()
+        property_type = (
+            "Commercial"
+            if premise in ("commercial", "office", "society", "shop")
+            else "Residential"
+        )
+        result = notify_staff_website_lead(
+            inquiry_id=inquiry.id,
+            name=inquiry.name,
+            mobile=inquiry.mobile,
+            city=inquiry.city or inquiry.state,
+            service=inquiry.service_interest,
+            property_type=property_type,
+            message=inquiry.message,
+        )
+
+        if result.get("skipped"):
+            Inquiry.objects.filter(pk=inquiry.pk).update(
+                staff_whatsapp_status=Inquiry.StaffWhatsAppStatus.SKIPPED,
+                staff_whatsapp_error=str(result.get("error") or "skipped")[:500],
+            )
+            return
+
+        if result.get("ok"):
+            Inquiry.objects.filter(pk=inquiry.pk).update(
+                staff_whatsapp_status=Inquiry.StaffWhatsAppStatus.SENT,
+                staff_whatsapp_message_id=str(result.get("message_id") or "")[:128],
+                staff_whatsapp_sent_at=timezone.now(),
+                staff_whatsapp_error='',
+            )
+            return
+
+        Inquiry.objects.filter(pk=inquiry.pk).update(
+            staff_whatsapp_status=Inquiry.StaffWhatsAppStatus.FAILED,
+            staff_whatsapp_error=str(result.get("error") or "send_failed")[:1000],
+        )
     
     @staticmethod
     @transaction.atomic
