@@ -78,7 +78,7 @@ def _is_cockroach_amc(service: str, plan: str) -> bool:
 
 
 from .telegram import notify_new_inquiry
-from .whatsflow_pc99 import notify_inquiry_received, notify_staff_website_lead
+from .whatsflow_pc99 import notify_staff_website_lead
 
 logger = logging.getLogger(__name__)
 
@@ -342,30 +342,8 @@ class InquiryService:
                 exc_info=True,
             )
 
-        try:
-            premise = (inquiry.premise_type or "").lower()
-            property_type = (
-                "Commercial"
-                if premise in ("commercial", "office", "society", "shop")
-                else "Residential"
-            )
-            notify_inquiry_received(
-                name=inquiry.name,
-                mobile=inquiry.mobile,
-                service=inquiry.service_interest,
-                area=inquiry.city or inquiry.state,
-                property_type=property_type,
-                inquiry_id=inquiry.id,
-            )
-        except Exception as exc:
-            logger.error(
-                "Failed to send WhatsApp inquiry template for inquiry %s: %s",
-                inquiry.id,
-                exc,
-                exc_info=True,
-            )
-
-        # Company/staff WhatsApp alert (soft-fail). Never blocks CRM lead save.
+        # Staff WhatsApp only (soft-fail). Do NOT send customer WhatsApp on
+        # website inquiry — internal lead alert goes to WEBSITE_LEAD_STAFF_WHATSAPP.
         try:
             InquiryService._notify_staff_website_lead_whatsapp(inquiry)
         except Exception as exc:

@@ -221,7 +221,14 @@ def notify_staff_website_lead(
     Notify configured staff WhatsApp about a new website lead.
 
     Soft-fail. Uses WEBSITE_LEAD_STAFF_WHATSAPP + WEBSITE_LEAD_STAFF_WHATSAPP_TEMPLATE.
+    Never sends to the customer mobile — recipient is always the staff number.
     Idempotency key: website-lead-staff:{inquiry_id}
+
+    Approved template pc99_staff_inquiry_notice has 4 body vars:
+      {{1}} Customer Name
+      {{2}} Mobile Number
+      {{3}} Service Type (+ property when available)
+      {{4}} Selected Area (+ message when available)
     """
     enabled = getattr(settings, "WEBSITE_LEAD_STAFF_WHATSAPP_ENABLED", True)
     if not enabled:
@@ -234,11 +241,22 @@ def notify_staff_website_lead(
     template = (
         getattr(settings, "WEBSITE_LEAD_STAFF_WHATSAPP_TEMPLATE", "") or STAFF_LEAD_TEMPLATE_DEFAULT
     ).strip()
+
+    service_line = _str(service, "Pest Control")
+    prop = _str(property_type, "")
+    if prop and prop != "—":
+        service_line = f"{service_line} ({prop})"
+
+    area_line = _str(city)
+    note = _str(message, "")
+    if note and note != "—":
+        area_line = f"{area_line} | {note}" if area_line != "—" else note
+
     params = [
         _str(name, "Customer"),
         _str(mobile),
-        _str(service, "Pest Control"),
-        _str(city),
+        service_line,
+        area_line,
     ]
     result = send_template_by_phone(
         phone=staff_phone,
