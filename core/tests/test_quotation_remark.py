@@ -57,3 +57,12 @@ class QuotationRemarkApiTests(APITestCase):
         self.assertIn(clear.data['notes'], (None, ''))
         self.quotation.refresh_from_db()
         self.assertFalse(bool(self.quotation.notes))
+
+    def test_quotation_stats_endpoint(self):
+        res = self.client.get('/api/v1/quotations/stats/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.data['total'], 1)
+        self.assertIn('pending', res.data)
+        self.assertIn('approved', res.data)
+        self.assertIn('converted', res.data)
+        self.assertIn('revenue', res.data)

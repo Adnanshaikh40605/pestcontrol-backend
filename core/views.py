@@ -4689,6 +4689,19 @@ class QuotationViewSet(BaseModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Get summary statistics for the quotation dashboard."""
+        qs = self.get_queryset()
+        stats = {
+            'total': qs.count(),
+            'pending': qs.filter(status='Sent').count(),
+            'approved': qs.filter(status='Approved').count(),
+            'converted': qs.filter(status='Converted').count(),
+            'revenue': qs.filter(status='Converted').aggregate(total=Sum('grand_total'))['total'] or 0
+        }
+        return response.Response(stats)
+
     @action(detail=True, methods=['patch', 'post'])
     def remark(self, request, pk=None):
         """Add or edit the quotation remark (stored in notes)."""
@@ -4722,7 +4735,6 @@ class QuotationViewSet(BaseModelViewSet):
             performed_by=user,
         )
         return response.Response(self.get_serializer(quotation).data)
-
 
     @action(detail=True, methods=['post'])
     def convert_to_booking(self, request, pk=None):
