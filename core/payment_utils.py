@@ -278,6 +278,9 @@ def distribute_amount_across_service_items(
     """
     Update each item['amount'] in place so they sum to manual_total.
     Proportional split when line amounts exist; equal split when all are zero.
+
+    Clears per-line discounts and sets base_amount = amount so ledger + CRM
+    stay aligned after a booking-level total override.
     """
     if not items:
         return
@@ -288,6 +291,8 @@ def distribute_amount_across_service_items(
 
     if len(items) == 1:
         items[0]['amount'] = float(manual_total)
+        items[0]['base_amount'] = float(manual_total)
+        items[0]['discount'] = 0.0
         return
 
     items_total = sum(parse_jobcard_price(item.get('amount')) for item in items)
@@ -295,16 +300,16 @@ def distribute_amount_across_service_items(
     running = parse_jobcard_price('0')
     for idx, item in enumerate(items):
         if idx == len(items) - 1:
-            item['amount'] = float(manual_total - running)
-            continue
-
-        if items_total <= 0:
+            share = manual_total - running
+        elif items_total <= 0:
             share = quantize_money(manual_total / len(items))
         else:
             share = quantize_money(
                 parse_jobcard_price(item.get('amount')) * manual_total / items_total
             )
         item['amount'] = float(share)
+        item['base_amount'] = float(share)
+        item['discount'] = 0.0
         running += share
 
 

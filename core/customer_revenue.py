@@ -130,10 +130,16 @@ def service_line_breakdown(job) -> list[dict]:
         service = str(item.get('service') or '').strip()
         plan = str(item.get('plan') or item.get('frequency') or '')
         amount = parse_jobcard_price(item.get('amount'))
+        base_amount = parse_jobcard_price(item.get('base_amount'))
+        discount = parse_jobcard_price(item.get('discount'))
+        if base_amount <= 0 and amount > 0:
+            base_amount = amount + discount
         child = children.get(service.lower())
         lines.append({
             'service': service,
             'plan': plan,
+            'base_amount': str(base_amount),
+            'discount': str(discount),
             'amount': str(amount),
             'is_amc': _line_is_amc(plan),
             'child_booking_id': child.id if child else None,

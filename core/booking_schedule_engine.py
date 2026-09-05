@@ -725,6 +725,98 @@ def is_day1_package_service_line(job) -> bool:
 
 class BookingScheduleEngine:
     @staticmethod
+    def sync_day1_child_line_pricing(main_job, children: list[Any] | None = None) -> list[Any]:
+        """
+        Push parent service_items nets onto day-1 children.
+
+        Ledger/payout trust each child's price. After CRM edits a package
+        discount/price, children must be updated or tech shares stay stale.
+        Never rewrite APPROVED/PAID payout snapshots here — only pricing fields.
+        """
+        from core.models import JobCard
+        from core.payment_utils import parse_jobcard_price, quantize_money
+
+        if not is_multi_service_booking(main_job):
+            return []
+
+        items = list(main_job.service_items or [])
+        if not items:
+            return []
+
+        by_service: dict[str, dict] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get('service') or '').strip()
+            if name:
+                by_service[name.lower()] = item
+
+        if children is None:
+            children = list(
+                JobCard.objects.filter(parent_job=main_job, service_cycle=1).exclude(
+                    status=JobCard.JobStatus.CANCELLED,
+                )
+            )
+
+        updated: list[Any] = []
+        for child in children:
+            key = (child.source_service or child.service_type or '').strip().lower()
+            line = by_service.get(key)
+            if not line:
+                continue
+
+            line_amount = parse_jobcard_price(line.get('amount'))
+            line_discount = parse_jobcard_price(line.get('discount'))
+            update_fields: list[str] = []
+
+            # Always keep the child line payload aligned with the parent line.
+            child.service_items = [line]
+            update_fields.append('service_items')
+
+            current_price = parse_jobcard_price(child.price)
+            if abs(current_price - line_amount) > Decimal('0.01'):
+                child.price = str(line_amount) if line_amount > 0 else '0'
+                update_fields.append('price')
+
+            if quantize_money(child.total_amount or 0) != quantize_money(line_amount):
+                child.total_amount = line_amount if line_amount > 0 else Decimal('0.00')
+                update_fields.append('total_amount')
+
+            # Day-1 package lines are prepaid with the shell — keep paid = line net.
+            if quantize_money(child.paid_amount or 0) != quantize_money(line_amount):
+                child.paid_amount = line_amount if line_amount > 0 else Decimal('0.00')
+                update_fields.append('paid_amount')
+            if quantize_money(child.pending_amount or 0) != Decimal('0.00'):
+                child.pending_amount = Decimal('0.00')
+                update_fields.append('pending_amount')
+
+            # Prefer this line's discount (not the shell total) for audit clarity.
+            if quantize_money(child.discount_amount or 0) != quantize_money(line_discount):
+                child.discount_amount = line_discount
+                update_fields.append('discount_amount')
+
+            if update_fields:
+                child.save(update_fields=list(dict.fromkeys(update_fields + ['updated_at'])))
+                updated.append(child)
+
+                # Recalculate pending/unlocked payouts so ledger matches new nets.
+                payout_locked = child.payout_status in (
+                    JobCard.PayoutStatus.APPROVED,
+                    JobCard.PayoutStatus.PAID,
+                )
+                if child.status == JobCard.JobStatus.DONE and not payout_locked:
+                    try:
+                        from core.payout_engine import calculate_and_apply_payout
+
+                        calculate_and_apply_payout(child, force=True)
+                    except Exception:
+                        logger.exception(
+                            'Failed to refresh payout after day-1 price sync for %s',
+                            child.code,
+                        )
+        return updated
+
+    @staticmethod
     def sync_multi_service_day1_children(main_job, *, completing: bool = False) -> list[Any]:
         """
         Keep day-1 per-service visits in sync with the package shell.
@@ -732,6 +824,9 @@ class BookingScheduleEngine:
         Crew rule: each service line keeps its own technician. The package
         technician is copied only onto lines that were never assigned. Completing
         the shell must not overwrite Akshay on Cockroach with Mustafa from Termite.
+
+        Also realigns each child's price/service_items to the parent line net
+        (base − discount) so Technician Ledger stays accurate after CRM edits.
         """
         from django.utils import timezone
 
@@ -752,6 +847,10 @@ class BookingScheduleEngine:
         if not completing:
             day1_qs = day1_qs.exclude(status=JobCard.JobStatus.CANCELLED)
         children = list(day1_qs.prefetch_related('technician_participations'))
+
+        # Pricing sync first so payout-on-complete uses current nets.
+        BookingScheduleEngine.sync_day1_child_line_pricing(main_job, children)
+
         shell_parts = list(main_job.technician_participations.all())
         synced: list[Any] = []
         for child in children:
@@ -953,6 +1052,7 @@ class BookingScheduleEngine:
             rev = revenue_fields_from_parent(main_job)
             rev.pop('planned_visit_count', None)
             rev['payout_status'] = JobCard.PayoutStatus.NOT_APPLICABLE
+            rev['discount_amount'] = parse_jobcard_price(item.get('discount'))
             for key, value in rev.items():
                 setattr(child, key, value)
             enforce_fixed_service_rules_on_job(child)
@@ -1153,6 +1253,8 @@ class BookingScheduleEngine:
                 rev.pop('planned_visit_count', None)
                 # Fresh visit — never inherit locked/legacy payout state from the shell.
                 rev['payout_status'] = JobCard.PayoutStatus.NOT_APPLICABLE
+                # Prefer this line's discount (not the shell total) for audit clarity.
+                rev['discount_amount'] = parse_jobcard_price(item.get('discount'))
                 for key, value in rev.items():
                     setattr(child, key, value)
                 if spec.cycle < spec.total_visits:

@@ -726,11 +726,57 @@ class JobCardSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({
                         'service_items': f'Item {idx + 1}: amount cannot be negative.',
                     })
+
+                # Per-service pricing: base_amount - discount = amount (net / final).
+                raw_discount = item.get('discount', None)
+                raw_base = item.get('base_amount', item.get('baseAmount', None))
+                try:
+                    discount = float(raw_discount) if raw_discount is not None else 0.0
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError({
+                        'service_items': f'Item {idx + 1}: discount must be a number.',
+                    })
+                if discount < 0:
+                    raise serializers.ValidationError({
+                        'service_items': f'Item {idx + 1}: discount cannot be negative.',
+                    })
+                try:
+                    if raw_base is not None and raw_base != '':
+                        base_amount = float(raw_base)
+                    else:
+                        # Legacy rows: amount is the billable net; reconstruct base.
+                        base_amount = amount + discount
+                except (TypeError, ValueError):
+                    raise serializers.ValidationError({
+                        'service_items': f'Item {idx + 1}: base_amount must be a number.',
+                    })
+                if base_amount < 0:
+                    raise serializers.ValidationError({
+                        'service_items': f'Item {idx + 1}: base_amount cannot be negative.',
+                    })
+                if discount - base_amount > 0.009:
+                    raise serializers.ValidationError({
+                        'service_items': (
+                            f'Item {idx + 1}: discount cannot be greater than the service price.'
+                        ),
+                    })
+                discount = round(discount, 2)
+                base_amount = round(base_amount, 2)
+                # amount is always the net / final price used by ledger + day-1 children.
+                if raw_discount is not None or raw_base is not None:
+                    amount = round(max(0.0, base_amount - discount), 2)
+                else:
+                    amount = round(amount, 2)
+                    if base_amount <= 0:
+                        base_amount = amount
+
                 normalized.append({
                     'service': service,
                     'plan': plan,
                     'area': area,
-                    'amount': round(amount, 2),
+                    'base_amount': base_amount,
+                    'discount': discount,
+                    'amount': amount,
                 })
             data['service_items'] = normalized
             if not data.get('service_type'):
@@ -747,6 +793,17 @@ class JobCardSerializer(serializers.ModelSerializer):
                 if is_termite_service(item['service']) or is_bed_bug_service(item['service']):
                     item['plan'] = 'One Time Service'
             data['service_items'] = normalized
+
+            # Booking-level discount_amount = sum of per-service discounts (audit + CRM total).
+            line_discount_total = sum(parse_jobcard_price(i.get('discount')) for i in normalized)
+            if 'discount_amount' not in data or data.get('discount_amount') is None:
+                data['discount_amount'] = line_discount_total
+            elif hasattr(self, 'initial_data') and isinstance(self.initial_data, dict):
+                if 'discount_amount' not in self.initial_data:
+                    data['discount_amount'] = line_discount_total
+                elif line_discount_total > 0:
+                    # Prefer explicit service-level sum when lines carry discounts.
+                    data['discount_amount'] = line_discount_total
 
             has_amc = any(
                 (
