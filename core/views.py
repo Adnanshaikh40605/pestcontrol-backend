@@ -4689,18 +4689,40 @@ class QuotationViewSet(BaseModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
-    @action(detail=False, methods=['get'])
-    def stats(self, request):
-        """Get summary statistics for the quotation dashboard."""
-        qs = self.get_queryset()
-        stats = {
-            'total': qs.count(),
-            'pending': qs.filter(status='Sent').count(),
-            'approved': qs.filter(status='Approved').count(),
-            'converted': qs.filter(status='Converted').count(),
-            'revenue': qs.filter(status='Converted').aggregate(total=Sum('grand_total'))['total'] or 0
-        }
-        return response.Response(stats)
+    @action(detail=True, methods=['patch', 'post'])
+    def remark(self, request, pk=None):
+        """Add or edit the quotation remark (stored in notes)."""
+        quotation = self.get_object()
+        raw = request.data.get('remark', request.data.get('notes', None))
+        if raw is None:
+            return response.Response(
+                {'error': 'remark is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        remark_text = str(raw).strip()
+        previous = (quotation.notes or '').strip()
+        quotation.notes = remark_text or None
+        quotation.save(update_fields=['notes', 'updated_at'])
+
+        user = request.user if getattr(request.user, 'is_authenticated', False) else None
+        if previous and remark_text:
+            action_label = 'Remark Updated'
+            details = f'Remark updated by {user.username if user else "System"}'
+        elif remark_text:
+            action_label = 'Remark Added'
+            details = f'Remark added by {user.username if user else "System"}'
+        else:
+            action_label = 'Remark Cleared'
+            details = f'Remark cleared by {user.username if user else "System"}'
+
+        QuotationHistory.objects.create(
+            quotation=quotation,
+            action=action_label,
+            details=details,
+            performed_by=user,
+        )
+        return response.Response(self.get_serializer(quotation).data)
+
 
     @action(detail=True, methods=['post'])
     def convert_to_booking(self, request, pk=None):
