@@ -1583,21 +1583,29 @@ class DashboardService:
                 'society': JobCard.objects.filter(jobcard_filters).exclude(commercial_type=JobCard.CommercialType.HOME).count(),
             }
             
-            # Status Breakdown (Pending = operational queue only, not scheduled service visits)
+            # Status Breakdown (Pending = operational queue only, not scheduled service visits).
+            # Exclude day-1 multi-service child clones so counts match the CRM Job Cards list.
+            day1_auto_child_q = Q(
+                parent_job_id__isnull=False,
+                service_cycle=1,
+                is_auto_generated=True,
+                is_complaint_call=False,
+            )
+            status_base = JobCard.objects.filter(jobcard_filters).exclude(day1_auto_child_q)
             status_stats = {
-                'pending': JobCard.objects.filter(
-                    jobcard_filters,
+                'pending': status_base.filter(
                     status=JobCard.JobStatus.PENDING,
                 ).count(),
-                'upcoming': JobCard.objects.filter(
-                    jobcard_filters,
+                'upcoming': status_base.filter(
                     status=JobCard.JobStatus.UPCOMING,
                     booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES,
                 ).count(),
-                'on_process': JobCard.objects.filter(jobcard_filters, status=JobCard.JobStatus.ON_PROCESS).count(),
-                'done': JobCard.objects.filter(jobcard_filters, status=JobCard.JobStatus.DONE).count(),
+                'on_process': status_base.filter(status=JobCard.JobStatus.ON_PROCESS).count(),
+                'done': status_base.filter(status=JobCard.JobStatus.DONE).count(),
                 # Today's Jobs (always relative to today unless explicitly filtering for a range that excludes it)
-                'confirmed': JobCard.objects.filter(schedule_datetime__date=today).count(),
+                'confirmed': JobCard.objects.filter(
+                    schedule_datetime__date=today,
+                ).exclude(day1_auto_child_q).count(),
                 'completed': 0,
                 'cancelled': 0,
                 'hold': 0
@@ -1634,6 +1642,8 @@ class DashboardService:
             today_complaint_qs = today_active.filter(complaint_q)
             today_service_qs = today_active.filter(today_service_q)
             today_booking_qs = today_active.exclude(complaint_q).exclude(today_service_q)
+            # Same day-1 child exclusion as status_stats / CRM Job Cards list.
+            today_booking_qs = today_booking_qs.exclude(day1_auto_child_q)
 
             # Always include today's city counts (even when date range is wider)
             today_city_stats = _city_counts(today_booking_qs)

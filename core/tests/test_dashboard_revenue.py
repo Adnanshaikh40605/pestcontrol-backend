@@ -213,3 +213,58 @@ class DashboardTodayCitySplitTests(TestCase):
         self.assertEqual(stats['today_city_stats'], [{'city': 'Mumbai', 'count': 1}])
         self.assertEqual(stats['today_complaint_city_stats'], [{'city': 'Mumbai', 'count': 1}])
         self.assertTrue(complaint.is_complaint_call)
+
+
+    def test_today_bookings_exclude_day1_multi_service_children(self):
+        """Dashboard bookings must match Job Cards list (hide day-1 clones)."""
+        parent = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Termite, Cockroach / Ants',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='4000',
+            reference='Other',
+            status=JobCard.JobStatus.ON_PROCESS,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_service_call=False,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            parent_job=parent,
+            service_type='Termite',
+            source_service='Termite',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='2500',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            service_cycle=1,
+            is_auto_generated=True,
+            is_service_call=False,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            parent_job=parent,
+            service_type='Cockroach / Ants',
+            source_service='Cockroach / Ants',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='1500',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            service_cycle=1,
+            is_auto_generated=True,
+            is_service_call=False,
+        )
+
+        stats = DashboardService.get_dashboard_statistics(
+            from_date=timezone.now().date().isoformat(),
+            to_date=timezone.now().date().isoformat(),
+        )
+        self.assertEqual(stats['today_booking_count'], 1)
+        self.assertEqual(stats['today_city_stats'], [{'city': 'Mumbai', 'count': 1}])
+        # Pending day-1 children must not inflate Today Focus pending.
+        self.assertEqual(stats['status_stats']['pending'], 0)
+        self.assertEqual(stats['status_stats']['on_process'], 1)
