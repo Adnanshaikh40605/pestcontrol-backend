@@ -916,6 +916,49 @@ class BookingScheduleEngine:
         return synced
 
     @staticmethod
+    def sync_day1_children_technician_from_shell(
+        main_job,
+        *,
+        previous_technician_id=None,
+    ) -> list[Any]:
+        """
+        When the package shell lead changes, move day-1 children that still
+        point at the previous lead (or have no lead) onto the new shell tech.
+
+        Children intentionally assigned to a *different* technician than the
+        previous shell lead are left alone (per-service crew).
+        """
+        from core.models import JobCard
+        from core.payout_engine import reassign_job_technician
+
+        if not is_multi_service_booking(main_job) or main_job.parent_job_id:
+            return []
+        if not main_job.technician_id:
+            return []
+
+        children = list(
+            JobCard.objects.filter(parent_job=main_job, service_cycle=1)
+            .exclude(status=JobCard.JobStatus.CANCELLED)
+            .select_related('technician')
+        )
+        moved: list[Any] = []
+        for child in children:
+            if child.technician_id == main_job.technician_id:
+                continue
+            # Keep intentional per-line assignments (different from old shell lead).
+            if (
+                child.technician_id
+                and previous_technician_id
+                and child.technician_id != previous_technician_id
+            ):
+                continue
+            if child.technician_id and previous_technician_id is None:
+                continue
+            reassign_job_technician(child, main_job.technician)
+            moved.append(child)
+        return moved
+
+    @staticmethod
     def backfill_missing_day1_children(main_job) -> list[Any]:
         """
         Create cycle-1 per-service JobCards when a multi-service package only has

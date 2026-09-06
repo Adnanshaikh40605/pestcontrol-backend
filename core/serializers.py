@@ -879,12 +879,30 @@ class JobCardSerializer(serializers.ModelSerializer):
             from core.payout_engine import (
                 ensure_lead_participation,
                 enforce_single_lead_participation,
+                reconcile_job_partner_earnings,
                 replace_stale_lead_participation,
+            )
+            from core.booking_schedule_engine import (
+                BookingScheduleEngine,
+                is_multi_service_booking,
             )
 
             replace_stale_lead_participation(instance, previous_technician_id)
             ensure_lead_participation(instance)
             enforce_single_lead_participation(instance)
+
+            # Shell lead change → move day-1 children that still had the old lead.
+            if is_multi_service_booking(instance) and not instance.parent_job_id:
+                BookingScheduleEngine.sync_day1_children_technician_from_shell(
+                    instance,
+                    previous_technician_id=previous_technician_id,
+                )
+
+            # CRM technician edits used to leave stale PartnerEarnings, so the
+            # old tech kept seeing the job on their ledger.
+            if instance.status == JobCard.JobStatus.DONE:
+                reconcile_job_partner_earnings(instance)
+                instance.refresh_from_db()
 
         # Cancelling a visit/service must never create a new booking — only flip status —
         # and must clear any visit ledger so settlements stay clean.

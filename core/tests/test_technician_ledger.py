@@ -857,3 +857,28 @@ class TechnicianLedgerLeadParticipationTests(TestCase):
         self.assertEqual(leads.count(), 1)
         self.assertEqual(leads.get().technician_id, self.kuldip.id)
 
+    def test_stale_partner_earning_does_not_put_job_on_wrong_ledger(self):
+        """Stale PartnerEarning alone must not list a job under another tech."""
+        from core.payout_engine import calculate_and_apply_payout
+        from core.technician_ledger import technician_jobs_queryset
+
+        job = self._job(self.akshay)
+        kuldip_partner = Partner.objects.get(core_technician=self.kuldip)
+        PartnerEarning.objects.create(
+            job=job,
+            partner=kuldip_partner,
+            amount=Decimal('400.00'),
+            earning_type=PartnerEarning.EarningType.REVENUE_SHARE,
+        )
+        calculate_and_apply_payout(job, force=True)
+
+        self.assertTrue(technician_jobs_queryset(self.akshay).filter(id=job.id).exists())
+        self.assertFalse(technician_jobs_queryset(self.kuldip).filter(id=job.id).exists())
+        kuldip_ids = {
+            r['job_id']
+            for r in self.api.get(
+                f'/api/v1/technicians/{self.kuldip.id}/ledger/',
+            ).data['results']
+        }
+        self.assertNotIn(job.id, kuldip_ids)
+

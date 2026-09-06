@@ -158,6 +158,8 @@ def technician_jobs_queryset(technician: Technician):
 
     crew_role = JobCardTechnicianParticipation.Role.CREW
 
+    # Membership is assignment-based only (lead / crew). Stale PartnerEarning
+    # rows must never put a job on the wrong technician's ledger.
     return (
         JobCard.objects.filter(
             Q(technician=technician)
@@ -169,7 +171,6 @@ def technician_jobs_queryset(technician: Technician):
                 technician_participations__technician=technician,
                 technician_participations__role=crew_role,
             )
-            | Q(partner_earnings__partner__core_technician=technician)
         )
         .exclude(hidden_from_technician_ledger=True)
         .select_related('client', 'master_city', 'parent_job')
@@ -730,10 +731,7 @@ def _job_on_technician_ledger(job: JobCard, technician: Technician) -> bool:
         return True
     if any(p.technician_id == technician.id for p in job.technician_participations.all()):
         return True
-    return PartnerEarning.objects.filter(
-        job=job,
-        partner__core_technician=technician,
-    ).exists()
+    return False
 
 
 def resolve_ledger_job(*, technician: Technician, job_id) -> JobCard:

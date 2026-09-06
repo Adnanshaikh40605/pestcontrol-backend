@@ -509,26 +509,38 @@ def enforce_single_lead_participation(job) -> int:
     return removed
 
 
-def reconcile_job_partner_earnings(job):
-    """Rebuild revenue-share rows and drop partner earnings for unassigned crew."""
+def purge_stale_revenue_share_earnings(job, keep_partner_ids=None):
+    """
+    Drop REVENUE_SHARE PartnerEarning rows that no longer match eligible crew.
+
+    Stale rows (from a previous lead) used to keep jobs on the wrong technician
+    ledger via partner_earnings OR filters — always purge after payout / reassign.
+    """
     from partner.models import PartnerEarning
 
-    if job.status != job.JobStatus.DONE:
-        return None
-    payout = calculate_and_apply_payout(job, force=True)
-    job.refresh_from_db()
-    keep_partner_ids = set()
-    for row in job.technician_participations.select_related('partner', 'technician').all():
-        resolved = row.partner or getattr(row.technician, 'partner_account', None)
-        if resolved:
-            keep_partner_ids.add(resolved.id)
+    if keep_partner_ids is None:
+        keep_partner_ids = set()
+        for row in job.technician_participations.select_related('partner', 'technician').all():
+            resolved = row.partner or getattr(row.technician, 'partner_account', None)
+            if resolved:
+                keep_partner_ids.add(resolved.id)
     stale = PartnerEarning.objects.filter(
         job=job,
         earning_type=PartnerEarning.EarningType.REVENUE_SHARE,
     )
     if keep_partner_ids:
         stale = stale.exclude(partner_id__in=keep_partner_ids)
-    stale.delete()
+    deleted, _ = stale.delete()
+    return deleted
+
+
+def reconcile_job_partner_earnings(job):
+    """Rebuild revenue-share rows and drop partner earnings for unassigned crew."""
+    if job.status != job.JobStatus.DONE:
+        return None
+    payout = calculate_and_apply_payout(job, force=True)
+    job.refresh_from_db()
+    purge_stale_revenue_share_earnings(job)
     return payout
 
 
@@ -569,6 +581,18 @@ def reassign_job_technician(job, technician) -> dict:
     replace_stale_lead_participation(job, previous_id)
     ensure_lead_participation(job)
     enforce_single_lead_participation(job)
+
+    # Package shells: day-1 children still on the old lead follow the new shell tech.
+    from core.booking_schedule_engine import (
+        BookingScheduleEngine,
+        is_multi_service_booking,
+    )
+
+    if is_multi_service_booking(job) and not job.parent_job_id:
+        BookingScheduleEngine.sync_day1_children_technician_from_shell(
+            job,
+            previous_technician_id=previous_id,
+        )
 
     payout = None
     if job.status == job.JobStatus.DONE:
@@ -811,6 +835,8 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
             'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
             'visit_payout_amount', 'payout_status', 'updated_at',
         ])
+        # No eligible crew → clear leftover PartnerEarnings from a prior lead.
+        purge_stale_revenue_share_earnings(job, keep_partner_ids=set())
         result.payout_status = job.payout_status
         result.reason = 'no_eligible_partner_attendees'
         logger.info('Payout held for job %s: no eligible partner attendees', job.code)
@@ -824,6 +850,7 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
 
     amounts = split_pool_equally(technician_pool, len(eligible))
     lead_amount = Decimal('0.00')
+    keep_partner_ids: set[int] = set()
 
     for row, amount in zip(eligible, amounts):
         share_pct = quantize_money(
@@ -850,6 +877,7 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
             lead_amount = amount
 
         if partner:
+            keep_partner_ids.add(partner.id)
             earning, _created = PartnerEarning.objects.update_or_create(
                 job=job,
                 partner=partner,
@@ -880,6 +908,9 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
         'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
         'visit_payout_amount', 'payout_status', 'updated_at',
     ])
+    # Always drop earnings for partners no longer on the visit (CRM reassignment
+    # previously left stale rows that polluted other technicians' ledgers).
+    purge_stale_revenue_share_earnings(job, keep_partner_ids=keep_partner_ids)
     result.payout_status = job.payout_status
     from core.revenue_audit import log_revenue_event
     log_revenue_event(

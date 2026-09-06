@@ -363,3 +363,79 @@ class PayoutEngineTests(TestCase):
         row_m = serialize_ledger_row(job, mustafa)
         self.assertGreater(Decimal(row_a['technician_share']), Decimal('0.00'))
         self.assertEqual(Decimal(row_m['technician_share']), Decimal('0.00'))
+
+    def test_payout_purges_stale_partner_earnings_from_previous_lead(self):
+        """CRM reassignment without reconcile left old PartnerEarnings; payout must drop them."""
+        from core.technician_ledger import technician_jobs_queryset
+
+        sohil, p_s = self._make_partner_tech('9000000021', 'Sohil')
+        vaibhav, p_v = self._make_partner_tech('9000000022', 'Vaibhav')
+        job = self._base_job(
+            technician=vaibhav,
+            partner=p_v,
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            price='1200',
+            total_amount=Decimal('1200.00'),
+        )
+        JobCardTechnicianParticipation.objects.create(
+            jobcard=job,
+            technician=vaibhav,
+            partner=p_v,
+            role=JobCardTechnicianParticipation.Role.LEAD,
+            attendance_status=JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
+        )
+        # Stale earning from a previous wrong assignment (no participation).
+        PartnerEarning.objects.create(
+            job=job,
+            partner=p_s,
+            amount=Decimal('480.00'),
+            earning_type=PartnerEarning.EarningType.REVENUE_SHARE,
+        )
+
+        calculate_and_apply_payout(job, force=True)
+        job.refresh_from_db()
+
+        self.assertFalse(PartnerEarning.objects.filter(job=job, partner=p_s).exists())
+        self.assertTrue(PartnerEarning.objects.filter(job=job, partner=p_v).exists())
+        self.assertEqual(job.visit_payout_amount, Decimal('480.00'))
+        self.assertTrue(technician_jobs_queryset(vaibhav).filter(id=job.id).exists())
+        self.assertFalse(technician_jobs_queryset(sohil).filter(id=job.id).exists())
+
+    def test_bogus_second_earning_does_not_halve_sole_lead_pool(self):
+        """#3071-style: orphan PartnerEarning must not keep splitting the 40% pool."""
+        sohil, p_s = self._make_partner_tech('9000000031', 'Sohil')
+        other, p_o = self._make_partner_tech('9000000032', 'Adnan Test')
+        job = self._base_job(
+            technician=sohil,
+            partner=p_s,
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            price='1200',
+            total_amount=Decimal('1200.00'),
+        )
+        JobCardTechnicianParticipation.objects.create(
+            jobcard=job,
+            technician=sohil,
+            partner=p_s,
+            role=JobCardTechnicianParticipation.Role.LEAD,
+            attendance_status=JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
+        )
+        PartnerEarning.objects.create(
+            job=job,
+            partner=p_o,
+            amount=Decimal('240.00'),
+            earning_type=PartnerEarning.EarningType.REVENUE_SHARE,
+        )
+        # Previous wrong split left sohil at half too.
+        PartnerEarning.objects.create(
+            job=job,
+            partner=p_s,
+            amount=Decimal('240.00'),
+            earning_type=PartnerEarning.EarningType.REVENUE_SHARE,
+        )
+
+        calculate_and_apply_payout(job, force=True)
+        job.refresh_from_db()
+        self.assertEqual(job.visit_payout_amount, Decimal('480.00'))
+        self.assertFalse(PartnerEarning.objects.filter(job=job, partner=p_o).exists())
+        earning = PartnerEarning.objects.get(job=job, partner=p_s)
+        self.assertEqual(earning.amount, Decimal('480.00'))
