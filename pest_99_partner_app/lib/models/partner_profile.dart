@@ -13,6 +13,7 @@ class PartnerProfile {
     this.presence,
     this.stats,
     this.serviceCities = const [],
+    this.baseServices = const [],
   });
 
   final int id;
@@ -25,6 +26,7 @@ class PartnerProfile {
   final PartnerPresence? presence;
   final PartnerStats? stats;
   final List<String> serviceCities;
+  final List<String> baseServices;
 
   bool get isSuspended => presence?.isSuspended == true;
 
@@ -52,6 +54,13 @@ class PartnerProfile {
         }
       }
     }
+    final baseServices = <String>[];
+    final rawBase = json['base_services'];
+    if (rawBase is List) {
+      for (final s in rawBase) {
+        if (s != null && '$s'.trim().isNotEmpty) baseServices.add('$s'.trim());
+      }
+    }
     return PartnerProfile(
       id: json['id'] as int,
       fullName: (json['full_name'] as String?)?.trim() ?? '',
@@ -62,6 +71,7 @@ class PartnerProfile {
       isAppApproved: json['is_app_approved'] == true,
       presence: presence,
       serviceCities: names,
+      baseServices: baseServices,
     );
   }
 
@@ -85,6 +95,7 @@ class PartnerProfile {
         presence: profile.presence,
         stats: PartnerStats.fromJson(statsRaw),
         serviceCities: profile.serviceCities,
+        baseServices: profile.baseServices,
       );
     }
     return profile;

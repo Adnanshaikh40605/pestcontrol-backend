@@ -65,6 +65,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     avatarUrl: profile.avatarUrl,
                     isActive: p?.isActive ?? true,
                     serviceCities: p?.serviceCities ?? const [],
+                    baseServices: p?.baseServices ?? const [],
                   ),
                   if (p?.isSuspended == true) ...[
                     const SizedBox(height: AppSpacing.elementGap),
@@ -128,6 +129,7 @@ class _ProfileHeader extends StatelessWidget {
     this.avatarUrl,
     required this.isActive,
     this.serviceCities = const [],
+    this.baseServices = const [],
   });
 
   final String fullName;
@@ -136,88 +138,167 @@ class _ProfileHeader extends StatelessWidget {
   final String? avatarUrl;
   final bool isActive;
   final List<String> serviceCities;
+  final List<String> baseServices;
 
   @override
   Widget build(BuildContext context) {
-    final initials = fullName.isNotEmpty ? fullName.substring(0, 1).toUpperCase() : '?';
+    final initials = _profileInitials(fullName);
     final roleLabel = role == 'technician_admin' ? 'Technician Admin' : 'Technician';
+    const avatarSize = 88.0;
 
     return Container(
-      padding: const EdgeInsets.all(AppSpacing.cardPadding),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.cardPadding,
+        vertical: 20,
+      ),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.border),
         boxShadow: const [
-          BoxShadow(color: Color(0x0A000000), blurRadius: 8, offset: Offset(0, 2)),
+          BoxShadow(color: Color(0x0A000000), blurRadius: 10, offset: Offset(0, 2)),
         ],
       ),
       child: Column(
         children: [
-          Stack(
-            children: [
-              CircleAvatar(
-                radius: 48,
-                backgroundColor: AppColors.primaryContainer,
-                backgroundImage:
-                    avatarUrl != null && avatarUrl!.isNotEmpty ? NetworkImage(avatarUrl!) : null,
-                child: avatarUrl == null || avatarUrl!.isEmpty
-                    ? Text(
-                        initials,
-                        style: const TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
-                        ),
-                      )
-                    : null,
-              ),
-              if (isActive)
-                Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: AppColors.successBg,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.surface, width: 2),
-                    ),
-                    child: const Icon(Icons.verified, size: 16, color: AppColors.successText),
+          SizedBox(
+            width: avatarSize + 8,
+            height: avatarSize + 8,
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: avatarSize,
+                  height: avatarSize,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.surface,
+                    border: Border.all(color: AppColors.border, width: 2),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x14000000),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: ClipOval(
+                    child: avatarUrl != null && avatarUrl!.isNotEmpty
+                        ? Image.network(
+                            avatarUrl!,
+                            width: avatarSize,
+                            height: avatarSize,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => _InitialAvatar(initials: initials),
+                          )
+                        : _InitialAvatar(initials: initials),
                   ),
                 ),
-            ],
+                if (isActive)
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: AppColors.successText,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppColors.surface, width: 2.5),
+                      ),
+                      child: const Icon(
+                        Icons.verified,
+                        size: 14,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-          const SizedBox(height: 16),
-          Text(fullName, style: Theme.of(context).textTheme.headlineMedium),
+          const SizedBox(height: 14),
+          Text(
+            fullName,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                  height: 1.2,
+                ),
+          ),
           if (mobile.isNotEmpty) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               mobile,
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
             ),
           ],
           const SizedBox(height: 12),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
-              color: AppColors.primaryContainer,
+              color: AppColors.successBg,
               borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: AppColors.border),
             ),
             child: Text(
               roleLabel,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(color: AppColors.onPrimary),
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: AppColors.primaryDark,
+                    fontWeight: FontWeight.w700,
+                  ),
             ),
           ),
+          if (baseServices.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Base Services',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: baseServices
+                  .map(
+                    (service) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: AppColors.successBg,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Text(
+                        service,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              color: AppColors.primaryDark,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
           if (serviceCities.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Text(
               'Service Areas',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
                   ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -227,14 +308,15 @@ class _ProfileHeader extends StatelessWidget {
                     (city) => Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: AppColors.successBg,
+                        color: AppColors.surfaceContainerLow,
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(color: AppColors.border),
                       ),
                       child: Text(
                         city,
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              color: AppColors.successText,
+                              color: AppColors.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
                             ),
                       ),
                     ),
@@ -243,6 +325,39 @@ class _ProfileHeader extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+String _profileInitials(String fullName) {
+  final parts = fullName.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+  if (parts.isEmpty) return '?';
+  if (parts.length == 1) {
+    return parts.first.substring(0, 1).toUpperCase();
+  }
+  return '${parts.first.substring(0, 1)}${parts.last.substring(0, 1)}'.toUpperCase();
+}
+
+class _InitialAvatar extends StatelessWidget {
+  const _InitialAvatar({required this.initials});
+
+  final String initials;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: AppColors.successBg,
+      alignment: Alignment.center,
+      child: Text(
+        initials,
+        style: const TextStyle(
+          fontSize: 30,
+          fontWeight: FontWeight.w700,
+          color: AppColors.primaryDark,
+          height: 1,
+          letterSpacing: 0.5,
+        ),
       ),
     );
   }
