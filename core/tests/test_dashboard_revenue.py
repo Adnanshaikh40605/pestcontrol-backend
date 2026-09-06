@@ -83,6 +83,74 @@ class DashboardRevenueByServiceDateTests(TestCase):
         stats = DashboardService.get_dashboard_statistics()
         self.assertEqual(stats['last_month_revenue'], 2500)
 
+    def test_month_revenue_excludes_service_call_amounts(self):
+        """Monthly Target counts only new/initial bookings — not Service Calls."""
+        self._done_job(
+            schedule=self.current_month_schedule,
+            price=5000,
+            completed=timezone.now(),
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.current_month_schedule,
+            price='2000',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.SERVICE_CALL,
+            booking_category=JobCard.BookingCategory.SERVICE_CALL,
+            is_service_call=True,
+            service_cycle=2,
+            completed_at=timezone.now(),
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.current_month_schedule,
+            price='1500',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.AMC_FOLLOWUP,
+            booking_category=JobCard.BookingCategory.AMC_FOLLOWUP,
+            is_service_call=True,
+            service_cycle=2,
+            completed_at=timezone.now(),
+        )
+
+        stats = DashboardService.get_dashboard_statistics()
+        self.assertEqual(stats['month_revenue'], 5000)
+        self.assertEqual(stats['today_revenue'], 5000)
+        self.assertAlmostEqual(stats['month_achievement_pct'], 1.0)  # 5000/500000*100
+
+    def test_amc_main_counts_in_month_revenue_but_followup_does_not(self):
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.current_month_schedule,
+            price='8000',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.AMC_MAIN,
+            booking_category=JobCard.BookingCategory.NORMAL_BOOKING,
+            is_service_call=False,
+            completed_at=timezone.now(),
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.current_month_schedule,
+            price='0',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.AMC_FOLLOWUP,
+            booking_category=JobCard.BookingCategory.AMC_FOLLOWUP,
+            is_service_call=True,
+            service_cycle=2,
+            completed_at=timezone.now(),
+        )
+        stats = DashboardService.get_dashboard_statistics()
+        self.assertEqual(stats['month_revenue'], 8000)
+
 
 class DashboardTodayCitySplitTests(TestCase):
     def setUp(self):

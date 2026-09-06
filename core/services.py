@@ -1679,16 +1679,30 @@ class DashboardService:
                                      .annotate(count=Count('property_type'))
                                      .order_by('-count'))
             
-            # Revenue Stats (Only Done bookings, excluding complaints)
-            # We include NEW_BOOKING, AMC_MAIN, AMC_FOLLOWUP, and SERVICE_CALL if they have a price
-            revenue_filter_base = Q(
-                status=JobCard.JobStatus.DONE,
-                booking_type__in=[
-                    JobCard.BookingType.NEW_BOOKING, 
-                    JobCard.BookingType.AMC_MAIN,
-                    JobCard.BookingType.AMC_FOLLOWUP,
-                    JobCard.BookingType.SERVICE_CALL
-                ]
+            # Revenue for Monthly Target / dashboard KPIs: only initial billable
+            # bookings (New Booking + AMC Main). Never count Service Calls,
+            # AMC follow-ups, complaints, or day-1 package child clones.
+            day1_revenue_child_q = Q(
+                parent_job_id__isnull=False,
+                service_cycle=1,
+                is_auto_generated=True,
+            )
+            revenue_filter_base = (
+                Q(status=JobCard.JobStatus.DONE)
+                & Q(
+                    booking_type__in=[
+                        JobCard.BookingType.NEW_BOOKING,
+                        JobCard.BookingType.AMC_MAIN,
+                    ]
+                )
+                & ~Q(is_service_call=True)
+                & ~Q(is_complaint_call=True)
+                & ~Q(booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES)
+                & ~Q(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
+                & ~Q(booking_type=JobCard.BookingType.COMPLAINT_CALL)
+                & ~Q(booking_type=JobCard.BookingType.SERVICE_CALL)
+                & ~Q(booking_type=JobCard.BookingType.AMC_FOLLOWUP)
+                & ~day1_revenue_child_q
             )
             
             yesterday = today - timedelta(days=1)
