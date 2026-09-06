@@ -10,17 +10,28 @@ from typing import Iterable
 
 from core.models import JobCard, Technician
 
-# Canonical booking service names (must match JobCard / pricing master).
+# Canonical pest services for technician qualification (not property categories).
+# Hotel / Commercial is a pricing category, not a base service — never include it.
 CANONICAL_BASE_SERVICES: tuple[str, ...] = (
     'Cockroach / Ants',
     'Bed Bugs',
     'Termite',
     'Rodent',
     'Mosquito',
-    'Hotel / Commercial',
 )
 
 _CANONICAL_LOOKUP = {name.casefold(): name for name in CANONICAL_BASE_SERVICES}
+
+# Property / booking categories that must not appear as base services.
+_IGNORED_CATEGORY_KEYS: frozenset[str] = frozenset(
+    {
+        'hotel',
+        'commercial',
+        'hotel / commercial',
+        'hotel/commercial',
+        'commercial space',
+    }
+)
 
 # Loose aliases staff / legacy data may use.
 _SERVICE_ALIASES: dict[str, str] = {
@@ -42,9 +53,6 @@ _SERVICE_ALIASES: dict[str, str] = {
     'rats': 'Rodent',
     'mosquito': 'Mosquito',
     'mosquitoes': 'Mosquito',
-    'hotel': 'Hotel / Commercial',
-    'commercial': 'Hotel / Commercial',
-    'hotel / commercial': 'Hotel / Commercial',
 }
 
 
@@ -54,12 +62,21 @@ def _norm_key(raw: str) -> str:
     return text
 
 
+def is_ignored_category_label(raw: str | None) -> bool:
+    """True for property categories (e.g. Hotel / Commercial) — not pest services."""
+    if not raw:
+        return False
+    return _norm_key(str(raw)) in _IGNORED_CATEGORY_KEYS
+
+
 def canonicalize_service_name(raw: str | None) -> str | None:
     """Map a free-text service label to a canonical base-service name."""
     if not raw:
         return None
     key = _norm_key(str(raw))
     if not key:
+        return None
+    if key in _IGNORED_CATEGORY_KEYS:
         return None
     if key in _CANONICAL_LOOKUP:
         return _CANONICAL_LOOKUP[key]
@@ -76,10 +93,12 @@ def canonicalize_service_name(raw: str | None) -> str | None:
 
 
 def normalize_base_services(values: Iterable[str] | None) -> list[str]:
-    """De-dupe and canonicalize a list of service names; drop unknowns."""
+    """De-dupe and canonicalize a list of service names; drop unknowns/categories."""
     out: list[str] = []
     seen: set[str] = set()
     for raw in values or []:
+        if is_ignored_category_label(str(raw)):
+            continue
         canon = canonicalize_service_name(str(raw))
         if not canon or canon in seen:
             continue
@@ -87,6 +106,11 @@ def normalize_base_services(values: Iterable[str] | None) -> list[str]:
         out.append(canon)
     # Stable order matching the product checklist
     return [name for name in CANONICAL_BASE_SERVICES if name in seen]
+
+
+def default_base_services() -> list[str]:
+    """All pest services selected — default until staff narrows qualifications."""
+    return list(CANONICAL_BASE_SERVICES)
 
 
 def get_technician_base_services(technician: Technician | None) -> list[str]:

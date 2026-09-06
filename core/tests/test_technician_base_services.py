@@ -23,12 +23,25 @@ class BaseServicesHelperTests(TestCase):
         self.assertEqual(canonicalize_service_name('Bed Bug'), 'Bed Bugs')
         self.assertEqual(canonicalize_service_name('Cockroach / Ants'), 'Cockroach / Ants')
         self.assertIsNone(canonicalize_service_name('Plumbing'))
+        # Hotel / Commercial is a property category, not a pest service
+        self.assertIsNone(canonicalize_service_name('Hotel / Commercial'))
+        self.assertIsNone(canonicalize_service_name('hotel'))
 
     def test_normalize_dedupes_and_orders(self):
         self.assertEqual(
             normalize_base_services(['Rodent', 'termite', 'Rodent', 'Bed Bugs']),
             ['Bed Bugs', 'Termite', 'Rodent'],
         )
+        self.assertEqual(
+            normalize_base_services(['Termite', 'Hotel / Commercial', 'Rodent']),
+            ['Termite', 'Rodent'],
+        )
+
+    def test_default_base_services_is_all_pest_services(self):
+        from core.technician_base_services import CANONICAL_BASE_SERVICES, default_base_services
+
+        self.assertEqual(default_base_services(), list(CANONICAL_BASE_SERVICES))
+        self.assertNotIn('Hotel / Commercial', default_base_services())
 
 
 @override_settings(REVENUE_MODEL_V2=True)
@@ -169,3 +182,27 @@ class TechnicianBaseServicesApiTests(TestCase):
         self.assertEqual(patch.data['base_services'], ['Bed Bugs', 'Termite'])
         tech = Technician.objects.get(pk=tech_id)
         self.assertEqual(tech.skills, ['Bed Bugs', 'Termite'])
+
+    def test_create_defaults_all_base_services_and_drops_hotel(self):
+        from core.technician_base_services import CANONICAL_BASE_SERVICES
+
+        create = self.api.post(
+            '/api/v1/technicians/',
+            {
+                'name': 'All Svc Tech',
+                'mobile': '9111144444',
+                'is_active': True,
+            },
+            format='json',
+        )
+        self.assertEqual(create.status_code, 201, create.data)
+        self.assertEqual(create.data['base_services'], list(CANONICAL_BASE_SERVICES))
+
+        patch = self.api.patch(
+            f"/api/v1/technicians/{create.data['id']}/",
+            {'base_services': ['Termite', 'Hotel / Commercial', 'Rodent']},
+            format='json',
+        )
+        self.assertEqual(patch.status_code, 200, patch.data)
+        self.assertEqual(patch.data['base_services'], ['Termite', 'Rodent'])
+        self.assertNotIn('Hotel / Commercial', patch.data['base_services'])

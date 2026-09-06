@@ -134,7 +134,8 @@ class TechnicianSerializer(serializers.ModelSerializer):
         source='skills',
         help_text=(
             'Pest services this technician handles '
-            '(Cockroach / Ants, Bed Bugs, Termite, Rodent, Mosquito, Hotel / Commercial).'
+            '(Cockroach / Ants, Bed Bugs, Termite, Rodent, Mosquito). '
+            'Defaults to all when omitted on create.'
         ),
     )
 
@@ -244,6 +245,7 @@ class TechnicianSerializer(serializers.ModelSerializer):
         from core.technician_base_services import (
             CANONICAL_BASE_SERVICES,
             canonicalize_service_name,
+            is_ignored_category_label,
             normalize_base_services,
         )
 
@@ -251,8 +253,11 @@ class TechnicianSerializer(serializers.ModelSerializer):
             return []
         unknown = []
         for raw in value:
-            if canonicalize_service_name(str(raw)) is None:
-                unknown.append(str(raw))
+            text = str(raw)
+            if is_ignored_category_label(text):
+                continue  # Hotel / Commercial etc. — silently drop
+            if canonicalize_service_name(text) is None:
+                unknown.append(text)
         if unknown:
             raise serializers.ValidationError(
                 f'Unknown base services {unknown}. '
@@ -270,10 +275,16 @@ class TechnicianSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
+        from core.technician_base_services import (
+            default_base_services,
+            normalize_base_services,
+        )
+
         city_ids = validated_data.pop('service_city_ids', None)
-        # source='skills' → validated_data key is skills after validate_base_services
-        if 'skills' in validated_data:
-            from core.technician_base_services import normalize_base_services
+        # Default: all pest services selected until staff narrows later.
+        if 'skills' not in validated_data or not validated_data.get('skills'):
+            validated_data['skills'] = default_base_services()
+        else:
             validated_data['skills'] = normalize_base_services(validated_data.get('skills'))
         tech = super().create(validated_data)
         if city_ids is not None:
