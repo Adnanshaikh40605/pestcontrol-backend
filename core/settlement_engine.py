@@ -356,6 +356,10 @@ def settle_jobs_for_technician(
             (p for p in job.technician_participations.all() if p.technician_id == technician.id),
             None,
         )
+        # Must be on this technician's ledger (lead or crew) — amount may be ₹0.
+        if participation is None and job.technician_id != technician.id:
+            continue
+
         amount = Decimal('0.00')
         earning = None
         if partner:
@@ -367,14 +371,14 @@ def settle_jobs_for_technician(
                 ),
                 None,
             )
-            if earning:
+            if earning is not None:
                 amount = quantize_money(earning.amount)
                 if not earning.is_approved:
                     earning.is_approved = True
                     earning.save(update_fields=['is_approved'])
-        if amount <= 0 and participation and participation.payout_amount_snapshot:
+        if amount <= 0 and participation is not None and participation.payout_amount_snapshot is not None:
             amount = quantize_money(participation.payout_amount_snapshot)
-        if amount <= 0 and job.technician_id == technician.id and job.visit_payout_amount:
+        if amount <= 0 and job.technician_id == technician.id and job.visit_payout_amount is not None:
             # Sole lead fallback — never give full pool when multiple partners exist.
             eligible = [
                 p for p in job.technician_participations.all()
@@ -382,9 +386,8 @@ def settle_jobs_for_technician(
                 and getattr(p.technician, 'technician_type', None) == Technician.TechnicianType.PARTNER
             ]
             if len(eligible) <= 1:
-                amount = quantize_money(job.visit_payout_amount)
-        if amount <= 0:
-            continue
+                amount = quantize_money(job.visit_payout_amount or Decimal('0.00'))
+        # ₹0 completed visits are still settleable — do not skip on amount.
 
         # Avoid double OneToOne partner_earning link if already on another open settlement
         pe_link = earning
@@ -408,7 +411,7 @@ def settle_jobs_for_technician(
         settlement.status = TechnicianSettlement.Status.CANCELLED
         settlement.save(update_fields=['status', 'updated_at'])
         raise SettlementError(
-            'Selected bookings are already settled or have ₹0 tech share',
+            'Selected bookings are already settled or not on this technician ledger',
             code='nothing_to_settle',
         )
 

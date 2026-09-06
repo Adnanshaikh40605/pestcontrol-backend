@@ -1,7 +1,7 @@
 """
 Business logic services for the pest control application.
 """
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import logging
 import re
 
@@ -64,6 +64,171 @@ def revenue_service_date_q(
             legacy & Q(completed_at__date__lte=to_date)
         )
     return clause
+
+
+def _job_report_date(job) -> Any:
+    """Local calendar date used for day/month sharing buckets."""
+    if job.schedule_datetime:
+        return timezone.localtime(job.schedule_datetime).date()
+    if job.completed_at:
+        return timezone.localtime(job.completed_at).date()
+    return None
+
+
+def _job_sharing_amounts(job) -> Tuple[Decimal, Decimal, Decimal]:
+    """
+    Return (visit_revenue, technician_40, company_60) for a completed job.
+
+    Prefer payout snapshots; fall back to price × configured/default 40/60.
+    """
+    from core.revenue_constants import COMPANY_SHARE_PERCENT, TECHNICIAN_SHARE_PERCENT
+
+    visit = quantize_money(job.visit_revenue_amount or Decimal('0'))
+    tech = quantize_money(job.technician_pool_amount or Decimal('0'))
+    company = quantize_money(job.company_share_amount or Decimal('0'))
+    if visit > 0:
+        if tech <= 0 and company <= 0:
+            tech_pct = job.technician_share_percent or TECHNICIAN_SHARE_PERCENT
+            tech = quantize_money(visit * Decimal(tech_pct) / Decimal('100'))
+            company = quantize_money(visit - tech)
+        elif company <= 0 and tech > 0:
+            company = quantize_money(visit - tech)
+        elif tech <= 0 and company > 0:
+            tech = quantize_money(visit - company)
+        return visit, tech, company
+
+    price = quantize_money(parse_jobcard_price(job.price))
+    if price <= 0:
+        return Decimal('0.00'), Decimal('0.00'), Decimal('0.00')
+    tech_pct = job.technician_share_percent or TECHNICIAN_SHARE_PERCENT
+    tech = quantize_money(price * Decimal(tech_pct) / Decimal('100'))
+    company = quantize_money(price - tech)
+    return price, tech, company
+
+
+def build_revenue_sharing_breakdown(
+    *,
+    from_date=None,
+    to_date=None,
+) -> Dict[str, Any]:
+    """
+    Day-wise + month-wise 60/40 sharing for Done completed calls.
+
+    Used by the CRM Dashboard Technician/Company Sharing panel.
+    """
+    from collections import defaultdict
+    from calendar import month_name
+
+    from core.revenue_constants import COMPANY_SHARE_PERCENT, TECHNICIAN_SHARE_PERCENT
+
+    today = timezone.localdate()
+    start = from_date or today.replace(day=1)
+    end = to_date or today
+    if isinstance(start, str):
+        from datetime import date as date_cls
+        start = date_cls.fromisoformat(start)
+    if isinstance(end, str):
+        from datetime import date as date_cls
+        end = date_cls.fromisoformat(end)
+
+    complaint_q = (
+        Q(is_complaint_call=True)
+        | Q(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
+        | Q(booking_type=JobCard.BookingType.COMPLAINT_CALL)
+    )
+    qs = (
+        JobCard.objects.filter(status=JobCard.JobStatus.DONE)
+        .exclude(complaint_q)
+        .exclude(payment_model=JobCard.PaymentModel.SALARIED)
+        .filter(revenue_service_date_q(from_date=start, to_date=end))
+        .only(
+            'id', 'price', 'schedule_datetime', 'completed_at',
+            'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
+            'technician_share_percent', 'company_share_percent',
+            'payment_model', 'is_service_call', 'booking_type',
+        )
+    )
+
+    daily_map: dict = defaultdict(
+        lambda: {
+            'bookings': 0,
+            'revenue': Decimal('0.00'),
+            'technician_share': Decimal('0.00'),
+            'company_share': Decimal('0.00'),
+        }
+    )
+    for job in qs.iterator(chunk_size=500):
+        day = _job_report_date(job)
+        if not day or day < start or day > end:
+            continue
+        revenue, tech, company = _job_sharing_amounts(job)
+        if revenue <= 0:
+            continue
+        bucket = daily_map[day]
+        bucket['bookings'] += 1
+        bucket['revenue'] += revenue
+        bucket['technician_share'] += tech
+        bucket['company_share'] += company
+
+    daily = []
+    for day in sorted(daily_map.keys(), reverse=True):
+        row = daily_map[day]
+        daily.append({
+            'date': day.isoformat(),
+            'bookings': row['bookings'],
+            'revenue': float(quantize_money(row['revenue'])),
+            'technician_share': float(quantize_money(row['technician_share'])),
+            'company_share': float(quantize_money(row['company_share'])),
+        })
+
+    monthly_map: dict = defaultdict(
+        lambda: {
+            'bookings': 0,
+            'revenue': Decimal('0.00'),
+            'technician_share': Decimal('0.00'),
+            'company_share': Decimal('0.00'),
+        }
+    )
+    for day, row in daily_map.items():
+        key = (day.year, day.month)
+        m = monthly_map[key]
+        m['bookings'] += row['bookings']
+        m['revenue'] += row['revenue']
+        m['technician_share'] += row['technician_share']
+        m['company_share'] += row['company_share']
+
+    monthly = []
+    for (year, month) in sorted(monthly_map.keys(), reverse=True):
+        row = monthly_map[(year, month)]
+        monthly.append({
+            'year': year,
+            'month': month,
+            'month_label': f'{month_name[month]} {year}',
+            'bookings': row['bookings'],
+            'revenue': float(quantize_money(row['revenue'])),
+            'technician_share': float(quantize_money(row['technician_share'])),
+            'company_share': float(quantize_money(row['company_share'])),
+        })
+
+    summary_rev = sum((Decimal(str(r['revenue'])) for r in daily), Decimal('0.00'))
+    summary_tech = sum((Decimal(str(r['technician_share'])) for r in daily), Decimal('0.00'))
+    summary_co = sum((Decimal(str(r['company_share'])) for r in daily), Decimal('0.00'))
+    summary_bookings = sum(r['bookings'] for r in daily)
+
+    return {
+        'from': start.isoformat(),
+        'to': end.isoformat(),
+        'technician_percent': float(TECHNICIAN_SHARE_PERCENT),
+        'company_percent': float(COMPANY_SHARE_PERCENT),
+        'summary': {
+            'bookings': summary_bookings,
+            'revenue': float(quantize_money(summary_rev)),
+            'technician_share': float(quantize_money(summary_tech)),
+            'company_share': float(quantize_money(summary_co)),
+        },
+        'daily': daily,
+        'monthly': monthly,
+    }
 
 
 def _is_bed_bug_label(text: str) -> bool:
@@ -1614,8 +1779,10 @@ class DashboardService:
             # City breakdown — merge case variants (Mumbai / mumbai) into proper labels.
             from core.city_utils import aggregate_city_counts
 
-            def _city_counts(qs):
-                return aggregate_city_counts(qs, limit=12)
+            def _city_counts(qs, *, distinct_booking: bool = False):
+                return aggregate_city_counts(
+                    qs, limit=12, distinct_booking=distinct_booking,
+                )
 
             # Shared classification: bookings vs AMC/service visits vs complaint re-visits.
             complaint_q = (
@@ -1626,25 +1793,39 @@ class DashboardService:
             service_q = (
                 Q(booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES)
                 | Q(is_service_call=True)
+                | Q(booking_type=JobCard.BookingType.SERVICE_CALL)
+                | Q(booking_type=JobCard.BookingType.AMC_FOLLOWUP)
+                | Q(is_followup_visit=True)
             ) & ~complaint_q
+
+            # Initial billable bookings only (not follow-ups / service / complaint).
+            new_booking_type_q = Q(
+                booking_type__in=[
+                    JobCard.BookingType.NEW_BOOKING,
+                    JobCard.BookingType.AMC_MAIN,
+                ]
+            )
 
             range_active = JobCard.objects.filter(jobcard_filters).exclude(
                 status=JobCard.JobStatus.CANCELLED
             )
             range_complaint_qs = range_active.filter(complaint_q)
             range_service_qs = range_active.filter(service_q)
+            # Unique new booking roots only — multi-service children collapse to 1.
             range_booking_qs = (
-                range_active.exclude(complaint_q)
+                range_active.filter(new_booking_type_q)
+                .exclude(complaint_q)
                 .exclude(service_q)
                 .exclude(day1_auto_child_q)
+                .filter(parent_job_id__isnull=True)
             )
 
-            # Keep city_stats as all non-cancelled jobs for backwards compatibility.
-            city_stats = _city_counts(range_active)
-            range_booking_city_stats = _city_counts(range_booking_qs)
+            # city_stats powers "Selected date range" city chips — unique new bookings.
+            city_stats = _city_counts(range_booking_qs, distinct_booking=True)
+            range_booking_city_stats = city_stats
             range_service_city_stats = _city_counts(range_service_qs)
             range_complaint_city_stats = _city_counts(range_complaint_qs)
-            range_booking_count = range_booking_qs.count()
+            range_booking_count = range_booking_qs.values('id').distinct().count()
             range_service_call_count = range_service_qs.count()
             range_complaint_call_count = range_complaint_qs.count()
 
@@ -1654,15 +1835,19 @@ class DashboardService:
 
             today_complaint_qs = today_active.filter(complaint_q)
             today_service_qs = today_active.filter(service_q)
-            today_booking_qs = today_active.exclude(complaint_q).exclude(service_q)
-            # Same day-1 child exclusion as status_stats / CRM Job Cards list.
-            today_booking_qs = today_booking_qs.exclude(day1_auto_child_q)
+            today_booking_qs = (
+                today_active.filter(new_booking_type_q)
+                .exclude(complaint_q)
+                .exclude(service_q)
+                .exclude(day1_auto_child_q)
+                .filter(parent_job_id__isnull=True)
+            )
 
             # Always include today's city counts (even when date range is wider)
-            today_city_stats = _city_counts(today_booking_qs)
+            today_city_stats = _city_counts(today_booking_qs, distinct_booking=True)
             today_service_city_stats = _city_counts(today_service_qs)
             today_complaint_city_stats = _city_counts(today_complaint_qs)
-            today_booking_count = today_booking_qs.count()
+            today_booking_count = today_booking_qs.values('id').distinct().count()
             today_service_call_count = today_service_qs.count()
             today_complaint_call_count = today_complaint_qs.count()
 
@@ -1784,6 +1969,26 @@ class DashboardService:
                 else (100.0 if today_revenue > 0 else 0.0)
             )
 
+            from datetime import date as date_cls
+
+            def _parse_dash_date(value, fallback):
+                if value is None:
+                    return fallback
+                if isinstance(value, date_cls):
+                    return value
+                return date_cls.fromisoformat(str(value))
+
+            share_from = _parse_dash_date(from_date, month_start)
+            share_to = _parse_dash_date(to_date, today)
+            # Single-day dashboard filter (default today) → expand to that month
+            # so day-wise rows and month-wise summary both show useful data.
+            if from_date and to_date and str(from_date) == str(to_date):
+                share_from = share_from.replace(day=1)
+            sharing_breakdown = build_revenue_sharing_breakdown(
+                from_date=share_from,
+                to_date=share_to,
+            )
+
             return {
                 'total_inquiries': total_inquiries,
                 'total_web_inquiries': total_web_inquiries,
@@ -1824,6 +2029,7 @@ class DashboardService:
                 'today_complaint_call_count': today_complaint_call_count,
                 'total_complaint_calls': total_complaint_calls,
                 'property_type_stats': property_type_stats,
+                'sharing_breakdown': sharing_breakdown,
             }
         except Exception as e:
             logger.error(f"Error retrieving dashboard statistics: {str(e)}", exc_info=True)

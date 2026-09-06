@@ -920,7 +920,20 @@ class TechnicianViewSet(BaseModelViewSet):
             })
 
         base_queryset = technician_jobs_queryset(technician)
-        filtered_queryset = apply_ledger_filters(base_queryset, request.query_params)
+        settlement_filter = (request.query_params.get('settlement_status') or '').strip().lower()
+        # Old Service Calls (legacy/history) must not be hidden by the date range —
+        # those rows are historical and often fall outside the current month filter.
+        skip_dates = settlement_filter in ('legacy', 'history')
+        source_qs = base_queryset
+        if skip_dates:
+            source_qs = base_queryset.filter(
+                payout_status=JobCard.PayoutStatus.LEGACY_EXEMPT,
+            )
+        filtered_queryset = apply_ledger_filters(
+            source_qs,
+            request.query_params,
+            skip_dates=skip_dates,
+        )
         filtered_jobs = exclude_package_shells(
             list(filtered_queryset.order_by('-schedule_datetime', '-id'))
         )
@@ -931,7 +944,6 @@ class TechnicianViewSet(BaseModelViewSet):
             )
         rows = [serialize_ledger_row(job, technician) for job in filtered_jobs]
 
-        settlement_filter = (request.query_params.get('settlement_status') or '').strip().lower()
         # Complaints are isolated: only on Complaints tab; never in main ledger tabs.
         if settlement_filter == 'complaints':
             rows = [r for r in rows if r.get('is_complaint_call')]
@@ -943,15 +955,8 @@ class TechnicianViewSet(BaseModelViewSet):
                 # Settlement History — already settled entries
                 rows = [r for r in rows if r.get('settlement_status') == 'settled']
             elif settlement_filter in ('legacy', 'history'):
-                # Old Service Calls / History — legacy + settled completed records
-                rows = [
-                    r for r in rows
-                    if r.get('settlement_status') in ('legacy', 'settled')
-                    or (
-                        r.get('is_completed_visit')
-                        and r.get('settlement_status') != 'unsettled'
-                    )
-                ]
+                # Old Service Calls — legacy_exempt history only (not payable)
+                rows = [r for r in rows if r.get('settlement_status') == 'legacy']
             # '' / all → non-complaint rows only (no settlement filter)
 
         try:
@@ -4675,6 +4680,8 @@ class QuotationViewSet(BaseModelViewSet):
     filterset_fields = ['status', 'quotation_type', 'is_amc']
 
     def get_queryset(self):
+        from django.db.models import OuterRef, Subquery
+
         qs = super().get_queryset()
         q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
         if q:
@@ -4684,7 +4691,13 @@ class QuotationViewSet(BaseModelViewSet):
                 Q(mobile__icontains=q) | 
                 Q(company_name__icontains=q)
             )
-        return qs
+        latest_remark = QuotationHistory.objects.filter(
+            quotation_id=OuterRef('pk'),
+            action__in=('Remark Added', 'Remark Updated'),
+        ).order_by('-created_at')
+        return qs.annotate(
+            annotated_last_remark_at=Subquery(latest_remark.values('created_at')[:1]),
+        )
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -4734,6 +4747,8 @@ class QuotationViewSet(BaseModelViewSet):
             details=details,
             performed_by=user,
         )
+        # Re-fetch so last_remark_at reflects the history row just created.
+        quotation = self.get_queryset().get(pk=quotation.pk)
         return response.Response(self.get_serializer(quotation).data)
 
     @action(detail=True, methods=['post'])

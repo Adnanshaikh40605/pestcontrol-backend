@@ -84,29 +84,51 @@ def resolve_master_city(city_name: str | None):
     return None
 
 
-def aggregate_city_counts(qs, *, limit: int = 12) -> list[dict]:
+def aggregate_city_counts(
+    qs,
+    *,
+    limit: int = 12,
+    distinct_booking: bool = False,
+) -> list[dict]:
     """
     Group jobcards by city with case-insensitive merge and proper display names.
 
     Prefers master_city.name, falls back to free-text city.
+    When distinct_booking=True, counts unique booking roots
+    (Coalesce(parent_job_id, id)) so multi-service children don't inflate totals.
     """
-    rows = (
-        qs.annotate(
-            city_label=Coalesce(
-                'master_city__name',
-                'city',
-                V(''),
-                output_field=CharField(),
-            )
+    from django.db.models import F
+
+    annotated = qs.annotate(
+        city_label=Coalesce(
+            'master_city__name',
+            'city',
+            V(''),
+            output_field=CharField(),
+        ),
+        booking_root=Coalesce('parent_job_id', F('id')),
+    ).exclude(city_label='')
+
+    if distinct_booking:
+        rows = annotated.values('city_label').annotate(
+            count=Count('booking_root', distinct=True),
         )
-        .exclude(city_label='')
-        .values('city_label')
-        .annotate(count=Count('id'))
-    )
+    else:
+        rows = annotated.values('city_label').annotate(count=Count('id'))
+
+    # Skip country / plus-code noise that sometimes lands in free-text city.
+    import re
+    plus_code_re = re.compile(r'^[a-z0-9]{2,}\+[a-z0-9]+$', re.I)
+    skip_labels = {'india', 'maharashtra', 'unknown', 'n/a', 'na', 'test'}
+
     merged: dict[str, dict] = {}
     for row in rows:
         display = canonical_city_label(row['city_label'])
         if not display:
+            continue
+        if display.casefold() in skip_labels:
+            continue
+        if plus_code_re.match(display.replace(' ', '')):
             continue
         key = display.casefold()
         if key in merged:

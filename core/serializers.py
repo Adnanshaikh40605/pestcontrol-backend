@@ -1521,6 +1521,7 @@ class QuotationSerializer(serializers.ModelSerializer):
     master_state_name = serializers.CharField(source='master_state.name', read_only=True)
     master_city_name = serializers.CharField(source='master_city.name', read_only=True)
     master_location_name = serializers.CharField(source='master_location.name', read_only=True)
+    last_remark_at = serializers.SerializerMethodField()
 
     class Meta:
         model = Quotation
@@ -1534,13 +1535,37 @@ class QuotationSerializer(serializers.ModelSerializer):
             'gst_percent', 'price_includes_gst', 'base_amount',
             'is_amc', 'visit_count', 'contract_amount',
             'expiry_date', 'created_by', 'created_by_name', 'license_number',
-            'notes', 'terms_and_conditions',
+            'notes', 'terms_and_conditions', 'last_remark_at',
             'items', 'scopes', 'payment_terms', 'created_at', 'updated_at'
         ]
         read_only_fields = [
             'id', 'quotation_no', 'invoice_no', 'created_by', 'created_at', 'updated_at',
-            'base_amount',
+            'base_amount', 'last_remark_at',
         ]
+
+    def get_last_remark_at(self, obj):
+        """ISO timestamp of the latest remark (Asia/Kolkata), or null when no remark."""
+        from django.utils import timezone as dj_tz
+
+        if not (obj.notes or '').strip():
+            return None
+        ts = getattr(obj, 'annotated_last_remark_at', None)
+        if ts is None:
+            entry = (
+                obj.history.filter(
+                    action__in=('Remark Added', 'Remark Updated'),
+                )
+                .order_by('-created_at')
+                .values_list('created_at', flat=True)
+                .first()
+            )
+            ts = entry
+        if ts is None:
+            # Notes exist without remark history (legacy) — use updated_at.
+            ts = obj.updated_at
+        if ts is None:
+            return None
+        return dj_tz.localtime(ts).isoformat()
 
     def get_base_amount(self, obj):
         from core.pricing.gst import gst_breakdown

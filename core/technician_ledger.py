@@ -191,9 +191,9 @@ def exclude_package_shells(jobs):
     return [job for job in jobs if not is_multi_service_package_shell(job)]
 
 
-def apply_ledger_filters(queryset, params):
-    date_from = parse_date(params.get('from') or '')
-    date_to = parse_date(params.get('to') or '')
+def apply_ledger_filters(queryset, params, *, skip_dates: bool = False):
+    date_from = None if skip_dates else parse_date(params.get('from') or '')
+    date_to = None if skip_dates else parse_date(params.get('to') or '')
     # Mirrors _report_date: booking schedule date, else completion, else created.
     no_schedule = Q(schedule_datetime__isnull=True)
     no_schedule_or_completion = Q(schedule_datetime__isnull=True, completed_at__isnull=True)
@@ -373,6 +373,32 @@ def job_needs_payout_heal(job) -> bool:
         if eligible_like >= 2 and positive < eligible_like:
             return True
 
+    # Sole eligible partner still carrying a split share (co-tech removed / absent)
+    # e.g. pool ₹400 but snapshot stuck at ₹200 from an old 2-tech split.
+    from core.models import Technician as TechModel
+
+    attended_ok = {'assigned', 'checked_in', 'completed'}
+    eligible_partners = []
+    for p in parts:
+        if not p.is_payout_eligible or p.attendance_status not in attended_ok:
+            continue
+        tech = p.technician
+        if tech is None:
+            continue
+        if getattr(tech, 'technician_type', None) == TechModel.TechnicianType.SALARIED:
+            continue
+        eligible_partners.append(p)
+    if len(eligible_partners) == 1 and (job.technician_pool_amount or 0) > 0:
+        pool = quantize_money(job.technician_pool_amount)
+        snap = quantize_money(eligible_partners[0].payout_amount_snapshot or 0)
+        visit_pay = quantize_money(job.visit_payout_amount or 0)
+        # Snapshot (or visit_payout) meaningfully below the full 40% pool.
+        if pool > 0 and (
+            (snap > 0 and snap < pool * Decimal('0.95'))
+            or (visit_pay > 0 and visit_pay < pool * Decimal('0.95'))
+        ):
+            return True
+
     return False
 
 
@@ -512,20 +538,40 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
         ):
             visit_revenue = booking_amount
 
-    tech_share = Decimal('0.00') if is_legacy else _technician_share(job, technician)
-    company_share = (
-        Decimal('0.00')
-        if is_legacy
-        else (quantize_money(job.company_share_amount) if completed else Decimal('0.00'))
-    )
-    # Prefer stored company share. Only synthesize when payout snapshots exist
-    # (visit_revenue was set by the engine) so we don't invent company money
-    # on legacy jobs that never ran 40/60.
-    if company_share <= 0 and completed and visit_revenue > 0 and (job.technician_pool_amount or 0) > 0:
-        company_share = quantize_money(max(visit_revenue - tech_share, Decimal('0.00')))
-    bonus, penalty, paid = (Decimal('0.00'), Decimal('0.00'), Decimal('0.00')) if is_legacy else _line_totals(job, technician)
-    net = quantize_money(max(tech_share + bonus - penalty, Decimal('0.00')))
-    pending = Decimal('0.00') if is_legacy else quantize_money(max(net - paid, Decimal('0.00')))
+    if is_legacy:
+        # Old Service Calls are not payable, but still show the historical
+        # service amount and the standard 40/60 split for staff reporting.
+        share_pct_legacy = job.technician_share_percent or 40
+        stored_rev = quantize_money(job.visit_revenue_amount or Decimal('0'))
+        display_rev = stored_rev if stored_rev > 0 else booking_amount
+        if display_rev <= 0 and staff_price > 0:
+            display_rev = staff_price
+        visit_revenue = display_rev
+        tech_share = quantize_money(
+            display_rev * Decimal(str(share_pct_legacy)) / Decimal('100')
+        ) if display_rev > 0 else Decimal('0.00')
+        stored_co = quantize_money(job.company_share_amount or Decimal('0'))
+        company_share = (
+            stored_co
+            if stored_co > 0
+            else quantize_money(max(display_rev - tech_share, Decimal('0.00')))
+        )
+        bonus, penalty, paid = Decimal('0.00'), Decimal('0.00'), Decimal('0.00')
+        net = Decimal('0.00')
+        pending = Decimal('0.00')
+    else:
+        tech_share = _technician_share(job, technician)
+        company_share = (
+            quantize_money(job.company_share_amount) if completed else Decimal('0.00')
+        )
+        # Prefer stored company share. Only synthesize when payout snapshots exist
+        # (visit_revenue was set by the engine) so we don't invent company money
+        # on rows that never ran 40/60.
+        if company_share <= 0 and completed and visit_revenue > 0 and (job.technician_pool_amount or 0) > 0:
+            company_share = quantize_money(max(visit_revenue - tech_share, Decimal('0.00')))
+        bonus, penalty, paid = _line_totals(job, technician)
+        net = quantize_money(max(tech_share + bonus - penalty, Decimal('0.00')))
+        pending = quantize_money(max(net - paid, Decimal('0.00')))
     feedbacks = list(job.feedbacks.all())
     rating = feedbacks[0].rating if feedbacks else None
 
@@ -543,18 +589,23 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
             break
 
     # Per-technician settlement — never treat co-tech PAID as this tech Settled.
+    # ₹0 completed visits become Settled only after an explicit paid settlement
+    # line exists for this technician (tech_has_paid_share).
     if not completed:
         settlement_status = 'n_a'
         settlement_status_label = 'N/A'
     elif is_legacy:
         settlement_status = 'legacy'
         settlement_status_label = 'Old record'
-    elif tech_has_paid_share or (net > 0 and pending <= 0 and paid > 0):
+    elif tech_has_paid_share:
         settlement_status = 'settled'
         settlement_status_label = 'Settled'
         if pending > 0:
             settlement_status = 'unsettled'
             settlement_status_label = 'Unsettled'
+    elif net > 0 and pending <= 0 and paid > 0:
+        settlement_status = 'settled'
+        settlement_status_label = 'Settled'
     else:
         settlement_status = 'unsettled'
         settlement_status_label = 'Unsettled'

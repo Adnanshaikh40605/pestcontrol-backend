@@ -39,6 +39,7 @@ class QuotationRemarkApiTests(APITestCase):
         add = self.client.patch(url, {'remark': 'Called customer — waiting for approval'}, format='json')
         self.assertEqual(add.status_code, status.HTTP_200_OK)
         self.assertEqual(add.data['notes'], 'Called customer — waiting for approval')
+        self.assertTrue(add.data.get('last_remark_at'))
         self.quotation.refresh_from_db()
         self.assertEqual(self.quotation.notes, 'Called customer — waiting for approval')
         self.assertTrue(
@@ -48,6 +49,7 @@ class QuotationRemarkApiTests(APITestCase):
         edit = self.client.patch(url, {'remark': 'Approved verbally — convert tomorrow'}, format='json')
         self.assertEqual(edit.status_code, status.HTTP_200_OK)
         self.assertEqual(edit.data['notes'], 'Approved verbally — convert tomorrow')
+        self.assertTrue(edit.data.get('last_remark_at'))
         self.assertTrue(
             QuotationHistory.objects.filter(quotation=self.quotation, action='Remark Updated').exists()
         )
@@ -55,8 +57,25 @@ class QuotationRemarkApiTests(APITestCase):
         clear = self.client.patch(url, {'remark': '   '}, format='json')
         self.assertEqual(clear.status_code, status.HTTP_200_OK)
         self.assertIn(clear.data['notes'], (None, ''))
+        self.assertIsNone(clear.data.get('last_remark_at'))
         self.quotation.refresh_from_db()
         self.assertFalse(bool(self.quotation.notes))
+
+    def test_list_exposes_last_remark_at(self):
+        empty = self.client.get('/api/v1/quotations/')
+        self.assertEqual(empty.status_code, status.HTTP_200_OK)
+        row = next(r for r in empty.data['results'] if r['id'] == self.quotation.id)
+        self.assertIsNone(row.get('last_remark_at'))
+
+        self.client.patch(
+            f'/api/v1/quotations/{self.quotation.id}/remark/',
+            {'remark': 'Follow up Monday'},
+            format='json',
+        )
+        listed = self.client.get('/api/v1/quotations/')
+        row = next(r for r in listed.data['results'] if r['id'] == self.quotation.id)
+        self.assertTrue(row.get('last_remark_at'))
+        self.assertIn('+05:30', row['last_remark_at'])
 
     def test_quotation_stats_endpoint(self):
         res = self.client.get('/api/v1/quotations/stats/')

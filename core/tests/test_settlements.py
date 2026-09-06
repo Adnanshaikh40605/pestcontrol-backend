@@ -102,6 +102,66 @@ class SettlementEngineTests(TestCase):
         )
         self.assertEqual(settlements, [])
 
+    def test_settle_zero_amount_completed_job_moves_to_settled(self):
+        """₹0 Done visits must settle and leave Unsettled (not blocked by amount > 0)."""
+        from core.models import JobCardTechnicianParticipation
+        from core.settlement_engine import settle_jobs_for_technician
+        from core.technician_ledger import serialize_ledger_row
+
+        zero_job = JobCard.objects.create(
+            client=self.client_obj,
+            service_type='Cockroach / Ants',
+            price='0',
+            total_amount=Decimal('0.00'),
+            technician=self.tech,
+            partner=self.partner,
+            payment_model=JobCard.PaymentModel.REVENUE_SHARING,
+            payout_status=JobCard.PayoutStatus.PENDING,
+            visit_revenue_amount=Decimal('0.00'),
+            technician_pool_amount=Decimal('0.00'),
+            company_share_amount=Decimal('0.00'),
+            visit_payout_amount=Decimal('0.00'),
+            status=JobCard.JobStatus.DONE,
+            completed_at=timezone.now(),
+            schedule_datetime=timezone.now(),
+        )
+        JobCardTechnicianParticipation.objects.create(
+            jobcard=zero_job,
+            technician=self.tech,
+            partner=self.partner,
+            role=JobCardTechnicianParticipation.Role.LEAD,
+            attendance_status=JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
+            is_payout_eligible=True,
+            payout_amount_snapshot=Decimal('0.00'),
+        )
+        before = serialize_ledger_row(zero_job, self.tech)
+        self.assertEqual(before['settlement_status'], 'unsettled')
+        self.assertEqual(before['technician_share'], '0.00')
+
+        settlement = settle_jobs_for_technician(
+            technician=self.tech,
+            job_ids=[zero_job.id],
+            user=self.user,
+        )
+        self.assertEqual(settlement.status, TechnicianSettlement.Status.PAID)
+        self.assertEqual(settlement.net_amount, Decimal('0.00'))
+        self.assertEqual(settlement.line_items.count(), 1)
+        self.assertEqual(settlement.line_items.get().amount, Decimal('0.00'))
+        self.assertEqual(settlement.line_items.get().job_id, zero_job.id)
+
+        zero_job.refresh_from_db()
+        self.assertEqual(zero_job.payout_status, JobCard.PayoutStatus.PAID)
+        after = serialize_ledger_row(
+            JobCard.objects.prefetch_related(
+                'technician_participations__technician',
+                'partner_earnings',
+                'settlement_line_items__settlement',
+                'feedbacks',
+            ).get(pk=zero_job.pk),
+            self.tech,
+        )
+        self.assertEqual(after['settlement_status'], 'settled')
+
 
 @override_settings(REVENUE_MODEL_V2=True)
 class SettlementApiTests(TestCase):

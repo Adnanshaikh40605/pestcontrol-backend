@@ -609,13 +609,61 @@ class LedgerFixesMdCrossCheckTests(TestCase):
         settle_jobs_for_technician(
             technician=tech, job_ids=[settled_job.id], user=self.user,
         )
+        from core.technician_ledger import move_job_to_old_service
+        legacy_job = self._job(
+            technician=tech,
+            partner=partner,
+            price='1500',
+            total_amount=Decimal('1500.00'),
+        )
+        calculate_and_apply_payout(legacy_job)
+        move_job_to_old_service(technician=tech, job_id=legacy_job.id)
 
         history = self._ledger(tech, {'settlement_status': 'history'})
         self.assertEqual(history.status_code, 200)
         ids = {r['job_id'] for r in history.data['results']}
-        self.assertIn(settled_job.id, ids)
+        self.assertIn(legacy_job.id, ids)
         self.assertNotIn(unsettled_job.id, ids)
+        self.assertNotIn(settled_job.id, ids)
+        settled = self._ledger(tech, {'settlement_status': 'settled'})
+        settled_ids = {r['job_id'] for r in settled.data['results']}
+        self.assertIn(settled_job.id, settled_ids)
         unsettled = self._ledger(tech, {'settlement_status': 'unsettled'})
         uids = {r['job_id'] for r in unsettled.data['results']}
         self.assertIn(unsettled_job.id, uids)
         self.assertNotIn(settled_job.id, uids)
+        self.assertNotIn(legacy_job.id, uids)
+
+    def test_old_service_calls_ignore_date_range(self):
+        """Legacy old-service rows remain visible even when month filter excludes them."""
+        from datetime import datetime, timezone as dt_timezone
+
+        from core.technician_ledger import move_job_to_old_service
+
+        tech, partner = self._partner_tech('8111000018', 'Old Svc Dates')
+        old_job = self._job(
+            technician=tech,
+            partner=partner,
+            price='2500',
+            total_amount=Decimal('2500.00'),
+            schedule_datetime=datetime(2026, 6, 15, 10, 0, tzinfo=dt_timezone.utc),
+        )
+        calculate_and_apply_payout(old_job)
+        move_job_to_old_service(technician=tech, job_id=old_job.id)
+
+        res = self._ledger(tech, {
+            'from': '2026-09-01',
+            'to': '2026-09-30',
+            'settlement_status': 'history',
+        })
+        self.assertEqual(res.status_code, 200, res.data)
+        ids = {r['job_id'] for r in res.data['results']}
+        self.assertIn(old_job.id, ids)
+        row = next(r for r in res.data['results'] if r['job_id'] == old_job.id)
+        self.assertEqual(row['settlement_status'], 'legacy')
+        # Display-only 40/60 for reporting (not payable).
+        self.assertEqual(Decimal(row['visit_revenue']), Decimal('2500.00'))
+        self.assertEqual(Decimal(row['technician_share']), Decimal('1000.00'))
+        self.assertEqual(Decimal(row['company_share']), Decimal('1500.00'))
+        self.assertEqual(Decimal(row['pending_amount']), Decimal('0.00'))
+        self.assertEqual(Decimal(row['net_payable']), Decimal('0.00'))

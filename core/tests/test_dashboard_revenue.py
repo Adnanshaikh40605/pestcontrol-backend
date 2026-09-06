@@ -210,6 +210,64 @@ class DashboardTodayCitySplitTests(TestCase):
         range_svc = {row['city']: row['count'] for row in stats['range_service_city_stats']}
         self.assertEqual(range_svc.get('Mumbai'), 1)
         self.assertEqual(range_svc.get('Pune'), 1)
+        # city_stats = unique new bookings only (not all jobs / service calls).
+        self.assertEqual(stats['city_stats'], [{'city': 'Mumbai', 'count': 1}])
+        self.assertEqual(stats['range_booking_city_stats'], stats['city_stats'])
+
+    def test_multi_service_children_count_as_one_new_booking(self):
+        """One package with 3 service rows must contribute Mumbai — 1, not 3."""
+        parent = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants, Termite, Rodent',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='5000',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_service_call=False,
+        )
+        for svc in ('Cockroach / Ants', 'Termite', 'Rodent'):
+            JobCard.objects.create(
+                client=self.client_record,
+                parent_job=parent,
+                source_service=svc,
+                service_type=svc,
+                city='Mumbai',
+                schedule_datetime=self.today,
+                price='0',
+                reference='Other',
+                status=JobCard.JobStatus.PENDING,
+                booking_type=JobCard.BookingType.NEW_BOOKING,
+                service_cycle=1,
+                is_auto_generated=True,
+                is_service_call=False,
+            )
+        # Follow-up service call must not inflate new-booking city count.
+        JobCard.objects.create(
+            client=self.client_record,
+            parent_job=parent,
+            service_type='Cockroach / Ants',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='0',
+            reference='Other',
+            status=JobCard.JobStatus.UPCOMING,
+            booking_type=JobCard.BookingType.SERVICE_CALL,
+            booking_category=JobCard.BookingCategory.SERVICE_CALL,
+            is_service_call=True,
+            service_cycle=2,
+        )
+
+        stats = DashboardService.get_dashboard_statistics(
+            from_date=timezone.now().date().isoformat(),
+            to_date=timezone.now().date().isoformat(),
+        )
+        self.assertEqual(stats['range_booking_count'], 1)
+        self.assertEqual(stats['city_stats'], [{'city': 'Mumbai', 'count': 1}])
+        self.assertEqual(stats['range_booking_city_stats'], [{'city': 'Mumbai', 'count': 1}])
+        self.assertEqual(stats['today_booking_count'], 1)
+        self.assertGreaterEqual(stats['today_service_call_count'], 1)
 
     def test_city_stats_merge_case_variants_and_show_proper_names(self):
         JobCard.objects.create(
@@ -342,3 +400,138 @@ class DashboardTodayCitySplitTests(TestCase):
         # Pending day-1 children must not inflate Today Focus pending.
         self.assertEqual(stats['status_stats']['pending'], 0)
         self.assertEqual(stats['status_stats']['on_process'], 1)
+
+
+class RevenueSharingBreakdownTests(TestCase):
+    """Day-wise / month-wise 40% tech / 60% company sharing on Dashboard."""
+
+    def setUp(self):
+        self.client_record = Client.objects.create(full_name='Share Client', mobile='9000000088')
+        self.today = timezone.localdate()
+        self.month_start = self.today.replace(day=1)
+        self.today_dt = timezone.make_aware(datetime.combine(self.today, datetime.min.time()))
+        earlier = self.month_start if self.today.day > 1 else self.today
+        self.earlier_day = earlier
+        self.earlier_dt = timezone.make_aware(datetime.combine(self.earlier_day, datetime.min.time()))
+
+    def test_price_fallback_splits_40_60(self):
+        from core.services import build_revenue_sharing_breakdown
+
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='10000',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            completed_at=timezone.now(),
+        )
+        data = build_revenue_sharing_breakdown(from_date=self.today, to_date=self.today)
+        self.assertEqual(data['technician_percent'], 40.0)
+        self.assertEqual(data['company_percent'], 60.0)
+        self.assertEqual(data['summary']['bookings'], 1)
+        self.assertEqual(data['summary']['revenue'], 10000.0)
+        self.assertEqual(data['summary']['technician_share'], 4000.0)
+        self.assertEqual(data['summary']['company_share'], 6000.0)
+        self.assertEqual(len(data['daily']), 1)
+        self.assertEqual(data['daily'][0]['date'], self.today.isoformat())
+        self.assertEqual(data['monthly'][0]['bookings'], 1)
+
+    def test_uses_visit_revenue_snapshots_when_present(self):
+        from decimal import Decimal
+
+        from core.services import build_revenue_sharing_breakdown
+
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='999',  # ignored when visit snapshot set
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            completed_at=timezone.now(),
+            visit_revenue_amount=Decimal('5000.00'),
+            technician_pool_amount=Decimal('2000.00'),
+            company_share_amount=Decimal('3000.00'),
+        )
+        data = build_revenue_sharing_breakdown(from_date=self.today, to_date=self.today)
+        self.assertEqual(data['summary']['revenue'], 5000.0)
+        self.assertEqual(data['summary']['technician_share'], 2000.0)
+        self.assertEqual(data['summary']['company_share'], 3000.0)
+
+    def test_excludes_complaints_and_salaried(self):
+        from core.services import build_revenue_sharing_breakdown
+
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='8000',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            completed_at=timezone.now(),
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='3000',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.COMPLAINT_CALL,
+            booking_category=JobCard.BookingCategory.COMPLAINT_CALL,
+            is_complaint_call=True,
+            completed_at=timezone.now(),
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='4000',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            payment_model=JobCard.PaymentModel.SALARIED,
+            completed_at=timezone.now(),
+        )
+        data = build_revenue_sharing_breakdown(from_date=self.today, to_date=self.today)
+        self.assertEqual(data['summary']['bookings'], 1)
+        self.assertEqual(data['summary']['revenue'], 8000.0)
+
+    def test_dashboard_single_day_filter_expands_sharing_to_month(self):
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.earlier_dt,
+            price='5000',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            completed_at=timezone.now(),
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='5000',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            completed_at=timezone.now(),
+        )
+        stats = DashboardService.get_dashboard_statistics(
+            from_date=self.today.isoformat(),
+            to_date=self.today.isoformat(),
+        )
+        sharing = stats['sharing_breakdown']
+        self.assertEqual(sharing['from'], self.month_start.isoformat())
+        self.assertEqual(sharing['to'], self.today.isoformat())
+        self.assertEqual(sharing['summary']['bookings'], 2)
+        self.assertEqual(sharing['summary']['revenue'], 10000.0)
+        self.assertEqual(sharing['summary']['technician_share'], 4000.0)
+        self.assertEqual(sharing['summary']['company_share'], 6000.0)
+        self.assertGreaterEqual(len(sharing['daily']), 1)
+        self.assertEqual(len(sharing['monthly']), 1)

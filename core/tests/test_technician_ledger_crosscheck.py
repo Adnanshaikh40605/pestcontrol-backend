@@ -354,9 +354,12 @@ class TechnicianLedgerCrossCheckTests(TestCase):
         self._part(job, self.tech, self.partner, 'completed')
         row = serialize_ledger_row(job, self.tech)
         self.assertEqual(row['settlement_status'], 'legacy')
-        self.assertEqual(row['technician_share'], '0.00')
+        # Display-only 40/60 from stored visit revenue; not payable.
+        self.assertEqual(row['visit_revenue'], '833.33')
+        self.assertEqual(row['technician_share'], '333.33')
+        self.assertEqual(row['company_share'], '500.00')
         self.assertEqual(row['pending_amount'], '0.00')
-        self.assertEqual(row['visit_revenue'], '0.00')
+        self.assertEqual(row['net_payable'], '0.00')
 
     def test_cockroach_child_not_treated_as_bed_bugs(self):
         """Multi shell items include Bed Bugs — Cockroach day-1 child must stay one-time."""
@@ -388,3 +391,63 @@ class TechnicianLedgerCrossCheckTests(TestCase):
         calculate_and_apply_payout(cockroach, force=True)
         cockroach.refresh_from_db()
         self.assertEqual(Decimal(str(cockroach.visit_payout_amount)), Decimal('600.00'))
+
+    def test_sole_tech_stale_half_share_heals_to_full_40_percent(self):
+        """
+        After a co-tech is removed, sole lead must not stay stuck at ½ of the
+        40% pool (e.g. Service ₹1000 → Tech ₹200 instead of ₹400).
+        """
+        from core.technician_ledger import heal_stuck_payouts, job_needs_payout_heal
+
+        job = JobCard.objects.create(
+            client=self.client_obj,
+            service_type='Cockroach / Ants',
+            service_items=[{
+                'service': 'Cockroach / Ants',
+                'plan': 'One Time Service',
+                'area': '3 BHK',
+                'amount': 1000,
+            }],
+            schedule_datetime=datetime(2026, 8, 23, 10, 0, tzinfo=dt_timezone.utc),
+            price='1000',
+            total_amount=1000,
+            status=JobCard.JobStatus.DONE,
+            payment_model=JobCard.PaymentModel.REVENUE_SHARING,
+            technician_share_percent=Decimal('40.00'),
+            company_share_percent=Decimal('60.00'),
+            technician=self.tech,
+            partner=self.partner,
+            visit_revenue_amount=Decimal('1000.00'),
+            technician_pool_amount=Decimal('400.00'),
+            company_share_amount=Decimal('600.00'),
+            visit_payout_amount=Decimal('200.00'),
+            payout_status=JobCard.PayoutStatus.PENDING,
+            reference='Poster',
+            client_address='x',
+        )
+        self._part(job, self.tech, self.partner, 'completed')
+        part = job.technician_participations.get(technician=self.tech)
+        part.payout_amount_snapshot = Decimal('200.00')
+        part.share_percent_snapshot = Decimal('50.00')
+        part.save(update_fields=['payout_amount_snapshot', 'share_percent_snapshot', 'updated_at'])
+
+        job.refresh_from_db()
+        self.assertTrue(job_needs_payout_heal(job))
+        self.assertEqual(serialize_ledger_row(job, self.tech)['technician_share'], '200.00')
+
+        healed = heal_stuck_payouts([job])
+        self.assertGreaterEqual(healed, 1)
+        job.refresh_from_db()
+        part.refresh_from_db()
+        self.assertEqual(Decimal(str(job.visit_revenue_amount)), Decimal('1000.00'))
+        self.assertEqual(Decimal(str(job.technician_pool_amount)), Decimal('400.00'))
+        self.assertEqual(Decimal(str(job.company_share_amount)), Decimal('600.00'))
+        self.assertEqual(Decimal(str(job.visit_payout_amount)), Decimal('400.00'))
+        self.assertEqual(Decimal(str(part.payout_amount_snapshot)), Decimal('400.00'))
+
+        row = serialize_ledger_row(job, self.tech)
+        self.assertEqual(row['booking_amount'], '1000.00')
+        self.assertEqual(row['visit_revenue'], '1000.00')
+        self.assertEqual(row['technician_share'], '400.00')
+        self.assertEqual(row['company_share'], '600.00')
+        self.assertEqual(row['technician_share_percent'], '40.00')
