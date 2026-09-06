@@ -236,13 +236,14 @@ def filter_technicians_for_city(
 
 
 def crm_assign_technicians_queryset() -> QuerySet[Technician]:
-    """All active technicians for CRM desk assign — no service-area filter."""
+    """Active technicians for CRM desk assign — never inactive or suspended."""
     return (
         Technician.objects.select_related('partner_account')
         .annotate(
             active_jobs=Count('jobcards', filter=Q(jobcards__status__iexact='On Process'))
         )
         .filter(is_active=True)
+        .exclude(presence_status=Technician.PresenceStatus.SUSPENDED)
         .prefetch_related(
             Prefetch(
                 'service_cities',

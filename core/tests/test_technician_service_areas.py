@@ -118,6 +118,19 @@ class TechnicianServiceAreaTests(TestCase):
             job.refresh_from_db()
             self.assertEqual(job.technician_id, tech.id)
 
+    def test_active_list_hides_inactive_and_suspended(self):
+        self.tech_pune.is_active = False
+        self.tech_pune.save(update_fields=['is_active'])
+        self.tech_unscoped.presence_status = Technician.PresenceStatus.SUSPENDED
+        self.tech_unscoped.save(update_fields=['presence_status'])
+
+        res = self.client_api.get('/api/v1/technicians/active/')
+        self.assertEqual(res.status_code, 200)
+        ids = {row['id'] for row in res.data}
+        self.assertNotIn(self.tech_pune.id, ids)
+        self.assertNotIn(self.tech_unscoped.id, ids)
+        self.assertIn(self.tech_mumbai.id, ids)
+
     def test_assign_allows_matching_city(self):
         res = self.client_api.post(
             f'/api/v1/jobcards/{self.job_mumbai.id}/assign/',
