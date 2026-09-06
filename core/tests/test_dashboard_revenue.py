@@ -136,6 +136,12 @@ class DashboardTodayCitySplitTests(TestCase):
         service_by_city = {row['city']: row['count'] for row in stats['today_service_city_stats']}
         self.assertEqual(service_by_city.get('Mumbai'), 1)
         self.assertEqual(service_by_city.get('Pune'), 1)
+        # Selected date range uses the same booking / service city split.
+        self.assertEqual(stats['range_booking_count'], 1)
+        self.assertEqual(stats['range_service_call_count'], 2)
+        range_svc = {row['city']: row['count'] for row in stats['range_service_city_stats']}
+        self.assertEqual(range_svc.get('Mumbai'), 1)
+        self.assertEqual(range_svc.get('Pune'), 1)
 
     def test_city_stats_merge_case_variants_and_show_proper_names(self):
         JobCard.objects.create(

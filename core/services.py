@@ -1533,7 +1533,7 @@ class DashboardService:
             from django.db.models import Count, Q
             from datetime import timedelta
             
-            today = timezone.now().date()
+            today = timezone.localdate()
             
             # Prepare filters
             inquiry_filters = Q()
@@ -1614,34 +1614,47 @@ class DashboardService:
             # City breakdown — merge case variants (Mumbai / mumbai) into proper labels.
             from core.city_utils import aggregate_city_counts
 
-            city_stats = aggregate_city_counts(
-                JobCard.objects.filter(jobcard_filters).exclude(
-                    status=JobCard.JobStatus.CANCELLED
-                ),
-                limit=12,
-            )
-
             def _city_counts(qs):
                 return aggregate_city_counts(qs, limit=12)
 
-            today_active = JobCard.objects.filter(
-                schedule_datetime__date=today,
-            ).exclude(status=JobCard.JobStatus.CANCELLED)
-
-            # Complaint Calls are linked free re-visits — show as their own activity,
-            # not as a new billable booking or AMC service call.
+            # Shared classification: bookings vs AMC/service visits vs complaint re-visits.
             complaint_q = (
                 Q(is_complaint_call=True)
                 | Q(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
                 | Q(booking_type=JobCard.BookingType.COMPLAINT_CALL)
             )
-            today_service_q = (
+            service_q = (
                 Q(booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES)
                 | Q(is_service_call=True)
             ) & ~complaint_q
+
+            range_active = JobCard.objects.filter(jobcard_filters).exclude(
+                status=JobCard.JobStatus.CANCELLED
+            )
+            range_complaint_qs = range_active.filter(complaint_q)
+            range_service_qs = range_active.filter(service_q)
+            range_booking_qs = (
+                range_active.exclude(complaint_q)
+                .exclude(service_q)
+                .exclude(day1_auto_child_q)
+            )
+
+            # Keep city_stats as all non-cancelled jobs for backwards compatibility.
+            city_stats = _city_counts(range_active)
+            range_booking_city_stats = _city_counts(range_booking_qs)
+            range_service_city_stats = _city_counts(range_service_qs)
+            range_complaint_city_stats = _city_counts(range_complaint_qs)
+            range_booking_count = range_booking_qs.count()
+            range_service_call_count = range_service_qs.count()
+            range_complaint_call_count = range_complaint_qs.count()
+
+            today_active = JobCard.objects.filter(
+                schedule_datetime__date=today,
+            ).exclude(status=JobCard.JobStatus.CANCELLED)
+
             today_complaint_qs = today_active.filter(complaint_q)
-            today_service_qs = today_active.filter(today_service_q)
-            today_booking_qs = today_active.exclude(complaint_q).exclude(today_service_q)
+            today_service_qs = today_active.filter(service_q)
+            today_booking_qs = today_active.exclude(complaint_q).exclude(service_q)
             # Same day-1 child exclusion as status_stats / CRM Job Cards list.
             today_booking_qs = today_booking_qs.exclude(day1_auto_child_q)
 
@@ -1783,6 +1796,12 @@ class DashboardService:
                 'status_stats': status_stats,
                 'job_type_stats': job_type_stats,
                 'city_stats': city_stats,
+                'range_booking_city_stats': range_booking_city_stats,
+                'range_service_city_stats': range_service_city_stats,
+                'range_complaint_city_stats': range_complaint_city_stats,
+                'range_booking_count': range_booking_count,
+                'range_service_call_count': range_service_call_count,
+                'range_complaint_call_count': range_complaint_call_count,
                 'today_city_stats': today_city_stats,
                 'today_service_city_stats': today_service_city_stats,
                 'today_complaint_city_stats': today_complaint_city_stats,
