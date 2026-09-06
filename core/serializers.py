@@ -128,16 +128,26 @@ class TechnicianSerializer(serializers.ModelSerializer):
         write_only=True,
         help_text='Master City IDs this technician serves (replaces prior set on write).',
     )
+    base_services = serializers.ListField(
+        child=serializers.CharField(max_length=120),
+        required=False,
+        source='skills',
+        help_text=(
+            'Pest services this technician handles '
+            '(Cockroach / Ants, Bed Bugs, Termite, Rodent, Mosquito, Hotel / Commercial).'
+        ),
+    )
 
     class Meta:
         model = Technician
         fields = [
             'id', 'name', 'mobile', 'phone', 'age', 'alternative_mobile',
             'is_active', 'service_area', 'city', 'service_cities', 'service_city_ids',
+            'base_services',
             'last_active', 'active_jobs', 'active_job_details',
             'has_partner_app', 'partner_app_approved', 'partner_id', 'partner_name',
             'technician_type', 'branch', 'aadhaar', 'pan', 'photo', 'agreement_file',
-            'security_deposit_amount', 'security_deposit_status', 'skills', 'star_rating',
+            'security_deposit_amount', 'security_deposit_status', 'star_rating',
             'presence_status', 'suspended_at', 'suspend_reason', 'reactivated_at',
             'created_at', 'updated_at',
         ]
@@ -230,8 +240,41 @@ class TechnicianSerializer(serializers.ModelSerializer):
             )
         return ids
 
+    def validate_base_services(self, value):
+        from core.technician_base_services import (
+            CANONICAL_BASE_SERVICES,
+            canonicalize_service_name,
+            normalize_base_services,
+        )
+
+        if value is None:
+            return []
+        unknown = []
+        for raw in value:
+            if canonicalize_service_name(str(raw)) is None:
+                unknown.append(str(raw))
+        if unknown:
+            raise serializers.ValidationError(
+                f'Unknown base services {unknown}. '
+                f'Allowed: {list(CANONICAL_BASE_SERVICES)}'
+            )
+        return normalize_base_services(value)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        from core.technician_base_services import get_technician_base_services
+
+        services = get_technician_base_services(instance)
+        data['base_services'] = services
+        data['skills'] = services  # legacy alias for older clients
+        return data
+
     def create(self, validated_data):
         city_ids = validated_data.pop('service_city_ids', None)
+        # source='skills' → validated_data key is skills after validate_base_services
+        if 'skills' in validated_data:
+            from core.technician_base_services import normalize_base_services
+            validated_data['skills'] = normalize_base_services(validated_data.get('skills'))
         tech = super().create(validated_data)
         if city_ids is not None:
             from core.technician_service_areas import set_technician_service_cities
@@ -240,6 +283,9 @@ class TechnicianSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         city_ids = validated_data.pop('service_city_ids', None)
+        if 'skills' in validated_data:
+            from core.technician_base_services import normalize_base_services
+            validated_data['skills'] = normalize_base_services(validated_data.get('skills'))
         tech = super().update(instance, validated_data)
         if city_ids is not None:
             from core.technician_service_areas import set_technician_service_cities

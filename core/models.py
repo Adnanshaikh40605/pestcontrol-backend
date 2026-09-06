@@ -319,7 +319,15 @@ class Technician(BaseModel):
         default=SecurityDepositStatus.PENDING,
         verbose_name="Security Deposit Status",
     )
-    skills = models.JSONField(default=list, blank=True)
+    skills = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name='Base Services',
+        help_text=(
+            'Canonical pest services this technician handles '
+            '(e.g. Termite, Cockroach / Ants). Exposed as base_services on the API.'
+        ),
+    )
     star_rating = models.DecimalField(
         max_digits=3,
         decimal_places=2,

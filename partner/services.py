@@ -587,15 +587,18 @@ def apply_partner_pool_filters(
     available_only: bool = False,
 ):
     """
-    City/area filter for partner booking lists.
+    City/area + base-services filter for partner booking lists.
     Available pool also limits to Today/Tomorrow; accepted work keeps all dates
     so in-progress jobs never disappear from the Accepted tab.
 
     When ``available_only`` is True, also drop follow-ups, service calls, and
     multi-service day-1 child rows so New Bookings shows one card per request.
     """
+    from core.technician_base_services import job_matches_partner_base_services
+
     scoped = filter_partner_pool_bookings(jobs) if available_only else dedupe_partner_pool_jobs(jobs)
     scoped = [j for j in scoped if job_matches_partner_service_area(j, partner)]
+    scoped = [j for j in scoped if job_matches_partner_base_services(j, partner)]
     if today_tomorrow_only:
         return filter_jobs_today_tomorrow(scoped)
     return scoped

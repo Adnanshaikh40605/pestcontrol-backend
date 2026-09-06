@@ -24,11 +24,16 @@ class PartnerSerializer(serializers.ModelSerializer):
         data['presence'] = presence_payload(instance)
         tech = getattr(instance, 'core_technician', None)
         service_cities = []
+        base_services = []
         if tech is not None:
             from core.technician_service_areas import serialize_service_cities
+            from core.technician_base_services import get_technician_base_services
+
             service_cities = serialize_service_cities(tech)
+            base_services = get_technician_base_services(tech)
         data['service_cities'] = service_cities
         data['service_city_names'] = [c['name'] for c in service_cities]
+        data['base_services'] = base_services
         return data
 
 
