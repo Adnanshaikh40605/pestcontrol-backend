@@ -452,9 +452,14 @@ def ensure_lead_participation(job) -> Optional[object]:
     else:
         technician = job.technician
 
-    partner = job.partner
+    # Always prefer this technician's own partner account. Inheriting job.partner
+    # blindly attached the previous technician's partner after a reassignment,
+    # which kept earnings and the partner app pointing at the old technician.
+    partner = getattr(technician, 'partner_account', None)
     if partner is None:
-        partner = getattr(technician, 'partner_account', None)
+        job_partner = job.partner
+        if job_partner is not None and job_partner.core_technician_id == technician.id:
+            partner = job_partner
 
     is_salaried = technician.technician_type == Technician.TechnicianType.SALARIED
     defaults = {
@@ -477,7 +482,8 @@ def ensure_lead_participation(job) -> Optional[object]:
         if row.attendance_status == JobCardTechnicianParticipation.AttendanceStatus.ASSIGNED:
             row.attendance_status = JobCardTechnicianParticipation.AttendanceStatus.COMPLETED
             update_fields.append('attendance_status')
-        if partner and row.partner_id != partner.id:
+        expected_partner_id = partner.id if partner else None
+        if row.partner_id != expected_partner_id:
             row.partner = partner
             update_fields.append('partner')
         if row.is_payout_eligible == is_salaried:
@@ -557,6 +563,81 @@ def replace_stale_lead_participation(job, previous_technician_id) -> None:
     ).delete()
 
 
+def move_open_child_visits_to_current_lead(job, previous_technician_id) -> list:
+    """
+    Point future/open visits of a booking at the newly assigned technician.
+
+    Ledger rows are per visit, so follow-up visits left on the previous
+    technician kept showing them after staff reassigned the booking. Visits that
+    are already Done, Cancelled, or payout-locked stay put — that work belongs to
+    whoever actually performed it.
+    """
+    from core.models import JobCard
+
+    if not job.technician_id or job.parent_job_id or not previous_technician_id:
+        return []
+    if previous_technician_id == job.technician_id:
+        return []
+
+    # Only visits still held by the previous technician move. Unassigned future
+    # visits stay unassigned, and per-visit assignments to a third technician
+    # are deliberate.
+    children = (
+        JobCard.objects.filter(parent_job=job, technician_id=previous_technician_id)
+        .exclude(status__in=[JobCard.JobStatus.DONE, JobCard.JobStatus.CANCELLED])
+        .exclude(
+            payout_status__in=[
+                JobCard.PayoutStatus.APPROVED,
+                JobCard.PayoutStatus.PAID,
+            ]
+        )
+        .select_related('technician')
+    )
+
+    moved = []
+    for child in list(children):
+        reassign_job_technician(child, job.technician)
+        moved.append(child)
+    return moved
+
+
+def apply_technician_reassignment(job, previous_technician_id) -> None:
+    """
+    Single source of truth after JobCard.technician changes.
+
+    Keeps participations, day-1 package children, open follow-up visits, partner
+    app ownership, and revenue-share earnings aligned with the current
+    assignment, so the ledger never shows the previous technician.
+    """
+    from core.booking_schedule_engine import (
+        BookingScheduleEngine,
+        is_multi_service_booking,
+    )
+
+    if previous_technician_id == job.technician_id:
+        return
+
+    replace_stale_lead_participation(job, previous_technician_id)
+    ensure_lead_participation(job)
+    enforce_single_lead_participation(job)
+
+    if is_multi_service_booking(job) and not job.parent_job_id:
+        BookingScheduleEngine.sync_day1_children_technician_from_shell(
+            job,
+            previous_technician_id=previous_technician_id,
+        )
+
+    move_open_child_visits_to_current_lead(job, previous_technician_id)
+
+    if job.status == job.JobStatus.DONE:
+        reconcile_job_partner_earnings(job)
+        job.refresh_from_db()
+    else:
+        # Reassigning an already-paid-out visit back to On Process must still
+        # drop the previous technician's revenue share.
+        purge_stale_revenue_share_earnings(job)
+
+
 def reassign_job_technician(job, technician) -> dict:
     """
     Move a completed (or open) visit onto a different technician and rebuild ledger.
@@ -564,8 +645,6 @@ def reassign_job_technician(job, technician) -> dict:
     Used to repair package-sync overwrites (e.g. VAMA #2260 Cockroach → Akshay
     while #2263 Termite stays Mustafa). Does not change sibling service lines.
     """
-    from core.models import JobCardTechnicianParticipation
-
     previous_id = job.technician_id
     previous_name = job.technician.name if job.technician_id else (job.assigned_to or '')
     partner = getattr(technician, 'partner_account', None)
@@ -575,6 +654,11 @@ def reassign_job_technician(job, technician) -> dict:
     update_fields = ['technician', 'assigned_to', 'updated_at']
     if partner is not None:
         job.partner = partner
+        update_fields.append('partner')
+    elif job.partner_id and job.partner.core_technician_id != technician.id:
+        # Salaried / app-less technician: never leave the old partner attached,
+        # or the booking stays in the previous technician's partner app.
+        job.partner = None
         update_fields.append('partner')
     job.save(update_fields=update_fields)
 

@@ -2544,6 +2544,10 @@ class JobCardViewSet(BaseModelViewSet):
                 instance.sent_to_app_at = None
                 update_fields.append('sent_to_app_at')
 
+            stale_partner = bool(
+                instance.partner_id
+                and instance.partner.core_technician_id != technician.id
+            )
             if assigned_partner:
                 instance.partner = assigned_partner
                 instance.partner_status = JobCard.PartnerStatus.ACCEPTED
@@ -2553,7 +2557,9 @@ class JobCardViewSet(BaseModelViewSet):
                 update_fields.extend(
                     ['partner', 'partner_status', 'is_accepted', 'accepted_at']
                 )
-            elif partner_override or pulled_from_app:
+            elif partner_override or pulled_from_app or stale_partner:
+                # Reassigning to a salaried / app-less technician must not leave
+                # the booking in the previous technician's partner app.
                 instance.partner = None
                 instance.partner_status = JobCard.PartnerStatus.REJECTED
                 instance.is_accepted = False
@@ -2568,22 +2574,19 @@ class JobCardViewSet(BaseModelViewSet):
                 BookingScheduleEngine,
                 is_multi_service_booking,
             )
-            from core.payout_engine import (
-                ensure_lead_participation,
-                enforce_single_lead_participation,
-                replace_stale_lead_participation,
-            )
+            from core.payout_engine import apply_technician_reassignment
 
-            replace_stale_lead_participation(instance, previous_technician_id)
-            ensure_lead_participation(instance)
-            enforce_single_lead_participation(instance)
+            # Participations, child visits, partner app, and earnings all follow
+            # the current assignment so the ledger never shows the old technician.
+            apply_technician_reassignment(instance, previous_technician_id)
+            instance.refresh_from_db()
             # Package assign fills only unassigned service lines — never overwrites
             # a technician already set on Cockroach / Termite / etc.
             if is_multi_service_booking(instance):
                 BookingScheduleEngine.sync_multi_service_day1_children(
                     instance, completing=False,
                 )
-            
+
             serializer = self.get_serializer(instance)
             data = serializer.data
             if partner_override:
