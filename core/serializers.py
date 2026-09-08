@@ -1472,11 +1472,10 @@ def _sync_quotation_financials(quotation, items_data):
     )
     effective_contract = Decimal('0') if contract_looks_like_visit_count else stored_contract
 
-    total_amount = items_subtotal
-    if quotation.is_amc and effective_contract > total_amount:
-        total_amount = effective_contract
-    elif total_amount <= 0 and effective_contract > 0:
-        total_amount = effective_contract
+    # Priced line items always win. contract_amount is only the fallback for a
+    # quotation whose lines carry no price -- letting it override a rate the user
+    # just edited made the price impossible to reduce.
+    total_amount = items_subtotal if items_subtotal > 0 else effective_contract
 
     taxable_amount = max(Decimal('0'), total_amount - discount)
     gst = gst_breakdown(
@@ -1486,17 +1485,18 @@ def _sync_quotation_financials(quotation, items_data):
     )
     grand_total = gst['total_with_gst']
     tax_amount = gst['gst_amount']
-    contract_amount = max(effective_contract, grand_total) if quotation.is_amc else Decimal('0')
 
+    # contract_amount is the operator's optional package price, so it is left exactly
+    # as entered. It used to be rewritten to max(contract, grand_total), which quietly
+    # filled in a field the user had left blank and turned it into a one-way ratchet.
     quotation.total_amount = quantize_money(total_amount)
     quotation.tax_amount = quantize_money(tax_amount)
     quotation.grand_total = quantize_money(grand_total)
-    quotation.contract_amount = quantize_money(contract_amount)
-    quotation.save(
-        update_fields=[
-            'total_amount', 'tax_amount', 'grand_total', 'contract_amount', 'updated_at',
-        ],
-    )
+    update_fields = ['total_amount', 'tax_amount', 'grand_total', 'updated_at']
+    if contract_looks_like_visit_count:
+        quotation.contract_amount = Decimal('0.00')
+        update_fields.append('contract_amount')
+    quotation.save(update_fields=update_fields)
 
 
 class QuotationSerializer(serializers.ModelSerializer):

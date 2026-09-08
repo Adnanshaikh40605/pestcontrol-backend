@@ -170,7 +170,9 @@ class QuotationPropertyServiceTest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         quotation = Quotation.objects.get(pk=response.data['id'])
         self.assertEqual(quotation.grand_total, Decimal('3500.00'))
-        self.assertEqual(quotation.contract_amount, Decimal('3500.00'))
+        # The bogus "3" is discarded rather than rewritten to the grand total, which
+        # is what used to pin the price and stop it being lowered later.
+        self.assertEqual(quotation.contract_amount, Decimal('0.00'))
 
 
 class QuotationGstTest(APITestCase):
