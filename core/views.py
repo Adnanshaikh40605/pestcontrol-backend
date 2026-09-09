@@ -4742,6 +4742,14 @@ class ReminderViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
         log_activity(self.request.user, "Created Reminder", details=f"Customer: {serializer.validated_data.get('customer_name')}")
 
+    def perform_update(self, serializer):
+        from .reminder_sync import push_booking_reminder_back
+
+        reminder = serializer.save()
+        # A booking reminder is mirrored from its booking, so an edit here has
+        # to travel back or the next booking save would undo it.
+        push_booking_reminder_back(reminder)
+
     def perform_destroy(self, instance):
         from .reminder_sync import mark_source_inquiry_reminder_done
 

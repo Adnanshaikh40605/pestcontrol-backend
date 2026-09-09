@@ -24,6 +24,8 @@ class ReminderSyncTest(TestCase):
             reminder_note='Call back about AMC',
             created_by=self.user,
         )
+        # post_save already mirrored the row; clear it so backfill is the path under test
+        Reminder.objects.all().delete()
 
         created = backfill_legacy_reminders()
 
@@ -42,15 +44,8 @@ class ReminderSyncTest(TestCase):
             reminder_note='Call back',
             created_by=self.user,
         )
-        Reminder.objects.create(
-            inquiry_type=Reminder.InquiryType.CRM,
-            inquiry_id=inquiry.id,
-            customer_name=inquiry.name,
-            mobile_number=inquiry.mobile,
-            reminder_date=inquiry.reminder_date,
-            note='Existing reminder',
-            status=Reminder.ReminderStatus.PENDING,
-        )
+        # post_save already created the pending mirror; backfill must not add another
+        self.assertEqual(Reminder.objects.count(), 1)
 
         created = backfill_legacy_reminders()
 

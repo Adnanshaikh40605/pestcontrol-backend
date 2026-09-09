@@ -2069,6 +2069,10 @@ class Reminder(BaseModel):
     class InquiryType(models.TextChoices):
         CRM = 'crm', 'CRM Inquiry'
         WEBSITE = 'website', 'Website Inquiry'
+        # A follow-up set on a booking. Without this the reminder fields on
+        # JobCard had nowhere to surface, so they saved but never appeared on
+        # the Reminders tab. `inquiry_id` holds the JobCard id.
+        BOOKING = 'booking', 'Booking'
 
     class ReminderStatus(models.TextChoices):
         PENDING = 'pending', 'Pending'
