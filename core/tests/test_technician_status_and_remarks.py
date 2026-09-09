@@ -142,20 +142,40 @@ class TechnicianStatusApiTests(TestCase):
             self.tech.presence_status, Technician.PresenceStatus.ON_LEAVE
         )
 
+    def _assign_list_ids(self, **params):
+        res = self.api.get('/api/technicians/active/', params)
+        self.assertEqual(res.status_code, 200, res.data)
+        return [row['id'] for row in res.data]
+
+    def test_active_technicians_are_offered_for_assignment(self):
+        self._patch(presence_status='active')
+        self.assertIn(self.tech.id, self._assign_list_ids())
+
     def test_suspended_technicians_are_not_offered_for_assignment(self):
         self._patch(presence_status='suspended')
-        res = self.api.get('/api/technicians/active/')
-        self.assertEqual(res.status_code, 200, res.data)
-        self.assertNotIn(self.tech.id, [row['id'] for row in res.data])
+        self.assertNotIn(self.tech.id, self._assign_list_ids())
 
-    def test_on_leave_technicians_stay_assignable_by_desk_staff(self):
-        """Automatic dispatch skips them, but a human may still schedule ahead."""
+    def test_on_leave_technicians_are_not_offered_for_assignment(self):
+        """Dispatch cannot reach them, so the assign popup must not list them."""
         self._patch(presence_status='on_leave')
-        res = self.api.get('/api/technicians/active/')
-        row = next((r for r in res.data if r['id'] == self.tech.id), None)
-        self.assertIsNotNone(row, 'on-leave technician should remain listed')
-        self.assertEqual(row['presence_status'], 'on_leave')
-        self.assertFalse(row['is_available_for_work'])
+        self.assertNotIn(self.tech.id, self._assign_list_ids())
+
+    def test_returning_from_leave_puts_them_back_in_the_assign_list(self):
+        self._patch(presence_status='on_leave')
+        self.assertNotIn(self.tech.id, self._assign_list_ids())
+        self._patch(presence_status='active')
+        self.assertIn(self.tech.id, self._assign_list_ids())
+
+    def test_read_only_pickers_can_still_reach_someone_on_leave(self):
+        """The ledger report and complaint form pass include_on_leave=1."""
+        self._patch(presence_status='on_leave')
+        ids = self._assign_list_ids(include_on_leave='1')
+        self.assertIn(self.tech.id, ids)
+
+    def test_read_only_pickers_still_hide_suspended_technicians(self):
+        self._patch(presence_status='suspended')
+        ids = self._assign_list_ids(include_on_leave='1')
+        self.assertNotIn(self.tech.id, ids)
 
 
 class TechnicianRemarkApiTests(TestCase):
@@ -462,3 +482,123 @@ class StatusGatesDispatchTests(TestCase):
                     app_res.data['is_available'],
                     value == Technician.PresenceStatus.ACTIVE,
                 )
+
+
+class CrmAssignGuardTests(TestCase):
+    """
+    The desk-side guards behind the assign popup and the crew panel.
+
+    Hiding unavailable technicians from the list is only half the job — a tab
+    left open from before a status change still holds the old list, so the
+    endpoints have to refuse the write too.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username='assignguard', email='ag@x.com', password='pass12345'
+        )
+        self.api = APIClient()
+        self.api.force_authenticate(user=self.admin)
+
+        self.client_record = Client.objects.create(
+            full_name='Guard Client', mobile='9888844444'
+        )
+        country, _ = Country.objects.get_or_create(name='India')
+        state, _ = State.objects.get_or_create(country=country, name='Maharashtra Gd')
+        self.city, _ = City.objects.get_or_create(state=state, name='Mumbai Gd')
+        self.location, _ = Location.objects.get_or_create(
+            city=self.city,
+            normalized_name=Location.normalize_text('Powai'),
+            defaults={'name': 'Powai'},
+        )
+
+        self.tech = Technician.objects.create(
+            name='Guard Tech',
+            mobile='9600000040',
+            presence_status=Technician.PresenceStatus.ACTIVE,
+            is_active=True,
+        )
+        self.tech.service_cities.add(self.city)
+
+        self.job = JobCardService.create_jobcard(
+            {
+                'client': self.client_record.id,
+                'service_type': 'Bed Bugs',
+                'service_category': JobCard.ServiceCategory.ONE_TIME,
+                'schedule_datetime': timezone.now(),
+                'price': '4000',
+                'total_amount': Decimal('4000'),
+                'status': JobCard.JobStatus.PENDING,
+                'master_location': self.location.id,
+                'master_city': self.city.id,
+            },
+            user=None,
+        )
+
+    def _assign(self, technician=None):
+        return self.api.post(
+            f'/api/v1/jobcards/{self.job.id}/assign/',
+            {'technician_id': (technician or self.tech).id},
+            format='json',
+        )
+
+    def test_active_technician_can_be_assigned(self):
+        res = self._assign()
+        self.assertEqual(res.status_code, 200, res.data)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.technician_id, self.tech.id)
+
+    def test_assigning_an_unavailable_technician_is_refused(self):
+        for status in Technician.UNAVAILABLE_PRESENCE:
+            with self.subTest(status=status):
+                self.job.technician = None
+                self.job.save(update_fields=['technician'])
+                self.tech.presence_status = status
+                self.tech.save(update_fields=['presence_status'])
+
+                res = self._assign()
+                self.assertEqual(res.status_code, 400, res.data)
+                self.assertEqual(res.data['code'], 'technician_unavailable')
+                self.assertEqual(res.data['presence_status'], status)
+
+                self.job.refresh_from_db()
+                self.assertIsNone(self.job.technician_id)
+
+    def test_the_refusal_names_the_status_so_the_desk_knows_what_to_change(self):
+        self.tech.presence_status = Technician.PresenceStatus.ON_LEAVE
+        self.tech.save(update_fields=['presence_status'])
+        res = self._assign()
+        self.assertIn('On Leave', res.data['error'])
+        self.assertIn(self.tech.name, res.data['error'])
+
+    def test_going_on_leave_does_not_break_re_posting_an_existing_assignment(self):
+        """Idempotent re-assign of the tech already on the job must not error."""
+        self.assertEqual(self._assign().status_code, 200)
+        self.tech.presence_status = Technician.PresenceStatus.ON_LEAVE
+        self.tech.save(update_fields=['presence_status'])
+
+        res = self._assign()
+        self.assertEqual(res.status_code, 200, res.data)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.technician_id, self.tech.id)
+
+    def test_unavailable_technician_cannot_be_added_to_the_crew(self):
+        for status in Technician.UNAVAILABLE_PRESENCE:
+            with self.subTest(status=status):
+                self.tech.presence_status = status
+                self.tech.save(update_fields=['presence_status'])
+                res = self.api.post(
+                    f'/api/v1/jobcards/{self.job.id}/participants/',
+                    {'technician_id': self.tech.id, 'role': 'crew'},
+                    format='json',
+                )
+                self.assertEqual(res.status_code, 400, res.data)
+                self.assertEqual(res.data['code'], 'technician_unavailable')
+
+    def test_active_technician_can_be_added_to_the_crew(self):
+        res = self.api.post(
+            f'/api/v1/jobcards/{self.job.id}/participants/',
+            {'technician_id': self.tech.id, 'role': 'crew'},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.data)

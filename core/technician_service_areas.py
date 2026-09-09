@@ -235,23 +235,33 @@ def filter_technicians_for_city(
     ).distinct()
 
 
-def crm_assign_technicians_queryset() -> QuerySet[Technician]:
+def crm_assign_technicians_queryset(*, include_on_leave: bool = False) -> QuerySet[Technician]:
     """
-    Technicians the CRM desk may assign work to — never inactive or suspended.
+    Technicians the CRM desk may assign work to.
 
-    On-leave technicians stay in this list on purpose. Automatic dispatch skips
-    them (no broadcast, no push, cannot accept), but a human scheduling a job
-    for next week needs to be able to pick someone who is back by then. The
-    assign UI shows their status so it is a deliberate choice, not a surprise.
+    Inactive, on-leave and suspended technicians are all left out: if dispatch
+    will not reach them (no broadcast, no push, cannot accept in the app) then
+    offering them in the assign popup only invites a booking that silently goes
+    nowhere. Someone back from leave is switched to Active first, which puts
+    them back in this list.
+
+    `include_on_leave` exists for the surfaces that are *not* handing out work —
+    the technician ledger report and the complaint form, where you still need to
+    reach someone who happens to be away today. Suspended stays hidden there.
     """
-    return (
+    qs = (
         Technician.objects.select_related('partner_account')
         .annotate(
             active_jobs=Count('jobcards', filter=Q(jobcards__status__iexact='On Process'))
         )
         .filter(is_active=True)
-        .exclude(presence_status=Technician.PresenceStatus.SUSPENDED)
-        .prefetch_related(
+    )
+    if include_on_leave:
+        qs = qs.exclude(presence_status=Technician.PresenceStatus.SUSPENDED)
+    else:
+        qs = qs.exclude(presence_status__in=Technician.UNAVAILABLE_PRESENCE)
+    return (
+        qs.prefetch_related(
             Prefetch(
                 'service_cities',
                 queryset=City.objects.select_related('state')

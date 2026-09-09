@@ -487,14 +487,22 @@ class TechnicianViewSet(BaseModelViewSet):
 
     @action(detail=False, methods=['get'])
     def active(self, request):
-        """Active technicians for CRM assignment dropdowns.
+        """Technicians available for CRM assignment dropdowns.
 
-        CRM desk staff may assign any active technician to any booking.
-        Service Areas are shown for reference only (partner app pool still uses them).
+        On-leave and suspended technicians are left out — dispatch cannot reach
+        them, so assigning one would park the booking nowhere. Service Areas are
+        shown for reference only (partner app pool still uses them).
+
+        `?include_on_leave=1` is for read-only pickers (ledger report, complaint
+        form) that need to reach someone who is merely away today.
         """
         from core.technician_service_areas import crm_assign_technicians_queryset
 
-        qs = crm_assign_technicians_queryset()
+        include_on_leave = str(
+            request.query_params.get('include_on_leave', '')
+        ).strip().lower() in ('1', 'true', 'yes')
+
+        qs = crm_assign_technicians_queryset(include_on_leave=include_on_leave)
         serializer = self.get_serializer(qs, many=True)
         return response.Response(serializer.data)
 
@@ -2531,6 +2539,28 @@ class JobCardViewSet(BaseModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # The assign popup already hides these, but a tab left open since
+            # before the status changed would still post the old list. Skipped
+            # when the job is already on this technician so that re-posting an
+            # existing assignment stays idempotent rather than erroring.
+            if (
+                instance.technician_id != technician.id
+                and technician.presence_status in Technician.UNAVAILABLE_PRESENCE
+            ):
+                return response.Response(
+                    {
+                        'error': (
+                            f'{technician.name} is {technician.get_presence_status_display()} '
+                            f'and cannot be assigned. Set them to Active first.'
+                        ),
+                        'code': 'technician_unavailable',
+                        'technician_id': technician.id,
+                        'technician_name': technician.name,
+                        'presence_status': technician.presence_status,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             assigned_partner = getattr(technician, 'partner_account', None)
 
             # Idempotent — already on this technician.
@@ -2685,6 +2715,23 @@ class JobCardViewSet(BaseModelViewSet):
         ):
             return response.Response(
                 {'error': 'Crew is locked after payout approval'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Adding crew is handing out work, so it follows the same rule as the
+        # assign popup: on-leave and suspended technicians are not eligible.
+        if technician.presence_status in Technician.UNAVAILABLE_PRESENCE:
+            return response.Response(
+                {
+                    'error': (
+                        f'{technician.name} is {technician.get_presence_status_display()} '
+                        f'and cannot be added to the crew. Set them to Active first.'
+                    ),
+                    'code': 'technician_unavailable',
+                    'technician_id': technician.id,
+                    'technician_name': technician.name,
+                    'presence_status': technician.presence_status,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
