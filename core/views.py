@@ -493,8 +493,9 @@ class TechnicianViewSet(BaseModelViewSet):
         them, so assigning one would park the booking nowhere. Service Areas are
         shown for reference only (partner app pool still uses them).
 
-        `?include_on_leave=1` is for read-only pickers (ledger report, complaint
-        form) that need to reach someone who is merely away today.
+        `?include_on_leave=1` is for read-only pickers (e.g. complaint form)
+        that need to reach someone who is merely away today. The technician
+        ledger uses the default Active-only list.
         """
         from core.technician_service_areas import crm_assign_technicians_queryset
 

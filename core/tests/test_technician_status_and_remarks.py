@@ -167,7 +167,7 @@ class TechnicianStatusApiTests(TestCase):
         self.assertIn(self.tech.id, self._assign_list_ids())
 
     def test_read_only_pickers_can_still_reach_someone_on_leave(self):
-        """The ledger report and complaint form pass include_on_leave=1."""
+        """Complaint form (and similar) pass include_on_leave=1; ledger does not."""
         self._patch(presence_status='on_leave')
         ids = self._assign_list_ids(include_on_leave='1')
         self.assertIn(self.tech.id, ids)

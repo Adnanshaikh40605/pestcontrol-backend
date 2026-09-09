@@ -245,9 +245,10 @@ def crm_assign_technicians_queryset(*, include_on_leave: bool = False) -> QueryS
     nowhere. Someone back from leave is switched to Active first, which puts
     them back in this list.
 
-    `include_on_leave` exists for the surfaces that are *not* handing out work —
-    the technician ledger report and the complaint form, where you still need to
-    reach someone who happens to be away today. Suspended stays hidden there.
+    `include_on_leave` exists for surfaces that are *not* handing out work —
+    notably the complaint form — where you still need to reach someone who
+    happens to be away today. Suspended stays hidden there. The technician
+    ledger uses the default (Active only).
     """
     qs = (
         Technician.objects.select_related('partner_account')
