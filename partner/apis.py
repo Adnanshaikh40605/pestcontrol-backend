@@ -385,18 +385,40 @@ class AvailableBookingsAPIView(PartnerAPIView):
                 "message": "Your account is suspended. Contact CRM admin.",
             })
 
-        jobs = JobCard.objects.filter(
-            broadcast_pending_filter()
-            | Q(partner=partner, partner_status=JobCard.PartnerStatus.PENDING)
-        ).select_related(
+        from partner.services import (
+            apply_partner_pool_filters,
+            partner_receives_broadcast,
+        )
+
+        # Secondary technicians never see the open pool — only what desk staff
+        # handed to them directly. The booking still broadcasts to everyone else.
+        directly_assigned = Q(
+            partner=partner, partner_status=JobCard.PartnerStatus.PENDING
+        )
+        manual_assign_only = not partner_receives_broadcast(partner)
+        visible = (
+            directly_assigned
+            if manual_assign_only
+            else broadcast_pending_filter() | directly_assigned
+        )
+
+        jobs = JobCard.objects.filter(visible).select_related(
             'client', 'master_city', 'master_location', 'parent_job',
         ).order_by('schedule_datetime')
 
-        from partner.services import apply_partner_pool_filters
-
         filtered = apply_partner_pool_filters(list(jobs), partner, available_only=True)
         serializer = PartnerBookingListSerializer(filtered, many=True, context={'request': request})
-        return Response({"count": len(filtered), "results": serializer.data, "is_suspended": False})
+        return Response({
+            "count": len(filtered),
+            "results": serializer.data,
+            "is_suspended": False,
+            "manual_assign_only": manual_assign_only,
+            "message": (
+                "New bookings are assigned to you by the office. "
+                "Check the Accepted tab for your jobs."
+                if manual_assign_only else ""
+            ),
+        })
 
 
 class AcceptedBookingsAPIView(PartnerAPIView):

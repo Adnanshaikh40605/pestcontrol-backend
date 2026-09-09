@@ -57,7 +57,15 @@ def approved_partner_ids(technician_id: int | None = None) -> list[int]:
     if target is not None:
         if not target:
             return []
-        qs = qs.filter(pk__in=target)
+        # Directed notification: staff picked this technician, so a secondary
+        # technician is a legitimate recipient here.
+        return list(qs.filter(pk__in=target).values_list('pk', flat=True))
+
+    # Open broadcast: secondary technicians are assigned work by hand, so the
+    # pool push must not reach them.
+    qs = qs.exclude(
+        core_technician__technician_type=Technician.TechnicianType.SECONDARY,
+    )
     return list(qs.values_list('pk', flat=True))
 
 

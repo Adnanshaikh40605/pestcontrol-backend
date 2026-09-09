@@ -501,6 +501,98 @@ class RevenueSharingBreakdownTests(TestCase):
         self.assertEqual(data['summary']['bookings'], 1)
         self.assertEqual(data['summary']['revenue'], 8000.0)
 
+    def test_excludes_service_calls_and_amc_followups(self):
+        """The 40/60 pool is booking revenue only.
+
+        A service call / AMC follow-up visit carries a visit amount, but that
+        money was already counted on the booking it belongs to, so letting it
+        into this report inflated Total Revenue and both shares.
+        """
+        from core.services import build_revenue_sharing_breakdown
+
+        booking = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='8000',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            completed_at=timezone.now(),
+        )
+        # Service call re-visit on the same booking.
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='1500',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            is_service_call=True,
+            completed_at=timezone.now(),
+        )
+        # AMC follow-up visit.
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='2500',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.AMC_FOLLOWUP,
+            booking_category=JobCard.BookingCategory.AMC_FOLLOWUP,
+            is_followup_visit=True,
+            completed_at=timezone.now(),
+        )
+        # Day-1 auto-generated child of a multi-service package.
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Termite',
+            schedule_datetime=self.today_dt,
+            price='3500',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            parent_job=booking,
+            service_cycle=1,
+            is_auto_generated=True,
+            completed_at=timezone.now(),
+        )
+
+        data = build_revenue_sharing_breakdown(from_date=self.today, to_date=self.today)
+        self.assertEqual(data['summary']['bookings'], 1)
+        self.assertEqual(data['summary']['revenue'], 8000.0)
+        self.assertEqual(data['summary']['technician_share'], 3200.0)
+        self.assertEqual(data['summary']['company_share'], 4800.0)
+
+    def test_sharing_revenue_matches_dashboard_revenue_kpi(self):
+        """Both reports must agree; they now share one predicate."""
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='6000',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            completed_at=timezone.now(),
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.today_dt,
+            price='1200',
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            is_service_call=True,
+            completed_at=timezone.now(),
+        )
+        stats = DashboardService.get_dashboard_statistics(
+            from_date=self.today.isoformat(),
+            to_date=self.today.isoformat(),
+        )
+        self.assertEqual(stats['sharing_breakdown']['summary']['revenue'], 6000.0)
+
     def test_dashboard_single_day_filter_expands_sharing_to_month(self):
         JobCard.objects.create(
             client=self.client_record,

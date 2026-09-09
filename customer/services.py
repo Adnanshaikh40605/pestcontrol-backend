@@ -8,6 +8,7 @@ from django.conf import settings
 from django.db import transaction
 
 from core.models import Feedback, JobCard, PricingRate
+from core.pricing.gst import gst_breakdown
 from core.services import JobCardService
 
 from .models import CustomerAccount
@@ -32,7 +33,13 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
             rate = PricingRate.objects.select_related('region').get(id=rate_id, is_active=True)
         except PricingRate.DoesNotExist as exc:
             raise CustomerAppError('Pricing rate not found.', code='invalid_rate') from exc
-        amount = rate.amount
+        # Bill what the catalog quoted the customer. Reading rate.amount charged the
+        # base on any GST-exclusive rate, losing the tax on every such booking.
+        amount = Decimal(str(gst_breakdown(
+            rate.amount,
+            gst_percent=rate.gst_percent,
+            price_includes_gst=rate.price_includes_gst,
+        )['total_with_gst']))
         if not data.get('service_type'):
             data = {**data, 'service_type': rate.service_package}
 

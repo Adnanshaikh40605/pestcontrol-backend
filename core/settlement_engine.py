@@ -235,11 +235,15 @@ def mark_settlement_paid(settlement: TechnicianSettlement, *, user=None) -> Tech
             for p in job.technician_participations.all()
             if p.technician_id
             and p.is_payout_eligible
-            and getattr(p.technician, 'technician_type', None) == Technician.TechnicianType.PARTNER
+            and getattr(p.technician, 'technician_type', None)
+            in Technician.PAYOUT_ELIGIBLE_TYPES
         }
         if not eligible_tech_ids and job.technician_id:
             # Lead-only jobs without participation rows
-            if getattr(job.technician, 'technician_type', None) == Technician.TechnicianType.PARTNER:
+            if (
+                getattr(job.technician, 'technician_type', None)
+                in Technician.PAYOUT_ELIGIBLE_TYPES
+            ):
                 eligible_tech_ids = {job.technician_id}
         settled_tech_ids = {
             line.settlement.technician_id
@@ -383,7 +387,8 @@ def settle_jobs_for_technician(
             eligible = [
                 p for p in job.technician_participations.all()
                 if p.is_payout_eligible
-                and getattr(p.technician, 'technician_type', None) == Technician.TechnicianType.PARTNER
+                and getattr(p.technician, 'technician_type', None)
+                in Technician.PAYOUT_ELIGIBLE_TYPES
             ]
             if len(eligible) <= 1:
                 amount = quantize_money(job.visit_payout_amount or Decimal('0.00'))

@@ -207,6 +207,34 @@ class PayoutEngineTests(TestCase):
         self.assertEqual(part.payout_amount_snapshot, Decimal('400.00'))
         self.assertEqual(PartnerEarning.objects.filter(job=job).count(), 0)
 
+    def test_secondary_technician_earns_tech_share_like_a_partner(self):
+        """Secondary techs are dispatched by hand but paid on the same 40/60.
+
+        Guards the fallback in _eligible_partner_participations: a new
+        technician type must be included deliberately, not by accident.
+        """
+        tech = Technician.objects.create(
+            name='Secondary Tech',
+            mobile='9000000014',
+            technician_type=Technician.TechnicianType.SECONDARY,
+        )
+        job = self._base_job(
+            technician=tech,
+            partner=None,
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            price='1000',
+            total_amount=Decimal('1000.00'),
+        )
+        result = calculate_and_apply_payout(job)
+        job.refresh_from_db()
+        self.assertFalse(result.skipped)
+        self.assertEqual(job.payout_status, JobCard.PayoutStatus.PENDING)
+        self.assertEqual(job.visit_payout_amount, Decimal('400.00'))
+        self.assertEqual(job.company_share_amount, Decimal('600.00'))
+        part = JobCardTechnicianParticipation.objects.get(jobcard=job, technician=tech)
+        self.assertTrue(part.is_payout_eligible)
+        self.assertEqual(part.payout_amount_snapshot, Decimal('400.00'))
+
     def test_contractual_crew_split_excludes_salaried(self):
         lead, lead_p = self._make_partner_tech('9000000003', 'Lead P')
         crew1, crew1_p = self._make_partner_tech('9000000004', 'Crew1 P')

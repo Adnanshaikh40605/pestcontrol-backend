@@ -161,6 +161,13 @@ def resolve_pricing_region_slug(
     return pricing_region_for_city(city)
 
 
+# Add-ons, equipment and SLA charges are quotation line items priced per unit,
+# visit or running foot. They belong in Pricing Master but must not reach the
+# booking service dropdown, which would otherwise offer "Rodent cage" and
+# "Night service surcharge" as bookable services.
+NON_BOOKABLE_CATEGORIES = ('addon',)
+
+
 def _rates_queryset(region_slug: str):
     from core.models import PricingRate
 
@@ -168,6 +175,8 @@ def _rates_queryset(region_slug: str):
         region__slug=region_slug,
         region__is_active=True,
         is_active=True,
+    ).exclude(
+        property_category__in=NON_BOOKABLE_CATEGORIES,
     ).select_related('region')
 
 
@@ -260,7 +269,11 @@ def get_area_options(
                     service_qs = service_qs.filter(property_category='rodent')
             else:
                 if service in ('Bed Bugs', 'Termite'):
-                    service_qs = service_qs.filter(property_category='residential')
+                    # A home booking should only see BHK sizes. Narrowing every
+                    # other property type to residential as well hid the
+                    # per-room hotel and hospital ward rates completely.
+                    if commercial_type == 'home':
+                        service_qs = service_qs.filter(property_category='residential')
                 elif service == 'Cockroach / Ants':
                     service_qs = service_qs.filter(property_category='residential')
                 elif service == 'Mosquito':

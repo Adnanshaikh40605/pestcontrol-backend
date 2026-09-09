@@ -206,6 +206,23 @@ class Technician(BaseModel):
     class TechnicianType(models.TextChoices):
         PARTNER = 'partner', 'Partner'
         SALARIED = 'salaried', 'Salaried'
+        SECONDARY = 'secondary', 'Secondary (Manual Assign)'
+
+    # Earns from the 40% technician pool and needs settlements. Secondary
+    # technicians are paid exactly like partners; only how they receive work
+    # differs, so every money path must treat the two identically.
+    PAYOUT_ELIGIBLE_TYPES = (
+        TechnicianType.PARTNER,
+        TechnicianType.SECONDARY,
+    )
+
+    # Sees the open booking broadcast in the partner app and gets the pool push.
+    # Secondary technicians are deliberately absent: desk staff hand them work
+    # one job at a time, so a broadcast must never reach their phone.
+    APP_BROADCAST_TYPES = (
+        TechnicianType.PARTNER,
+        TechnicianType.SALARIED,
+    )
 
     class PresenceStatus(models.TextChoices):
         ONLINE = 'online', 'Online'
@@ -289,7 +306,10 @@ class Technician(BaseModel):
         default=TechnicianType.PARTNER,
         db_index=True,
         verbose_name="Technician Type",
-        help_text="Partner (40/60 share) or salaried (salary only)",
+        help_text=(
+            "Partner (40/60 share, sees app broadcast), salaried (salary only), "
+            "or secondary (40/60 share but no broadcast — staff assign manually)"
+        ),
     )
     branch = models.CharField(max_length=120, blank=True, default='')
     aadhaar = models.CharField(max_length=20, blank=True, default='')
@@ -361,6 +381,20 @@ class Technician(BaseModel):
     @property
     def is_salaried_technician(self) -> bool:
         return self.technician_type == self.TechnicianType.SALARIED
+
+    @property
+    def is_secondary_technician(self) -> bool:
+        """Manual-assign-only technician: no broadcast, still paid 40/60."""
+        return self.technician_type == self.TechnicianType.SECONDARY
+
+    @property
+    def is_payout_eligible_type(self) -> bool:
+        return self.technician_type in self.PAYOUT_ELIGIBLE_TYPES
+
+    @property
+    def receives_app_broadcast(self) -> bool:
+        """False for secondary technicians — desk staff assign their work."""
+        return self.technician_type in self.APP_BROADCAST_TYPES
 
 
 class Inquiry(BaseModel):
@@ -2325,11 +2359,30 @@ class UserPreference(BaseModel):
 
 
 class PricingPropertyCategory(models.TextChoices):
+    """
+    The segment a rate is priced for — a property type in most cases, but a
+    few rows are priced purely by treated area instead.
+
+    FOGGING and RODENT hold the sq.ft.-banded rows from the legacy chart. They
+    were labelled after the service ('Fogging'), which read as a service name
+    sitting in a property list; the labels now describe the area being priced.
+    The stored values are unchanged so booking lookups keep resolving.
+    """
+
     RESIDENTIAL = 'residential', 'Residential (BHK/RK)'
     VILLA = 'villa', 'Villa / Bungalow (Sq.Ft.)'
-    FOGGING = 'fogging', 'Fogging (Sq.Ft.)'
-    RODENT = 'rodent', 'Rodent / Reptile'
+    FOGGING = 'fogging', 'Open / Outdoor Area (Sq.Ft.)'
+    RODENT = 'rodent', 'Rodent / Reptile Zone (Sq.Ft.)'
     COMMERCIAL = 'commercial', 'Commercial'
+    # Segments introduced by the 2026 master rate chart, which prices commercial
+    # work per property type rather than lumping it under one Commercial bucket.
+    SOCIETY = 'society', 'Housing Society (Common Area)'
+    HOSPITAL = 'hospital', 'Hospital / Clinic'
+    HOTEL = 'hotel', 'Hotel / Restaurant / Cloud Kitchen'
+    CORPORATE = 'corporate', 'Corporate One-Time'
+    CORPORATE_MONTHLY = 'corporate_monthly', 'Corporate Monthly Contract'
+    MULTI_SITE = 'multi_site', 'Multi-Site Chain (Per Outlet)'
+    ADDON = 'addon', 'Add-On / Equipment / SLA'
 
 
 class PricingRegion(BaseModel):
@@ -2377,6 +2430,21 @@ class PricingRate(BaseModel):
         db_index=True,
     )
     amount = models.DecimalField(max_digits=10, decimal_places=2)
+    floor_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=(
+            'Internal lowest acceptable rate for negotiation, on the same '
+            'GST basis as amount. Never expose this to customers.'
+        ),
+    )
+    billing_basis = models.CharField(
+        max_length=40,
+        blank=True,
+        help_text="How the rate is billed, e.g. 'Per month', 'Per room', 'Per outlet/month'.",
+    )
     gst_percent = models.DecimalField(
         max_digits=5,
         decimal_places=2,

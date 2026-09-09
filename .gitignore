@@ -117,3 +117,8 @@ media/
 staticfiles/
 
 railway variabe.md/
+
+# Local-only Python packages vendored to run the scripts/generate_*_pdf.py
+# helpers (Pillow, reportlab and their compiled .dylibs). Reinstallable, and
+# nothing in the app imports from here.
+.pdf_deps/

@@ -29,7 +29,8 @@ class PricingRateSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'region', 'region_name', 'region_slug',
             'service_package', 'plan_type', 'area_key', 'property_category',
-            'amount', 'gst_percent', 'price_includes_gst',
+            'amount', 'floor_amount', 'billing_basis',
+            'gst_percent', 'price_includes_gst',
             'base_amount', 'gst_amount', 'total_with_gst',
             'is_active', 'notes',
             'updated_by', 'updated_by_name',
@@ -68,6 +69,25 @@ class PricingRateSerializer(serializers.ModelSerializer):
         if value < 0 or value > 100:
             raise serializers.ValidationError('GST percent must be between 0 and 100.')
         return value
+
+    def validate_floor_amount(self, value):
+        if value is not None and value < 0:
+            raise serializers.ValidationError('Floor amount cannot be negative.')
+        return value
+
+    def validate(self, attrs):
+        """A floor above the rate is nonsense: the quoted price would start below
+        the lowest price we are willing to accept."""
+        amount = attrs.get('amount', getattr(self.instance, 'amount', None))
+        floor = attrs.get('floor_amount', getattr(self.instance, 'floor_amount', None))
+        if amount is not None and floor is not None and floor > amount:
+            raise serializers.ValidationError({
+                'floor_amount': (
+                    f'Internal floor ({floor}) is above the rate ({amount}). '
+                    f'Lower the floor as well if this rate is meant to drop.'
+                ),
+            })
+        return attrs
 
 
 class PricingRateAuditLogSerializer(serializers.ModelSerializer):

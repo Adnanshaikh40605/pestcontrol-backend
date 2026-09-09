@@ -66,6 +66,42 @@ def revenue_service_date_q(
     return clause
 
 
+def billable_booking_only_q() -> Q:
+    """
+    Restrict a JobCard queryset to initial billable bookings.
+
+    Only New Booking and AMC Main rows earn revenue. Service calls, AMC
+    follow-up visits, complaint re-visits and the day-1 auto-generated child
+    clones of a multi-service package are all further work on a booking that
+    was already billed, so counting them again double-counts the same money.
+
+    The same predicate has to drive every revenue report, otherwise the
+    dashboard KPIs and the 60/40 sharing panel disagree on total revenue.
+    """
+    day1_auto_child = Q(
+        parent_job_id__isnull=False,
+        service_cycle=1,
+        is_auto_generated=True,
+    )
+    return (
+        Q(
+            booking_type__in=[
+                JobCard.BookingType.NEW_BOOKING,
+                JobCard.BookingType.AMC_MAIN,
+            ]
+        )
+        & ~Q(is_service_call=True)
+        & ~Q(is_followup_visit=True)
+        & ~Q(is_complaint_call=True)
+        & ~Q(booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES)
+        & ~Q(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
+        & ~Q(booking_type=JobCard.BookingType.COMPLAINT_CALL)
+        & ~Q(booking_type=JobCard.BookingType.SERVICE_CALL)
+        & ~Q(booking_type=JobCard.BookingType.AMC_FOLLOWUP)
+        & ~day1_auto_child
+    )
+
+
 def _job_report_date(job) -> Any:
     """Local calendar date used for day/month sharing buckets."""
     if job.schedule_datetime:
@@ -131,14 +167,12 @@ def build_revenue_sharing_breakdown(
         from datetime import date as date_cls
         end = date_cls.fromisoformat(end)
 
-    complaint_q = (
-        Q(is_complaint_call=True)
-        | Q(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
-        | Q(booking_type=JobCard.BookingType.COMPLAINT_CALL)
-    )
+    # Same booking-only basis as the dashboard revenue KPIs: service calls and
+    # AMC follow-up visits carry a visit amount but no new booking revenue, so
+    # including them here inflated the pool that gets split 40/60.
     qs = (
         JobCard.objects.filter(status=JobCard.JobStatus.DONE)
-        .exclude(complaint_q)
+        .filter(billable_booking_only_q())
         .exclude(payment_model=JobCard.PaymentModel.SALARIED)
         .filter(revenue_service_date_q(from_date=start, to_date=end))
         .only(
@@ -1867,27 +1901,8 @@ class DashboardService:
             # Revenue for Monthly Target / dashboard KPIs: only initial billable
             # bookings (New Booking + AMC Main). Never count Service Calls,
             # AMC follow-ups, complaints, or day-1 package child clones.
-            day1_revenue_child_q = Q(
-                parent_job_id__isnull=False,
-                service_cycle=1,
-                is_auto_generated=True,
-            )
             revenue_filter_base = (
-                Q(status=JobCard.JobStatus.DONE)
-                & Q(
-                    booking_type__in=[
-                        JobCard.BookingType.NEW_BOOKING,
-                        JobCard.BookingType.AMC_MAIN,
-                    ]
-                )
-                & ~Q(is_service_call=True)
-                & ~Q(is_complaint_call=True)
-                & ~Q(booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES)
-                & ~Q(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
-                & ~Q(booking_type=JobCard.BookingType.COMPLAINT_CALL)
-                & ~Q(booking_type=JobCard.BookingType.SERVICE_CALL)
-                & ~Q(booking_type=JobCard.BookingType.AMC_FOLLOWUP)
-                & ~day1_revenue_child_q
+                Q(status=JobCard.JobStatus.DONE) & billable_booking_only_q()
             )
             
             yesterday = today - timedelta(days=1)

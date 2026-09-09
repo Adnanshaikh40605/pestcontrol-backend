@@ -2,8 +2,10 @@ from decimal import Decimal
 
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, response, status, viewsets
+from rest_framework.decorators import action
 
 from .models import (
+    PricingPropertyCategory,
     PricingRate,
     PricingRateAuditAction,
     PricingRateAuditLog,
@@ -66,6 +68,35 @@ class PricingRateViewSet(viewsets.ModelViewSet):
     ordering = ['region__name', 'service_package', 'plan_type', 'area_key']
 
     permission_classes = [IsPricingAdmin]
+
+    @action(detail=False, methods=['get'], url_path='options')
+    def options_list(self, request):
+        """
+        Distinct values already stored, for the Add/Edit Rate dropdowns.
+
+        The form used to hard-code four services and five plan types, so most
+        of the imported rate chart was impossible to select and an existing
+        rate's plan showed the wrong option. Driving the selects from the data
+        keeps them honest without letting staff free-type a new spelling of an
+        existing service (which is how duplicate services appeared before).
+        """
+        def distinct(field: str) -> list[str]:
+            values = (
+                PricingRate.objects.exclude(**{f'{field}': ''})
+                .values_list(field, flat=True)
+                .distinct()
+            )
+            return sorted({v for v in values if v})
+
+        return response.Response({
+            'service_packages': distinct('service_package'),
+            'plan_types': distinct('plan_type'),
+            'billing_bases': distinct('billing_basis'),
+            'property_categories': [
+                {'value': value, 'label': label}
+                for value, label in PricingPropertyCategory.choices
+            ],
+        })
 
     def perform_create(self, serializer):
         rate = serializer.save(updated_by=self.request.user)

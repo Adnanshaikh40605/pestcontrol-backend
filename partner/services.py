@@ -49,6 +49,26 @@ def broadcast_pending_filter():
     )
 
 
+def partner_receives_broadcast(partner) -> bool:
+    """
+    Whether this partner login may see the open booking pool.
+
+    Secondary technicians are manual-assign only: the booking still broadcasts
+    to everyone else, it just must never surface on their phone. They keep
+    seeing whatever desk staff assigned directly to them, since they work and
+    are paid the same 40/60 share as a partner.
+
+    A partner login with no linked technician row keeps the old behaviour
+    (broadcast visible) so nothing changes for existing accounts.
+    """
+    from core.models import Technician
+
+    technician = getattr(partner, 'core_technician', None)
+    if technician is None:
+        return True
+    return technician.technician_type in Technician.APP_BROADCAST_TYPES
+
+
 def clear_partner_app_on_crm_cancel(job: JobCard) -> None:
     """Remove a CRM-cancelled booking from the partner app queue (in-memory; caller saves)."""
     job.sent_to_app_at = None
@@ -263,6 +283,16 @@ def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
         raise PartnerBookingError(
             'Your profile is not linked to a CRM technician record. Contact admin.',
             code='no_technician_link',
+        )
+
+    # A secondary technician may only accept a job desk staff assigned to them.
+    # Guard the server side too: a stale app screen could still hold a card from
+    # the open pool that they are not allowed to claim.
+    if not partner_receives_broadcast(partner) and job.partner_id != partner.id:
+        raise PartnerBookingError(
+            'Bookings are assigned to you by the office. Please wait for the '
+            'office to assign this job to you.',
+            code='manual_assign_only',
         )
 
     job.partner = partner
@@ -606,8 +636,15 @@ def apply_partner_pool_filters(
 
 def count_partner_available_bookings(partner: Partner) -> int:
     """Badge count aligned with GET /api/partner/bookings/available/."""
-    jobs = JobCard.objects.filter(
-        broadcast_pending_filter()
-        | Q(partner=partner, partner_status=JobCard.PartnerStatus.PENDING)
-    ).select_related('client', 'master_city', 'master_location', 'parent_job')
+    directly_assigned = Q(
+        partner=partner, partner_status=JobCard.PartnerStatus.PENDING
+    )
+    visible = (
+        directly_assigned
+        if not partner_receives_broadcast(partner)
+        else broadcast_pending_filter() | directly_assigned
+    )
+    jobs = JobCard.objects.filter(visible).select_related(
+        'client', 'master_city', 'master_location', 'parent_job',
+    )
     return len(apply_partner_pool_filters(list(jobs), partner, available_only=True))

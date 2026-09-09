@@ -695,7 +695,8 @@ def reassign_job_technician(job, technician) -> dict:
 
 def _eligible_partner_participations(job) -> list:
     """
-    Partner-type technicians who attended the visit earn from the 40% pool.
+    Partner and secondary technicians who attended the visit earn from the 40%
+    pool.
 
     Salaried staff are always excluded.
     A Partner app login is preferred (for PartnerEarning rows) but NOT required —
@@ -725,11 +726,12 @@ def _eligible_partner_participations(job) -> list:
         tech = row.technician
         if tech.technician_type == Technician.TechnicianType.SALARIED:
             continue
-        # Partner-type techs earn even without a linked Partner app account.
-        if tech.technician_type == Technician.TechnicianType.PARTNER:
+        # Partner and secondary techs earn even without a linked Partner app
+        # account. A secondary tech is dispatched by hand but paid identically.
+        if tech.technician_type in Technician.PAYOUT_ELIGIBLE_TYPES:
             eligible.append(row)
             continue
-        # Fallback: any non-salaried tech that already has a partner link on the row.
+        # Fallback: any other non-salaried tech that already has a partner link.
         if row.partner_id or getattr(tech, 'partner_account', None):
             eligible.append(row)
     return eligible
