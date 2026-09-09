@@ -30,6 +30,14 @@ class PartnerProfile {
 
   bool get isSuspended => presence?.isSuspended == true;
 
+  bool get isOnLeave => presence?.isOnLeave == true;
+
+  /// On leave or suspended: no new bookings are being sent to this technician.
+  bool get isUnavailable => presence?.isUnavailable == true;
+
+  /// "Active" / "On Leave" / "Suspended", matching what CRM staff see.
+  String get statusLabel => presence?.displayLabel ?? 'Active';
+
   factory PartnerProfile.fromJson(Map<String, dynamic> json) {
     PartnerPresence? presence;
     final rawPresence = json['presence'];

@@ -236,7 +236,14 @@ def filter_technicians_for_city(
 
 
 def crm_assign_technicians_queryset() -> QuerySet[Technician]:
-    """Active technicians for CRM desk assign — never inactive or suspended."""
+    """
+    Technicians the CRM desk may assign work to — never inactive or suspended.
+
+    On-leave technicians stay in this list on purpose. Automatic dispatch skips
+    them (no broadcast, no push, cannot accept), but a human scheduling a job
+    for next week needs to be able to pick someone who is back by then. The
+    assign UI shows their status so it is a deliberate choice, not a surprise.
+    """
     return (
         Technician.objects.select_related('partner_account')
         .annotate(

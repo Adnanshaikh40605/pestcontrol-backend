@@ -91,6 +91,16 @@ String _apiExceptionMessage(ApiException e) {
         ? e.message
         : 'Your account is suspended. Contact CRM admin.';
   }
+  if (code == 'on_leave') {
+    return e.message.isNotEmpty
+        ? e.message
+        : 'You are marked as on leave, so you cannot take new jobs.';
+  }
+  if (code == 'presence_read_only') {
+    return e.message.isNotEmpty
+        ? e.message
+        : 'Your work status is set by the office.';
+  }
   if (code == 'no_technician_link') {
     return e.message.isNotEmpty
         ? e.message

@@ -30,7 +30,7 @@ class PartnerRevenueApiTests(TestCase):
             name='P4 Tech',
             mobile='9555555555',
             technician_type=Technician.TechnicianType.PARTNER,
-            presence_status=Technician.PresenceStatus.ONLINE,
+            presence_status=Technician.PresenceStatus.ACTIVE,
         )
         self.partner = Partner.objects.create(
             full_name='P4 Tech',
@@ -49,27 +49,22 @@ class PartnerRevenueApiTests(TestCase):
     def test_get_presence(self):
         res = self.api.get('/api/partner/presence/')
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data['presence_status'], 'online')
+        self.assertEqual(res.data['presence_status'], 'active')
+        self.assertEqual(res.data['presence_label'], 'Active')
+        self.assertTrue(res.data['is_available'])
         self.assertFalse(res.data['is_suspended'])
+        self.assertFalse(res.data['is_on_leave'])
         self.assertTrue(res.data['technician_linked'])
 
-    def test_set_presence_online_offline(self):
-        res = self.api.post('/api/partner/presence/', {'presence_status': 'offline'}, format='json')
-        self.assertEqual(res.status_code, 200, res.data)
+    def test_app_cannot_set_its_own_status(self):
+        """Active/On Leave/Suspended are desk decisions, not an app toggle."""
+        res = self.api.post(
+            '/api/partner/presence/', {'presence_status': 'on_leave'}, format='json'
+        )
+        self.assertEqual(res.status_code, 403, res.data)
+        self.assertEqual(res.data['code'], 'presence_read_only')
         self.tech.refresh_from_db()
-        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.OFFLINE)
-
-        res = self.api.post('/api/partner/presence/', {'presence_status': 'online'}, format='json')
-        self.assertEqual(res.status_code, 200)
-        self.tech.refresh_from_db()
-        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.ONLINE)
-
-    def test_cannot_self_set_while_busy(self):
-        self.tech.presence_status = Technician.PresenceStatus.BUSY
-        self.tech.save(update_fields=['presence_status', 'updated_at'])
-        res = self.api.post('/api/partner/presence/', {'presence_status': 'offline'}, format='json')
-        self.assertEqual(res.status_code, 400)
-        self.assertEqual(res.data['code'], 'presence_locked')
+        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.ACTIVE)
 
     def test_pool_booking_detail_visible(self):
         job = JobCard.objects.create(
@@ -87,13 +82,17 @@ class PartnerRevenueApiTests(TestCase):
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data['id'], job.id)
 
-    def test_suspended_cannot_change_presence(self):
+    def test_suspended_technician_reads_their_status_and_reason(self):
         self.tech.presence_status = Technician.PresenceStatus.SUSPENDED
         self.tech.suspend_reason = 'Policy breach'
         self.tech.save(update_fields=['presence_status', 'suspend_reason', 'updated_at'])
-        res = self.api.post('/api/partner/presence/', {'presence_status': 'online'}, format='json')
-        self.assertEqual(res.status_code, 403)
-        self.assertEqual(res.data['code'], 'suspended')
+
+        res = self.api.get('/api/partner/presence/')
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['presence_status'], 'suspended')
+        self.assertTrue(res.data['is_suspended'])
+        self.assertFalse(res.data['is_available'])
+        self.assertIn('Policy breach', res.data['unavailable_reason'])
 
     def test_suspended_blocks_accept(self):
         self.tech.presence_status = Technician.PresenceStatus.SUSPENDED
@@ -198,7 +197,8 @@ class PartnerRevenueApiTests(TestCase):
         self.assertIn(paid.id, ids)
         self.assertEqual(len(ids), 1)
 
-    def test_accept_sets_busy_presence(self):
+    def test_accept_records_activity_without_moving_status(self):
+        """Working a job must not overwrite the status the desk chose."""
         job = JobCard.objects.create(
             client=self.client_obj,
             service_type='General Pest',
@@ -213,7 +213,9 @@ class PartnerRevenueApiTests(TestCase):
         res = self.api.post(f'/api/partner/bookings/{job.id}/accept/')
         self.assertEqual(res.status_code, 200, res.data)
         self.tech.refresh_from_db()
-        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.BUSY)
+        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.ACTIVE)
+        # Auto-suspend keys off last_active, so accepting still has to count.
+        self.assertIsNotNone(self.tech.last_active)
 
     def test_suspended_available_bookings_empty(self):
         self.tech.presence_status = Technician.PresenceStatus.SUSPENDED

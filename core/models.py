@@ -225,12 +225,26 @@ class Technician(BaseModel):
     )
 
     class PresenceStatus(models.TextChoices):
-        ONLINE = 'online', 'Online'
-        OFFLINE = 'offline', 'Offline'
-        BUSY = 'busy', 'Busy'
-        ON_SERVICE = 'on_service', 'On Service'
+        """
+        The technician's work status, set by the CRM desk.
+
+        This used to double as live app presence (online/offline/busy/
+        on_service), which meant accepting a job silently overwrote whatever
+        the desk had chosen. It is now one thing only: whether this technician
+        is available for work, and every surface reads the same three values.
+        """
+
+        ACTIVE = 'active', 'Active'
         ON_LEAVE = 'on_leave', 'On Leave'
         SUSPENDED = 'suspended', 'Suspended'
+
+    # Statuses that stop work reaching a technician: no broadcast, no push, and
+    # they cannot accept a job. Suspended is a block; on leave is a temporary
+    # absence. Both must gate dispatch identically.
+    UNAVAILABLE_PRESENCE = (
+        PresenceStatus.ON_LEAVE,
+        PresenceStatus.SUSPENDED,
+    )
 
     class SecurityDepositStatus(models.TextChoices):
         PENDING = 'pending', 'Pending'
@@ -358,9 +372,10 @@ class Technician(BaseModel):
     presence_status = models.CharField(
         max_length=20,
         choices=PresenceStatus.choices,
-        default=PresenceStatus.OFFLINE,
+        default=PresenceStatus.ACTIVE,
         db_index=True,
         verbose_name="Presence Status",
+        help_text="Active, On Leave or Suspended. Set by the CRM desk.",
     )
     suspended_at = models.DateTimeField(blank=True, null=True)
     suspend_reason = models.TextField(blank=True, default='')
@@ -395,6 +410,19 @@ class Technician(BaseModel):
     def receives_app_broadcast(self) -> bool:
         """False for secondary technicians — desk staff assign their work."""
         return self.technician_type in self.APP_BROADCAST_TYPES
+
+    @property
+    def is_suspended(self) -> bool:
+        return self.presence_status == self.PresenceStatus.SUSPENDED
+
+    @property
+    def is_on_leave(self) -> bool:
+        return self.presence_status == self.PresenceStatus.ON_LEAVE
+
+    @property
+    def is_available_for_work(self) -> bool:
+        """Active and not deactivated — the single check every dispatch path uses."""
+        return self.is_active and self.presence_status not in self.UNAVAILABLE_PRESENCE
 
 
 class Inquiry(BaseModel):
@@ -1924,6 +1952,49 @@ class RemarkType(models.TextChoices):
     NOTE = 'NOTE', 'Note'
     CONVERT = 'CONVERT', 'Convert'
     SYSTEM = 'SYSTEM', 'System'
+
+
+class TechnicianRemark(BaseModel):
+    """
+    Append-only remark history against a technician.
+
+    `remark_date` and `remark_time` are when the thing being noted actually
+    happened, which is not always when it was typed in — a supervisor writes up
+    yesterday's no-show this morning. `created_at` from BaseModel keeps the
+    entry time separately so the two are never confused.
+    """
+
+    technician = models.ForeignKey(
+        'Technician',
+        on_delete=models.CASCADE,
+        related_name='remarks',
+    )
+    remark = models.TextField()
+    remark_date = models.DateField(
+        db_index=True,
+        help_text='Date the remark refers to, not necessarily when it was written.',
+    )
+    remark_time = models.TimeField(
+        help_text='Time the remark refers to.',
+    )
+    created_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='technician_remarks',
+    )
+
+    class Meta:
+        ordering = ['-remark_date', '-remark_time', '-created_at']
+        indexes = [
+            models.Index(fields=['technician', '-remark_date']),
+        ]
+        verbose_name = 'Technician Remark'
+        verbose_name_plural = 'Technician Remarks'
+
+    def __str__(self) -> str:
+        return f'{self.technician_id} @ {self.remark_date} {self.remark_time}'
 
 
 class InquiryRemark(BaseModel):

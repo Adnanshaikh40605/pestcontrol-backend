@@ -28,7 +28,7 @@ class PartnerCompleteMultiServiceTests(TestCase):
             name='Salman Test',
             mobile='9000099999',
             technician_type=Technician.TechnicianType.PARTNER,
-            presence_status=Technician.PresenceStatus.ONLINE,
+            presence_status=Technician.PresenceStatus.ACTIVE,
             is_active=True,
         )
         self.partner = Partner.objects.create(

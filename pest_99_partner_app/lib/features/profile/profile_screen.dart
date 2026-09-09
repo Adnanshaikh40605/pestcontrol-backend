@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../models/partner_earnings.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/bookings_provider.dart';
 import '../../providers/profile_provider.dart';
@@ -64,12 +65,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     role: p?.role ?? 'technician',
                     avatarUrl: profile.avatarUrl,
                     isActive: p?.isActive ?? true,
+                    statusLabel: p?.statusLabel ?? 'Active',
+                    presenceStatus: p?.presence?.presenceStatus,
                     serviceCities: p?.serviceCities ?? const [],
                     baseServices: p?.baseServices ?? const [],
                   ),
-                  if (p?.isSuspended == true) ...[
+                  if (p?.isUnavailable == true) ...[
                     const SizedBox(height: AppSpacing.elementGap),
-                    _SuspendedBanner(reason: p?.presence?.suspendReason ?? ''),
+                    _StatusBanner(
+                      onLeave: p?.isOnLeave == true,
+                      reason: p?.presence?.unavailableReason ??
+                          p?.presence?.suspendReason ??
+                          '',
+                    ),
                   ],
                   const SizedBox(height: AppSpacing.sectionGap),
                   _EarningsProgressCard(
@@ -128,6 +136,8 @@ class _ProfileHeader extends StatelessWidget {
     required this.role,
     this.avatarUrl,
     required this.isActive,
+    this.statusLabel = 'Active',
+    this.presenceStatus,
     this.serviceCities = const [],
     this.baseServices = const [],
   });
@@ -137,8 +147,27 @@ class _ProfileHeader extends StatelessWidget {
   final String role;
   final String? avatarUrl;
   final bool isActive;
+
+  /// "Active" / "On Leave" / "Suspended", as set by the CRM desk.
+  final String statusLabel;
+  final String? presenceStatus;
   final List<String> serviceCities;
   final List<String> baseServices;
+
+  bool get _onLeave => presenceStatus == PartnerPresence.statusOnLeave;
+  bool get _suspended => presenceStatus == PartnerPresence.statusSuspended;
+
+  Color get _statusBackground {
+    if (_suspended) return AppColors.errorContainer;
+    if (_onLeave) return const Color(0xFFFFFBE6);
+    return AppColors.successBg;
+  }
+
+  Color get _statusForeground {
+    if (_suspended) return AppColors.onErrorContainer;
+    if (_onLeave) return const Color(0xFF874D00);
+    return AppColors.primaryDark;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -239,20 +268,44 @@ class _ProfileHeader extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.successBg,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Text(
-              roleLabel,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: AppColors.primaryDark,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.successBg,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Text(
+                  roleLabel,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: AppColors.primaryDark,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              // Shown for every status, not just the bad ones, so a technician
+              // can always confirm what the office has them set to.
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _statusBackground,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Text(
+                  statusLabel,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: _statusForeground,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+            ],
           ),
           if (baseServices.isNotEmpty) ...[
             const SizedBox(height: 16),
@@ -542,35 +595,48 @@ class _EarningsProgressCard extends StatelessWidget {
   }
 }
 
-class _SuspendedBanner extends StatelessWidget {
-  const _SuspendedBanner({required this.reason});
+/// Shown when the office has marked this technician on leave or suspended.
+class _StatusBanner extends StatelessWidget {
+  const _StatusBanner({required this.onLeave, required this.reason});
 
+  final bool onLeave;
   final String reason;
 
   @override
   Widget build(BuildContext context) {
+    // Leave is a temporary absence rather than a problem, so it gets a warning
+    // tone instead of the error tone used for suspension.
+    final background =
+        onLeave ? const Color(0xFFFFFBE6) : AppColors.errorContainer;
+    final foreground =
+        onLeave ? const Color(0xFF874D00) : AppColors.onErrorContainer;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.cardPadding),
       decoration: BoxDecoration(
-        color: AppColors.errorContainer,
+        color: background,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Account suspended',
+            onLeave ? 'You are on leave' : 'Account suspended',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: AppColors.onErrorContainer,
+                  color: foreground,
                   fontWeight: FontWeight.w700,
                 ),
           ),
           const SizedBox(height: 4),
           Text(
-            reason.isNotEmpty ? reason : 'Contact CRM admin to reactivate.',
+            reason.isNotEmpty
+                ? reason
+                : onLeave
+                    ? 'New bookings are not being sent to you while you are on leave.'
+                    : 'Contact CRM admin to reactivate.',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.onErrorContainer,
+                  color: foreground,
                 ),
           ),
         ],

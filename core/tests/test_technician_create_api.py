@@ -29,7 +29,7 @@ class TechnicianCreateUpdateTests(TestCase):
                 'is_active': True,
                 'technician_type': 'partner',
                 'branch': 'Pune HQ',
-                'presence_status': 'online',
+                'presence_status': 'active',
                 'security_deposit_status': 'collected',
                 'security_deposit_amount': '2500',
                 'aadhaar': '111122223333',
@@ -39,7 +39,7 @@ class TechnicianCreateUpdateTests(TestCase):
         )
         self.assertEqual(res.status_code, 201, res.data)
         self.assertEqual(res.data['technician_type'], 'partner')
-        self.assertEqual(res.data['presence_status'], 'online')
+        self.assertEqual(res.data['presence_status'], 'active')
         self.assertEqual(res.data['branch'], 'Pune HQ')
         self.assertEqual(res.data['mobile'], '9111000001')
 
@@ -57,7 +57,7 @@ class TechnicianCreateUpdateTests(TestCase):
                 'city': 'Mumbai',
                 'is_active': True,
                 'technician_type': 'salaried',
-                'presence_status': 'offline',
+                'presence_status': 'active',
             },
             format='json',
         )
@@ -73,7 +73,7 @@ class TechnicianCreateUpdateTests(TestCase):
                 'name': 'Switchable Tech',
                 'mobile': '9111000003',
                 'technician_type': 'partner',
-                'presence_status': 'offline',
+                'presence_status': 'active',
                 'is_active': True,
             },
             format='json',

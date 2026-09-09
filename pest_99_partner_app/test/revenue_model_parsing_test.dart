@@ -38,18 +38,65 @@ void main() {
   });
 
   group('PartnerPresence', () {
-    test('parses suspended presence', () {
+    test('parses suspended status', () {
       final p = PartnerPresence.fromJson({
         'presence_status': 'suspended',
+        'presence_label': 'Suspended',
         'last_active': null,
+        'is_available': false,
         'is_suspended': true,
+        'is_on_leave': false,
+        'unavailable_reason': 'Your account is suspended. Docs pending',
         'suspend_reason': 'Docs pending',
         'technician_linked': true,
         'technician_type': 'partner',
       });
       expect(p.isSuspended, isTrue);
       expect(p.suspendReason, 'Docs pending');
-      expect(p.isOnline, isFalse);
+      expect(p.isActive, isFalse);
+      expect(p.isUnavailable, isTrue);
+      expect(p.displayLabel, 'Suspended');
+    });
+
+    test('parses on-leave status', () {
+      final p = PartnerPresence.fromJson({
+        'presence_status': 'on_leave',
+        'presence_label': 'On Leave',
+        'is_available': false,
+        'is_suspended': false,
+        'is_on_leave': true,
+        'unavailable_reason': 'You are marked as on leave. Contact CRM admin.',
+        'technician_linked': true,
+      });
+      expect(p.isOnLeave, isTrue);
+      expect(p.isSuspended, isFalse);
+      // On leave blocks work exactly like suspension does.
+      expect(p.isUnavailable, isTrue);
+      expect(p.isActive, isFalse);
+      expect(p.displayLabel, 'On Leave');
+    });
+
+    test('parses active status', () {
+      final p = PartnerPresence.fromJson({
+        'presence_status': 'active',
+        'presence_label': 'Active',
+        'is_available': true,
+        'is_suspended': false,
+        'is_on_leave': false,
+        'unavailable_reason': '',
+        'technician_linked': true,
+      });
+      expect(p.isActive, isTrue);
+      expect(p.isAvailable, isTrue);
+      expect(p.isUnavailable, isFalse);
+    });
+
+    test('labels a status the server sent without a label', () {
+      final p = PartnerPresence.fromJson({'presence_status': 'on_leave'});
+      // is_on_leave was absent, so it has to be derived from the status.
+      expect(p.isOnLeave, isTrue);
+      expect(p.isAvailable, isFalse);
+      expect(p.displayLabel, 'On Leave');
     });
   });
 
@@ -63,14 +110,40 @@ void main() {
         'is_active': true,
         'is_app_approved': true,
         'presence': {
-          'presence_status': 'online',
+          'presence_status': 'active',
+          'presence_label': 'Active',
+          'is_available': true,
           'is_suspended': false,
+          'is_on_leave': false,
           'suspend_reason': '',
           'technician_linked': true,
         },
       });
-      expect(profile.presence?.isOnline, isTrue);
+      expect(profile.presence?.isActive, isTrue);
       expect(profile.isSuspended, isFalse);
+      expect(profile.isUnavailable, isFalse);
+      expect(profile.statusLabel, 'Active');
+    });
+
+    test('surfaces an on-leave technician as unavailable', () {
+      final profile = PartnerProfile.fromJson({
+        'id': 10,
+        'full_name': 'Tech',
+        'mobile': '9999999998',
+        'role': 'technician',
+        'is_active': true,
+        'is_app_approved': true,
+        'presence': {
+          'presence_status': 'on_leave',
+          'presence_label': 'On Leave',
+          'is_available': false,
+          'is_on_leave': true,
+          'technician_linked': true,
+        },
+      });
+      expect(profile.isOnLeave, isTrue);
+      expect(profile.isUnavailable, isTrue);
+      expect(profile.statusLabel, 'On Leave');
     });
   });
 

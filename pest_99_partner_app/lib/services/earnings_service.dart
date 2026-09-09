@@ -22,16 +22,11 @@ class EarningsService {
         .toList();
   }
 
+  /// Read-only: Active / On Leave / Suspended are set by the CRM desk. Leave
+  /// is requested through [listLeaveRequests] / [createLeaveRequest] below,
+  /// not by writing the status directly.
   Future<PartnerPresence> getPresence() async {
     final data = await _api.get(ApiConfig.presence);
-    return PartnerPresence.fromJson(data);
-  }
-
-  Future<PartnerPresence> setPresence(String status) async {
-    final data = await _api.post(
-      ApiConfig.presence,
-      body: {'presence_status': status},
-    );
     return PartnerPresence.fromJson(data);
   }
 

@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from core.models import Technician, TechnicianSettlement
 from partner.models import PartnerLeaveRequest
 from partner.permissions import IsPartner
-from partner.presence import presence_payload, set_partner_presence
+from partner.presence import presence_payload
 from partner.serializers import (
     PartnerLeaveRequestSerializer,
     PartnerSettlementSerializer,
@@ -22,40 +22,34 @@ from partner.views_base import PartnerAPIView
 
 class PresenceAPIView(PartnerAPIView):
     """
-    GET  /api/partner/presence/  — current presence + suspended flag
-    POST /api/partner/presence/  — set online/offline
+    GET  /api/partner/presence/  — the technician's work status
+    POST /api/partner/presence/  — rejected; the CRM desk owns this status
+
+    The status is Active / On Leave / Suspended, all three of which are
+    business decisions the office makes. The route stays mounted so an older
+    app build gets a readable message instead of a 404, and so leave keeps
+    going through the leave-request flow below rather than a self-toggle.
     """
 
     permission_classes = [IsPartner]
 
-    @extend_schema(tags=['Presence'], summary='Get presence status')
+    @extend_schema(tags=['Presence'], summary='Get work status')
     def get(self, request):
         return Response(presence_payload(request.partner))
 
-    @extend_schema(tags=['Presence'], summary='Set Online or Offline')
+    @extend_schema(tags=['Presence'], summary='Not settable from the app')
     def post(self, request):
-        raw = (request.data.get('presence_status') or '').strip().lower()
-        if raw not in (
-            Technician.PresenceStatus.ONLINE,
-            Technician.PresenceStatus.OFFLINE,
-        ):
-            return Response(
-                {
-                    'error': 'presence_status must be "online" or "offline".',
-                    'code': 'invalid_presence',
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        try:
-            set_partner_presence(request.partner, raw)
-        except PartnerBookingError as exc:
-            http = (
-                status.HTTP_403_FORBIDDEN
-                if exc.code == 'suspended'
-                else status.HTTP_400_BAD_REQUEST
-            )
-            return Response({'error': exc.message, 'code': exc.code}, status=http)
-        return Response(presence_payload(request.partner))
+        return Response(
+            {
+                'error': (
+                    'Your work status is set by the office. To take leave, '
+                    'raise a leave request.'
+                ),
+                'code': 'presence_read_only',
+                'presence': presence_payload(request.partner),
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
 
 class LeaveRequestListCreateAPIView(PartnerAPIView):

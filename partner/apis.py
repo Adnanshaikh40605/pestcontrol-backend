@@ -45,7 +45,7 @@ from .services import (
     partner_start_service,
     partner_complete_booking,
 )
-from core.models import JobCard
+from core.models import JobCard, Technician
 from core.services import JobCardService
 
 logger = logging.getLogger(__name__)
@@ -373,16 +373,20 @@ class AvailableBookingsAPIView(PartnerAPIView):
     )
     def get(self, request):
         partner = request.partner
-        from partner.presence import is_partner_suspended, presence_payload
+        from partner.presence import is_partner_unavailable, presence_payload
 
-        if is_partner_suspended(partner):
+        # On leave and suspended both stop work reaching the technician, so
+        # neither sees the pool. The app renders the reason it gets back.
+        if is_partner_unavailable(partner):
             payload = presence_payload(partner)
             return Response({
                 "count": 0,
                 "results": [],
-                "is_suspended": True,
+                "is_suspended": payload.get('is_suspended', False),
+                "is_on_leave": payload.get('is_on_leave', False),
+                "presence_status": payload.get('presence_status'),
                 "suspend_reason": payload.get('suspend_reason') or '',
-                "message": "Your account is suspended. Contact CRM admin.",
+                "message": payload.get('unavailable_reason') or '',
             })
 
         from partner.services import (
@@ -412,6 +416,8 @@ class AvailableBookingsAPIView(PartnerAPIView):
             "count": len(filtered),
             "results": serializer.data,
             "is_suspended": False,
+            "is_on_leave": False,
+            "presence_status": Technician.PresenceStatus.ACTIVE,
             "manual_assign_only": manual_assign_only,
             "message": (
                 "New bookings are assigned to you by the office. "

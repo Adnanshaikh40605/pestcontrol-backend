@@ -48,7 +48,7 @@ class SecondaryTechnicianDispatchTests(TestCase):
             name=name,
             mobile=mobile,
             technician_type=technician_type,
-            presence_status=Technician.PresenceStatus.ONLINE,
+            presence_status=Technician.PresenceStatus.ACTIVE,
             is_active=True,
         )
         tech.service_cities.add(self.city)

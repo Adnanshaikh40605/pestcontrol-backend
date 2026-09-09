@@ -24,8 +24,15 @@ class BookingsProvider extends ChangeNotifier {
   bool loading = false;
   String? error;
   bool isSuspended = false;
+
+  /// Marked on leave by the office. Blocks new work just like suspension.
+  bool isOnLeave = false;
+  String? presenceStatus;
   String suspendReason = '';
   String suspendMessage = '';
+
+  /// Either on leave or suspended — no new bookings are being sent.
+  bool get isUnavailable => isSuspended || isOnLeave;
 
   /// True for secondary technicians: the office assigns their jobs, so the
   /// New Bookings tab is empty by design rather than because of an error.
@@ -115,6 +122,8 @@ class BookingsProvider extends ChangeNotifier {
       final availableResult = results[1] as AvailableBookingsResult;
       available = _dedupeById(availableResult.bookings);
       isSuspended = availableResult.isSuspended;
+      isOnLeave = availableResult.isOnLeave;
+      presenceStatus = availableResult.presenceStatus;
       suspendReason = availableResult.suspendReason;
       suspendMessage = availableResult.message;
       manualAssignOnly = availableResult.manualAssignOnly;

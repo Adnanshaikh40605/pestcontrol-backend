@@ -85,49 +85,17 @@ class _BookingsScreenState extends State<BookingsScreen> {
         100,
       ),
       children: [
-        if (bookings.isSuspended) ...[
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF1F0),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFFFCCC7)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Account suspended',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: const Color(0xFFCF1322),
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  bookings.suspendMessage.isNotEmpty
-                      ? bookings.suspendMessage
-                      : 'New bookings are hidden until CRM reactivates your account.',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFFA8071A),
-                      ),
-                ),
-                if (bookings.suspendReason.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    'Reason: ${bookings.suspendReason}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF820014),
-                        ),
-                  ),
-                ],
-              ],
-            ),
+        // On leave and suspended both hide the pool. Same banner, different
+        // wording and colour, because one is temporary and one is a block.
+        if (bookings.isUnavailable) ...[
+          _UnavailableBanner(
+            onLeave: bookings.isOnLeave,
+            message: bookings.suspendMessage,
+            reason: bookings.suspendReason,
           ),
           const SizedBox(height: AppSpacing.elementGap),
         ],
-        if (bookings.manualAssignOnly && !bookings.isSuspended) ...[
+        if (bookings.manualAssignOnly && !bookings.isUnavailable) ...[
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(14),
@@ -176,9 +144,11 @@ class _BookingsScreenState extends State<BookingsScreen> {
               child: Text(
                 bookings.isSuspended
                     ? 'No bookings available while suspended'
-                    : bookings.manualAssignOnly
-                        ? 'Nothing assigned to you yet'
-                        : 'No new bookings right now',
+                    : bookings.isOnLeave
+                        ? 'No bookings available while you are on leave'
+                        : bookings.manualAssignOnly
+                            ? 'Nothing assigned to you yet'
+                            : 'No new bookings right now',
               ),
             ),
           )
@@ -201,6 +171,83 @@ class _BookingsScreenState extends State<BookingsScreen> {
             );
           }),
       ],
+    );
+  }
+}
+
+/// Explains why the booking pool is empty when the office has marked this
+/// technician on leave or suspended.
+class _UnavailableBanner extends StatelessWidget {
+  const _UnavailableBanner({
+    required this.onLeave,
+    required this.message,
+    required this.reason,
+  });
+
+  final bool onLeave;
+  final String message;
+  final String reason;
+
+  @override
+  Widget build(BuildContext context) {
+    final background = onLeave ? const Color(0xFFFFFBE6) : const Color(0xFFFFF1F0);
+    final border = onLeave ? const Color(0xFFFFE58F) : const Color(0xFFFFCCC7);
+    final title = onLeave ? const Color(0xFFAD6800) : const Color(0xFFCF1322);
+    final body = onLeave ? const Color(0xFF874D00) : const Color(0xFFA8071A);
+    final detail = onLeave ? const Color(0xFF613400) : const Color(0xFF820014);
+
+    final fallback = onLeave
+        ? 'You are marked as on leave, so new bookings are not being sent to you.'
+        : 'New bookings are hidden until CRM reactivates your account.';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            onLeave ? 'You are on leave' : 'Account suspended',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: title,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            message.isNotEmpty ? message : fallback,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: body),
+          ),
+          // The server already folds the reason into `message`; show it on its
+          // own only when it did not.
+          if (reason.isNotEmpty && !message.contains(reason)) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Reason: $reason',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: detail),
+            ),
+          ],
+          const SizedBox(height: 6),
+          Text(
+            'Your status is set by the office. Contact CRM admin for changes.',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: detail),
+          ),
+        ],
+      ),
     );
   }
 }

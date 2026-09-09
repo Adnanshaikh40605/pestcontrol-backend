@@ -245,12 +245,11 @@ def _raise_if_booking_already_taken(job: JobCard, partner: Partner) -> None:
 
 @transaction.atomic
 def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
-    from core.models import Technician
-    from partner.presence import ensure_partner_not_suspended, set_partner_presence
+    from partner.presence import ensure_partner_available, touch_partner_activity
 
     # Lock row so two technicians tapping Accept at the same time cannot both win.
     job = JobCard.objects.select_for_update().get(pk=job.pk)
-    ensure_partner_not_suspended(partner)
+    ensure_partner_available(partner)
     _raise_if_booking_already_taken(job, partner)
 
     if job.status == JobCard.JobStatus.CANCELLED:
@@ -313,14 +312,7 @@ def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
             'status',
         ]
     )
-    try:
-        set_partner_presence(
-            partner,
-            Technician.PresenceStatus.BUSY,
-            allow_system=True,
-        )
-    except PartnerBookingError:
-        pass
+    touch_partner_activity(partner)
     try:
         from core.payout_engine import ensure_lead_participation, is_revenue_model_enabled
 
@@ -339,9 +331,10 @@ def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
 
 @transaction.atomic
 def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCard:
-    from core.models import Technician
-    from partner.presence import ensure_partner_not_suspended, set_partner_presence
+    from partner.presence import ensure_partner_not_suspended, touch_partner_activity
 
+    # Not ensure_partner_available: a technician put on leave after accepting
+    # must still be able to finish the job they are holding.
     ensure_partner_not_suspended(partner)
     if job.partner_id != partner.id:
         raise PartnerBookingError('Booking not assigned to you.', code='forbidden')
@@ -373,14 +366,7 @@ def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCar
     job.partner_status = JobCard.PartnerStatus.IN_SERVICE
     job.started_at = timezone.now()
     job.save(update_fields=['job_start_selfie', 'partner_status', 'started_at'])
-    try:
-        set_partner_presence(
-            partner,
-            Technician.PresenceStatus.ON_SERVICE,
-            allow_system=True,
-        )
-    except PartnerBookingError:
-        pass
+    touch_partner_activity(partner)
     try:
         from partner.notification_service import notify_crm_service_started
 
@@ -392,8 +378,7 @@ def partner_start_service(job: JobCard, partner: Partner, selfie_file) -> JobCar
 
 @transaction.atomic
 def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) -> JobCard:
-    from core.models import Technician
-    from partner.presence import set_partner_presence
+    from partner.presence import touch_partner_activity
 
     if job.partner_id != partner.id:
         raise PartnerBookingError('Booking not assigned to you.', code='forbidden')
@@ -464,14 +449,7 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
             try_apply_payout_after_completion(job)
     except Exception as exc:
         logger.exception('Payout after partner complete failed #%s: %s', job.id, exc)
-    try:
-        set_partner_presence(
-            partner,
-            Technician.PresenceStatus.ONLINE,
-            allow_system=True,
-        )
-    except PartnerBookingError:
-        pass
+    touch_partner_activity(partner)
     try:
         from partner.notification_service import notify_crm_service_completed
 
@@ -636,6 +614,13 @@ def apply_partner_pool_filters(
 
 def count_partner_available_bookings(partner: Partner) -> int:
     """Badge count aligned with GET /api/partner/bookings/available/."""
+    from partner.presence import is_partner_unavailable
+
+    # That endpoint short-circuits to zero results when the technician is on
+    # leave or suspended; the badge has to agree or it shows phantom work.
+    if is_partner_unavailable(partner):
+        return 0
+
     directly_assigned = Q(
         partner=partner, partner_status=JobCard.PartnerStatus.PENDING
     )

@@ -48,6 +48,15 @@ def _partner_ids_for_technician(technician_id: int | None) -> list[int] | None:
     if not partner or not partner.is_active or not partner.is_app_approved:
         logger.warning('send-to-app: technician %s has no approved partner app', technician_id)
         return []
+    # An on-leave or suspended technician cannot see the job or accept it, so
+    # a push would be a notification they can do nothing about.
+    if tech.presence_status in Technician.UNAVAILABLE_PRESENCE:
+        logger.warning(
+            'send-to-app: technician %s is %s, skipping push',
+            technician_id,
+            tech.presence_status,
+        )
+        return []
     return [partner.id]
 
 
@@ -65,6 +74,11 @@ def approved_partner_ids(technician_id: int | None = None) -> list[int]:
     # pool push must not reach them.
     qs = qs.exclude(
         core_technician__technician_type=Technician.TechnicianType.SECONDARY,
+    )
+    # Nor may it reach anyone the desk marked on leave or suspended — they
+    # cannot accept the job, so a push is just a notification they cannot act on.
+    qs = qs.exclude(
+        core_technician__presence_status__in=Technician.UNAVAILABLE_PRESENCE,
     )
     return list(qs.values_list('pk', flat=True))
 

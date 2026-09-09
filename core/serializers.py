@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils import timezone
 from decimal import Decimal
 from rest_framework import serializers
 import logging
@@ -26,6 +27,7 @@ from .models import (
     InquiryRemark,
     WebsiteLeadRemark,
     RemarkType,
+    TechnicianRemark,
 )
 from .payment_utils import (
     distribute_amount_across_service_items,
@@ -113,6 +115,47 @@ class ClientSerializer(serializers.ModelSerializer):
 logger = logging.getLogger(__name__)
 
 
+class TechnicianRemarkSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TechnicianRemark
+        fields = [
+            'id', 'technician', 'remark', 'remark_date', 'remark_time',
+            'created_by', 'created_by_name', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+        extra_kwargs = {
+            'technician': {'required': False},
+            # Both are NOT NULL on the model, so DRF would demand them. They
+            # default to now in validate() instead, which keeps a one-line
+            # remark to one field for the user.
+            'remark_date': {'required': False},
+            'remark_time': {'required': False},
+        }
+
+    def get_created_by_name(self, obj):
+        user = obj.created_by
+        if not user:
+            return ''
+        return (user.get_full_name() or user.username or '').strip()
+
+    def validate_remark(self, value):
+        text = (value or '').strip()
+        if not text:
+            raise serializers.ValidationError('Remark text is required.')
+        return text
+
+    def validate(self, attrs):
+        # Date and time describe when the noted event happened. Default to now
+        # so a one-line remark does not force the user to fill both pickers.
+        if not attrs.get('remark_date'):
+            attrs['remark_date'] = timezone.localdate()
+        if not attrs.get('remark_time'):
+            attrs['remark_time'] = timezone.localtime().time().replace(microsecond=0)
+        return attrs
+
+
 class TechnicianSerializer(serializers.ModelSerializer):
     active_jobs = serializers.IntegerField(read_only=True)
     active_job_details = serializers.SerializerMethodField()
@@ -138,6 +181,13 @@ class TechnicianSerializer(serializers.ModelSerializer):
             'Defaults to all when omitted on create.'
         ),
     )
+    presence_label = serializers.CharField(
+        source='get_presence_status_display',
+        read_only=True,
+    )
+    is_available_for_work = serializers.BooleanField(read_only=True)
+    remarks = TechnicianRemarkSerializer(many=True, read_only=True)
+    latest_remark = serializers.SerializerMethodField()
 
     class Meta:
         model = Technician
@@ -149,7 +199,9 @@ class TechnicianSerializer(serializers.ModelSerializer):
             'has_partner_app', 'partner_app_approved', 'partner_id', 'partner_name',
             'technician_type', 'branch', 'aadhaar', 'pan', 'photo', 'agreement_file',
             'security_deposit_amount', 'security_deposit_status', 'star_rating',
-            'presence_status', 'suspended_at', 'suspend_reason', 'reactivated_at',
+            'presence_status', 'presence_label', 'is_available_for_work',
+            'suspended_at', 'suspend_reason', 'reactivated_at',
+            'remarks', 'latest_remark',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -182,6 +234,21 @@ class TechnicianSerializer(serializers.ModelSerializer):
         return list(obj.jobcards.filter(status__iexact='On Process').values(
             'id', 'client__full_name', 'service_type'
         ))
+
+    def get_latest_remark(self, obj):
+        """Newest remark, so list views can show one without loading the history."""
+        newest = obj.remarks.all()[:1]
+        if not newest:
+            return None
+        return TechnicianRemarkSerializer(newest[0], context=self.context).data
+
+    def validate_presence_status(self, value):
+        allowed = dict(Technician.PresenceStatus.choices)
+        if value not in allowed:
+            raise serializers.ValidationError(
+                f'Status must be one of: {", ".join(allowed)}.'
+            )
+        return value
 
     def validate_mobile(self, value):
         import re
@@ -297,11 +364,38 @@ class TechnicianSerializer(serializers.ModelSerializer):
         if 'skills' in validated_data:
             from core.technician_base_services import normalize_base_services
             validated_data['skills'] = normalize_base_services(validated_data.get('skills'))
+        self._stamp_status_change(instance, validated_data)
         tech = super().update(instance, validated_data)
         if city_ids is not None:
             from core.technician_service_areas import set_technician_service_cities
             set_technician_service_cities(tech, city_ids)
         return tech
+
+    @staticmethod
+    def _stamp_status_change(instance, validated_data):
+        """
+        Maintain suspended_at / reactivated_at when the desk changes the status.
+
+        These were only ever written by the auto-suspend command, so a manual
+        suspension left no timestamp and reactivated_at was never set at all.
+        """
+        new_status = validated_data.get('presence_status')
+        if new_status is None or new_status == instance.presence_status:
+            return
+
+        suspended = Technician.PresenceStatus.SUSPENDED
+
+        if instance.presence_status == suspended:
+            validated_data['reactivated_at'] = timezone.now()
+        if new_status == suspended:
+            validated_data['suspended_at'] = timezone.now()
+
+        # The reason is shown back to the technician next to their status, so a
+        # leftover one would explain the wrong thing — a past suspension to
+        # someone now on leave. Cleared on every change unless this request
+        # supplies a fresh reason.
+        if not (validated_data.get('suspend_reason') or '').strip():
+            validated_data['suspend_reason'] = ''
 
 
 def _resolve_latest_remark(obj, attr_name: str = '_latest_remarks'):

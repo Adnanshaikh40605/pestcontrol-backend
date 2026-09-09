@@ -32,11 +32,14 @@ class Command(BaseCommand):
         cutoff = timezone.now() - timedelta(days=days)
         today = timezone.localdate()
 
+        # Already suspended has nothing to do; already on leave is a deliberate
+        # absence the desk recorded, so inactivity is expected and not grounds
+        # for suspension.
         candidates = Technician.objects.filter(
             technician_type=Technician.TechnicianType.PARTNER,
             is_active=True,
         ).exclude(
-            presence_status=Technician.PresenceStatus.SUSPENDED,
+            presence_status__in=Technician.UNAVAILABLE_PRESENCE,
         ).select_related('partner_account')
 
         suspended = 0
@@ -46,13 +49,6 @@ class Command(BaseCommand):
         for tech in candidates:
             # Still active recently → skip
             if tech.last_active and tech.last_active >= cutoff:
-                skipped_active += 1
-                continue
-            # Never seen online and not marked offline → skip (new records)
-            if tech.last_active is None and tech.presence_status not in (
-                Technician.PresenceStatus.OFFLINE,
-                Technician.PresenceStatus.ONLINE,
-            ):
                 skipped_active += 1
                 continue
 

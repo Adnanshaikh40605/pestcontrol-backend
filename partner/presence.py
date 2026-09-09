@@ -1,5 +1,11 @@
 """
-Partner presence helpers (sync to linked core.Technician).
+Read helpers for a partner's work status, which lives on the linked
+core.Technician as `presence_status` (Active / On Leave / Suspended).
+
+The app used to be able to write this field via an Online/Offline toggle, and
+the job lifecycle overwrote it with busy/on_service. Both are gone: the status
+is a desk decision now, so this module only reads it and turns it into the
+payload the app renders.
 """
 from __future__ import annotations
 
@@ -9,16 +15,11 @@ from core.models import Technician
 from partner.services import PartnerBookingError
 
 
-ALLOWED_SELF_PRESENCE = {
-    Technician.PresenceStatus.ONLINE,
-    Technician.PresenceStatus.OFFLINE,
-}
-
-# System statuses the app must not overwrite via the Online/Offline toggle
-SYSTEM_BUSY_STATUSES = {
-    Technician.PresenceStatus.BUSY,
-    Technician.PresenceStatus.ON_SERVICE,
-    Technician.PresenceStatus.ON_LEAVE,
+# Message shown to the technician for each status that stops work reaching
+# them. Keyed by the stored value so the app and CRM never drift.
+UNAVAILABLE_MESSAGES = {
+    Technician.PresenceStatus.SUSPENDED: 'Your account is suspended.',
+    Technician.PresenceStatus.ON_LEAVE: 'You are marked as on leave.',
 }
 
 
@@ -32,54 +33,81 @@ def resolve_technician(partner):
     return tech
 
 
+def partner_presence_status(partner) -> str | None:
+    tech = getattr(partner, 'core_technician', None)
+    return tech.presence_status if tech else None
+
+
 def is_partner_suspended(partner) -> bool:
+    tech = getattr(partner, 'core_technician', None)
+    return bool(tech and tech.is_suspended)
+
+
+def is_partner_on_leave(partner) -> bool:
+    tech = getattr(partner, 'core_technician', None)
+    return bool(tech and tech.is_on_leave)
+
+
+def is_partner_unavailable(partner) -> bool:
+    """True when the desk has marked this technician on leave or suspended."""
     tech = getattr(partner, 'core_technician', None)
     if not tech:
         return False
-    return tech.presence_status == Technician.PresenceStatus.SUSPENDED
+    return tech.presence_status in Technician.UNAVAILABLE_PRESENCE
+
+
+def unavailable_reason(partner) -> str:
+    """Sentence to show the technician, empty when they are available."""
+    tech = getattr(partner, 'core_technician', None)
+    if not tech or tech.presence_status not in Technician.UNAVAILABLE_PRESENCE:
+        return ''
+    base = UNAVAILABLE_MESSAGES.get(tech.presence_status, 'You are not available for work.')
+    detail = (tech.suspend_reason or '').strip()
+    return f'{base} {detail}' if detail else f'{base} Contact CRM admin.'
+
+
+def ensure_partner_available(partner) -> None:
+    """
+    Guard for taking on NEW work: accepting a job, or seeing the pool.
+
+    Raises for both on leave and suspended.
+    """
+    tech = getattr(partner, 'core_technician', None)
+    if not tech or tech.presence_status not in Technician.UNAVAILABLE_PRESENCE:
+        return
+    raise PartnerBookingError(
+        unavailable_reason(partner),
+        code='suspended' if tech.is_suspended else 'on_leave',
+    )
 
 
 def ensure_partner_not_suspended(partner) -> None:
+    """
+    Guard for continuing work already in hand: starting, completing.
+
+    Only suspension blocks here. Leave stops new jobs reaching a technician,
+    but it must not strand a booking they already accepted — otherwise marking
+    someone on leave mid-job leaves that job unfinishable.
+    """
     tech = getattr(partner, 'core_technician', None)
-    if tech and tech.presence_status == Technician.PresenceStatus.SUSPENDED:
-        reason = (tech.suspend_reason or '').strip() or 'Contact CRM admin.'
-        raise PartnerBookingError(
-            f'Your account is suspended. {reason}',
-            code='suspended',
-        )
+    if not tech or not tech.is_suspended:
+        return
+    raise PartnerBookingError(unavailable_reason(partner), code='suspended')
 
 
-def set_partner_presence(partner, presence_status: str, *, allow_system: bool = False) -> Technician:
-    tech = resolve_technician(partner)
-    if tech.presence_status == Technician.PresenceStatus.SUSPENDED and not allow_system:
-        if presence_status != Technician.PresenceStatus.SUSPENDED:
-            raise PartnerBookingError(
-                'Suspended accounts cannot change presence. Contact CRM admin.',
-                code='suspended',
-            )
-    # Protect in-job / leave states from accidental Online/Offline toggle
-    if (
-        not allow_system
-        and tech.presence_status in SYSTEM_BUSY_STATUSES
-        and presence_status in ALLOWED_SELF_PRESENCE
-    ):
-        raise PartnerBookingError(
-            f'Cannot switch availability while status is "{tech.presence_status}". '
-            'Finish or leave the current job first.',
-            code='presence_locked',
-        )
-    if not allow_system and presence_status not in ALLOWED_SELF_PRESENCE:
-        raise PartnerBookingError(
-            'You can only set Online or Offline from the app.',
-            code='invalid_presence',
-        )
-    if presence_status not in dict(Technician.PresenceStatus.choices):
-        raise PartnerBookingError('Invalid presence status.', code='invalid_presence')
+def touch_partner_activity(partner) -> None:
+    """
+    Record that the technician did something in the app.
 
-    tech.presence_status = presence_status
+    Accept/start/complete used to refresh `last_active` as a side effect of
+    writing presence. Presence no longer moves, but auto-suspend still keys off
+    `last_active`, so working a job has to keep counting as activity.
+    """
+    tech = getattr(partner, 'core_technician', None)
+    if not tech:
+        return
     tech.last_active = timezone.now()
-    tech.save(update_fields=['presence_status', 'last_active', 'updated_at'])
-    return tech
+    tech.save(update_fields=['last_active', 'updated_at'])
 
 
 def presence_payload(partner) -> dict:
@@ -87,15 +115,23 @@ def presence_payload(partner) -> dict:
     if not tech:
         return {
             'presence_status': None,
+            'presence_label': '',
             'last_active': None,
+            'is_available': False,
             'is_suspended': False,
+            'is_on_leave': False,
+            'unavailable_reason': '',
             'suspend_reason': '',
             'technician_linked': False,
         }
     return {
         'presence_status': tech.presence_status,
+        'presence_label': tech.get_presence_status_display(),
         'last_active': tech.last_active.isoformat() if tech.last_active else None,
-        'is_suspended': tech.presence_status == Technician.PresenceStatus.SUSPENDED,
+        'is_available': tech.is_available_for_work,
+        'is_suspended': tech.is_suspended,
+        'is_on_leave': tech.is_on_leave,
+        'unavailable_reason': unavailable_reason(partner),
         'suspend_reason': tech.suspend_reason or '',
         'technician_linked': True,
         'technician_type': tech.technician_type,

@@ -1,28 +1,72 @@
+/// The technician's work status, set by the CRM desk.
+///
+/// The office owns all three values, so the app only ever reads them; there is
+/// no online/offline toggle. `presenceLabel` comes from the server so the
+/// wording always matches what CRM staff see.
 class PartnerPresence {
   PartnerPresence({
     this.presenceStatus,
+    this.presenceLabel = '',
     this.lastActive,
+    this.isAvailable = false,
     this.isSuspended = false,
+    this.isOnLeave = false,
+    this.unavailableReason = '',
     this.suspendReason = '',
     this.technicianLinked = false,
     this.technicianType,
   });
 
+  static const String statusActive = 'active';
+  static const String statusOnLeave = 'on_leave';
+  static const String statusSuspended = 'suspended';
+
   final String? presenceStatus;
+  final String presenceLabel;
   final String? lastActive;
+  final bool isAvailable;
   final bool isSuspended;
+  final bool isOnLeave;
+
+  /// Sentence explaining why work is not reaching them; empty when active.
+  final String unavailableReason;
   final String suspendReason;
   final bool technicianLinked;
   final String? technicianType;
 
-  bool get isOnline => presenceStatus == 'online';
-  bool get isOffline => presenceStatus == 'offline';
+  bool get isActive => presenceStatus == statusActive;
+
+  /// Either on leave or suspended: no new bookings reach this technician.
+  bool get isUnavailable => isSuspended || isOnLeave;
+
+  /// Label to show when the server did not send one (older backend).
+  String get displayLabel {
+    if (presenceLabel.isNotEmpty) return presenceLabel;
+    switch (presenceStatus) {
+      case statusOnLeave:
+        return 'On Leave';
+      case statusSuspended:
+        return 'Suspended';
+      default:
+        return 'Active';
+    }
+  }
 
   factory PartnerPresence.fromJson(Map<String, dynamic> json) {
+    final status = json['presence_status'] as String?;
+    final suspended = json['is_suspended'] == true;
+    final onLeave = json['is_on_leave'] == true || status == statusOnLeave;
     return PartnerPresence(
-      presenceStatus: json['presence_status'] as String?,
+      presenceStatus: status,
+      presenceLabel: (json['presence_label'] as String?) ?? '',
       lastActive: json['last_active'] as String?,
-      isSuspended: json['is_suspended'] == true,
+      // Older backends omit is_available; derive it so the app never treats a
+      // suspended technician as ready for work.
+      isAvailable: json['is_available'] == true ||
+          (json['is_available'] == null && !suspended && !onLeave),
+      isSuspended: suspended,
+      isOnLeave: onLeave,
+      unavailableReason: (json['unavailable_reason'] as String?) ?? '',
       suspendReason: (json['suspend_reason'] as String?) ?? '',
       technicianLinked: json['technician_linked'] == true,
       technicianType: json['technician_type'] as String?,

@@ -6,6 +6,8 @@ class AvailableBookingsResult {
   AvailableBookingsResult({
     required this.bookings,
     this.isSuspended = false,
+    this.isOnLeave = false,
+    this.presenceStatus,
     this.suspendReason = '',
     this.message = '',
     this.manualAssignOnly = false,
@@ -13,12 +15,19 @@ class AvailableBookingsResult {
 
   final List<PartnerBooking> bookings;
   final bool isSuspended;
+
+  /// On leave stops work reaching the technician exactly like suspension does,
+  /// so the pool comes back empty for both.
+  final bool isOnLeave;
+  final String? presenceStatus;
   final String suspendReason;
   final String message;
 
   /// Secondary technicians get their work assigned by the office instead of
   /// from the open pool, so an empty list here is normal, not a failure.
   final bool manualAssignOnly;
+
+  bool get isUnavailable => isSuspended || isOnLeave;
 }
 
 class BookingService {
@@ -39,6 +48,8 @@ class BookingService {
           .map((e) => PartnerBooking.fromJson(e as Map<String, dynamic>))
           .toList(),
       isSuspended: data['is_suspended'] == true,
+      isOnLeave: data['is_on_leave'] == true,
+      presenceStatus: data['presence_status'] as String?,
       suspendReason: (data['suspend_reason'] as String?) ?? '',
       message: (data['message'] as String?) ?? '',
       manualAssignOnly: data['manual_assign_only'] == true,

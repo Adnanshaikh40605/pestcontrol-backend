@@ -22,12 +22,12 @@ class RevenueConstantsTests(TestCase):
 
 
 class AutoSuspendCommandTests(TestCase):
-    def test_suspends_stale_offline_partner_tech(self):
+    def test_suspends_stale_partner_tech(self):
         tech = Technician.objects.create(
             name='Stale Tech',
             mobile='9777000111',
             technician_type=Technician.TechnicianType.PARTNER,
-            presence_status=Technician.PresenceStatus.OFFLINE,
+            presence_status=Technician.PresenceStatus.ACTIVE,
             last_active=timezone.now() - timedelta(days=AUTO_SUSPEND_OFFLINE_DAYS + 1),
         )
         Partner.objects.create(
@@ -47,9 +47,22 @@ class AutoSuspendCommandTests(TestCase):
             name='Active Tech',
             mobile='9777000222',
             technician_type=Technician.TechnicianType.PARTNER,
-            presence_status=Technician.PresenceStatus.ONLINE,
+            presence_status=Technician.PresenceStatus.ACTIVE,
             last_active=timezone.now() - timedelta(hours=1),
         )
         call_command('auto_suspend_inactive_technicians')
         tech.refresh_from_db()
-        self.assertEqual(tech.presence_status, Technician.PresenceStatus.ONLINE)
+        self.assertEqual(tech.presence_status, Technician.PresenceStatus.ACTIVE)
+
+    def test_does_not_suspend_a_technician_on_leave(self):
+        """Leave is a recorded absence, so inactivity during it is expected."""
+        tech = Technician.objects.create(
+            name='On Leave Tech',
+            mobile='9777000333',
+            technician_type=Technician.TechnicianType.PARTNER,
+            presence_status=Technician.PresenceStatus.ON_LEAVE,
+            last_active=timezone.now() - timedelta(days=AUTO_SUSPEND_OFFLINE_DAYS + 5),
+        )
+        call_command('auto_suspend_inactive_technicians')
+        tech.refresh_from_db()
+        self.assertEqual(tech.presence_status, Technician.PresenceStatus.ON_LEAVE)

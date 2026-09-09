@@ -48,7 +48,7 @@ class EnquiryToCompleteE2ETests(TestCase):
             name='Lineup Tech',
             mobile='9000011111',
             technician_type=Technician.TechnicianType.PARTNER,
-            presence_status=Technician.PresenceStatus.ONLINE,
+            presence_status=Technician.PresenceStatus.ACTIVE,
             is_active=True,
         )
         self.partner = Partner.objects.create(
@@ -156,7 +156,10 @@ class EnquiryToCompleteE2ETests(TestCase):
         self.assertEqual(job.assigned_to, self.tech.name)
         self.assertEqual(job.partner_status, JobCard.PartnerStatus.ACCEPTED)
         self.assertEqual(job.status, JobCard.JobStatus.ON_PROCESS)
-        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.BUSY)
+        # The job lifecycle used to write busy/on_service/online here, which
+        # overwrote whatever the desk had set. Status now holds still all the
+        # way through accept, start and complete.
+        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.ACTIVE)
         self.assertTrue(
             JobCardTechnicianParticipation.objects.filter(
                 jobcard=job, technician=self.tech, role='lead'
@@ -168,7 +171,7 @@ class EnquiryToCompleteE2ETests(TestCase):
             name='Other Tech',
             mobile='9000022222',
             technician_type=Technician.TechnicianType.PARTNER,
-            presence_status=Technician.PresenceStatus.ONLINE,
+            presence_status=Technician.PresenceStatus.ACTIVE,
             is_active=True,
         )
         partner2 = Partner.objects.create(
@@ -199,7 +202,7 @@ class EnquiryToCompleteE2ETests(TestCase):
         self.tech.refresh_from_db()
         self.assertEqual(job.partner_status, JobCard.PartnerStatus.IN_SERVICE)
         self.assertIsNotNone(job.started_at)
-        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.ON_SERVICE)
+        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.ACTIVE)
 
         # 6) Complete → payment + payout
         complete = self.partner_api.post(
@@ -218,7 +221,7 @@ class EnquiryToCompleteE2ETests(TestCase):
         earning = PartnerEarning.objects.filter(partner=self.partner, job=job).first()
         self.assertIsNotNone(earning)
         self.assertEqual(earning.amount, Decimal('1000.00'))
-        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.ONLINE)
+        self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.ACTIVE)
 
     def test_crm_enquiry_convert_applies_revenue_defaults(self):
         inquiry = CRMInquiry.objects.create(

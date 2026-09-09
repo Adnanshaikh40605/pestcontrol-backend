@@ -19,12 +19,12 @@ from drf_spectacular.types import OpenApiTypes
 from .models import (
     Client, Inquiry, JobCard, JobCardTechnicianParticipation, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder,
     Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm,
-    QuotationHistory, InquiryRemark, WebsiteLeadRemark, RemarkType,
+    QuotationHistory, InquiryRemark, WebsiteLeadRemark, RemarkType, TechnicianRemark,
 )
 from django.db.models import Count, Prefetch
 from .serializers import (
     ClientSerializer, InquirySerializer, JobCardSerializer, JobCardTechnicianParticipationSerializer,
-    RenewalSerializer, TechnicianSerializer, CRMInquirySerializer, 
+    RenewalSerializer, TechnicianSerializer, TechnicianRemarkSerializer, CRMInquirySerializer, 
     FeedbackSerializer, TechnicianPerformanceSerializer,
     StaffSerializer, ActivityLogSerializer, ReminderSerializer,
     CountrySerializer, StateSerializer, CitySerializer, LocationSerializer,
@@ -441,10 +441,49 @@ class TechnicianViewSet(BaseModelViewSet):
 
     def get_queryset(self):
         return Technician.objects.select_related('partner_account').prefetch_related(
-            'service_cities__state'
+            'service_cities__state',
+            Prefetch(
+                'remarks',
+                queryset=TechnicianRemark.objects.select_related('created_by'),
+            ),
         ).annotate(
             active_jobs=Count('jobcards', filter=Q(jobcards__status__iexact='On Process'))
         )
+
+    @action(detail=True, methods=['get', 'post'], url_path='remarks')
+    def remarks(self, request, pk=None):
+        """List or append remarks for one technician (append-only history)."""
+        technician = self.get_object()
+
+        if request.method == 'GET':
+            rows = technician.remarks.select_related('created_by')
+            return response.Response(
+                TechnicianRemarkSerializer(rows, many=True, context={'request': request}).data
+            )
+
+        serializer = TechnicianRemarkSerializer(
+            data=request.data, context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        user = request.user if request.user.is_authenticated else None
+        serializer.save(technician=technician, created_by=user)
+        return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=True,
+        methods=['delete'],
+        url_path=r'remarks/(?P<remark_id>\d+)',
+    )
+    def delete_remark(self, request, pk=None, remark_id=None):
+        technician = self.get_object()
+        remark = technician.remarks.filter(pk=remark_id).first()
+        if not remark:
+            return response.Response(
+                {'error': 'Remark not found for this technician.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        remark.delete()
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=['get'])
     def active(self, request):
