@@ -74,6 +74,22 @@ SERVICE_ALIASES = {
     'Thermal Fogging': 'Mosquito Thermal Fogging',
 }
 
+# The society sheet names its plans as if they were the only IPM tiers, so in the
+# booking service list "Complete IPM" gave no hint that it is common-area work
+# for a housing society. Keyed by category because the same tier names could
+# later appear for another segment.
+CATEGORY_SERVICE_ALIASES = {
+    ('society', 'Complete IPM'): 'Complete IPM Society',
+    ('society', 'Essential IPM'): 'Essential IPM Society',
+}
+
+# Priced in the chart but deliberately not offered: societies book rodent work as
+# part of an IPM plan rather than on its own. Dropping it here rather than
+# deactivating the rows keeps a re-import from bringing it back.
+EXCLUDED_SERVICES = {
+    ('society', 'Rodent Control'),
+}
+
 
 def money(value) -> Decimal | None:
     if value in (None, ''):
@@ -95,9 +111,13 @@ class Rows:
         if amount is None:
             return
         name = dashes(str(service))
+        name = SERVICE_ALIASES.get(name, name)
+        name = CATEGORY_SERVICE_ALIASES.get((category, name), name)
+        if (category, name) in EXCLUDED_SERVICES:
+            return
         self.out.append({
             'property_category': category,
-            'service_package': SERVICE_ALIASES.get(name, name),
+            'service_package': name,
             'plan_type': plan_type,
             'area_key': dashes(str(area)),
             'amount': f'{amount:.2f}',

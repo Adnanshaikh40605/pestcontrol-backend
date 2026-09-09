@@ -123,18 +123,6 @@ society,General Pest Control,One Time Service,Large,11500.00,10100.00,18.00,,"2-
 society,General Pest Control,Quarterly - 3 Visits,Large,31050.00,27300.00,18.00,,"2-4 wings, 16-30 floors. Passages, staircase, lobby, meter/common areas",Society,13,5589.00,36639.00
 society,General Pest Control,Bi-monthly - 6 Visits,Large,58650.00,51600.00,18.00,,"2-4 wings, 16-30 floors. Passages, staircase, lobby, meter/common areas",Society,14,10557.00,69207.00
 society,General Pest Control,Monthly - 12 Visits,Large,110400.00,97150.00,18.00,,"2-4 wings, 16-30 floors. Passages, staircase, lobby, meter/common areas",Society,15,19872.00,130272.00
-society,Rodent Control,One Time Service,Small,3500.00,3100.00,18.00,,"1 wing, up to 7 floors. Common areas, perimeter monitoring and standard traps",Society,16,630.00,4130.00
-society,Rodent Control,Quarterly - 3 Visits,Small,9450.00,8300.00,18.00,,"1 wing, up to 7 floors. Common areas, perimeter monitoring and standard traps",Society,17,1701.00,11151.00
-society,Rodent Control,Bi-monthly - 6 Visits,Small,17850.00,15700.00,18.00,,"1 wing, up to 7 floors. Common areas, perimeter monitoring and standard traps",Society,18,3213.00,21063.00
-society,Rodent Control,Monthly - 12 Visits,Small,33600.00,29550.00,18.00,,"1 wing, up to 7 floors. Common areas, perimeter monitoring and standard traps",Society,19,6048.00,39648.00
-society,Rodent Control,One Time Service,Medium,6000.00,5300.00,18.00,,"1-2 wings, 8-15 floors. Common areas, perimeter monitoring and standard traps",Society,20,1080.00,7080.00
-society,Rodent Control,Quarterly - 3 Visits,Medium,16200.00,14250.00,18.00,,"1-2 wings, 8-15 floors. Common areas, perimeter monitoring and standard traps",Society,21,2916.00,19116.00
-society,Rodent Control,Bi-monthly - 6 Visits,Medium,30600.00,26950.00,18.00,,"1-2 wings, 8-15 floors. Common areas, perimeter monitoring and standard traps",Society,22,5508.00,36108.00
-society,Rodent Control,Monthly - 12 Visits,Medium,57600.00,50700.00,18.00,,"1-2 wings, 8-15 floors. Common areas, perimeter monitoring and standard traps",Society,23,10368.00,67968.00
-society,Rodent Control,One Time Service,Large,10000.00,8800.00,18.00,,"2-4 wings, 16-30 floors. Common areas, perimeter monitoring and standard traps",Society,24,1800.00,11800.00
-society,Rodent Control,Quarterly - 3 Visits,Large,27000.00,23750.00,18.00,,"2-4 wings, 16-30 floors. Common areas, perimeter monitoring and standard traps",Society,25,4860.00,31860.00
-society,Rodent Control,Bi-monthly - 6 Visits,Large,51000.00,44900.00,18.00,,"2-4 wings, 16-30 floors. Common areas, perimeter monitoring and standard traps",Society,26,9180.00,60180.00
-society,Rodent Control,Monthly - 12 Visits,Large,96000.00,84500.00,18.00,,"2-4 wings, 16-30 floors. Common areas, perimeter monitoring and standard traps",Society,27,17280.00,113280.00
 society,Mosquito Cold Fogging,One Time Service,Small,4000.00,3500.00,18.00,,"1 wing, up to 7 floors. Common passages and selected outdoor areas",Society,28,720.00,4720.00
 society,Mosquito Cold Fogging,Quarterly - 3 Visits,Small,10800.00,9500.00,18.00,,"1 wing, up to 7 floors. Common passages and selected outdoor areas",Society,29,1944.00,12744.00
 society,Mosquito Cold Fogging,Bi-monthly - 6 Visits,Small,20400.00,17950.00,18.00,,"1 wing, up to 7 floors. Common passages and selected outdoor areas",Society,30,3672.00,24072.00
@@ -159,30 +147,30 @@ society,Mosquito Thermal Fogging,One Time Service,Large,14000.00,12300.00,18.00,
 society,Mosquito Thermal Fogging,Quarterly - 3 Visits,Large,37800.00,33250.00,18.00,,"2-4 wings, 16-30 floors. Common/open areas; local permissions as applicable",Society,49,6804.00,44604.00
 society,Mosquito Thermal Fogging,Bi-monthly - 6 Visits,Large,71400.00,62850.00,18.00,,"2-4 wings, 16-30 floors. Common/open areas; local permissions as applicable",Society,50,12852.00,84252.00
 society,Mosquito Thermal Fogging,Monthly - 12 Visits,Large,134400.00,118250.00,18.00,,"2-4 wings, 16-30 floors. Common/open areas; local permissions as applicable",Society,51,24192.00,158592.00
-society,Essential IPM,One Time Service,Small,6500.00,5700.00,18.00,,"1 wing, up to 7 floors. General pest + rodent monitoring",Society,52,1170.00,7670.00
-society,Essential IPM,Quarterly - 3 Visits,Small,17500.00,15400.00,18.00,,"1 wing, up to 7 floors. General pest + rodent monitoring",Society,53,3150.00,20650.00
-society,Essential IPM,Bi-monthly - 6 Visits,Small,31500.00,27700.00,18.00,,"1 wing, up to 7 floors. General pest + rodent monitoring",Society,54,5670.00,37170.00
-society,Essential IPM,Monthly - 12 Visits,Small,58000.00,51050.00,18.00,,"1 wing, up to 7 floors. General pest + rodent monitoring",Society,55,10440.00,68440.00
-society,Essential IPM,One Time Service,Medium,10000.00,8800.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent monitoring",Society,56,1800.00,11800.00
-society,Essential IPM,Quarterly - 3 Visits,Medium,28000.00,24650.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent monitoring",Society,57,5040.00,33040.00
-society,Essential IPM,Bi-monthly - 6 Visits,Medium,50000.00,44000.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent monitoring",Society,58,9000.00,59000.00
-society,Essential IPM,Monthly - 12 Visits,Medium,90000.00,79200.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent monitoring",Society,59,16200.00,106200.00
-society,Essential IPM,One Time Service,Large,16000.00,14100.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent monitoring",Society,60,2880.00,18880.00
-society,Essential IPM,Quarterly - 3 Visits,Large,44000.00,38700.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent monitoring",Society,61,7920.00,51920.00
-society,Essential IPM,Bi-monthly - 6 Visits,Large,80000.00,70400.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent monitoring",Society,62,14400.00,94400.00
-society,Essential IPM,Monthly - 12 Visits,Large,145000.00,127600.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent monitoring",Society,63,26100.00,171100.00
-society,Complete IPM,One Time Service,Small,8500.00,7500.00,18.00,,"1 wing, up to 7 floors. General pest + rodent + mosquito cold fogging",Society,64,1530.00,10030.00
-society,Complete IPM,Quarterly - 3 Visits,Small,23000.00,20250.00,18.00,,"1 wing, up to 7 floors. General pest + rodent + mosquito cold fogging",Society,65,4140.00,27140.00
-society,Complete IPM,Bi-monthly - 6 Visits,Small,42000.00,36950.00,18.00,,"1 wing, up to 7 floors. General pest + rodent + mosquito cold fogging",Society,66,7560.00,49560.00
-society,Complete IPM,Monthly - 12 Visits,Small,78000.00,68650.00,18.00,,"1 wing, up to 7 floors. General pest + rodent + mosquito cold fogging",Society,67,14040.00,92040.00
-society,Complete IPM,One Time Service,Medium,14000.00,12300.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent + mosquito cold fogging",Society,68,2520.00,16520.00
-society,Complete IPM,Quarterly - 3 Visits,Medium,38000.00,33450.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent + mosquito cold fogging",Society,69,6840.00,44840.00
-society,Complete IPM,Bi-monthly - 6 Visits,Medium,70000.00,61600.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent + mosquito cold fogging",Society,70,12600.00,82600.00
-society,Complete IPM,Monthly - 12 Visits,Medium,130000.00,114400.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent + mosquito cold fogging",Society,71,23400.00,153400.00
-society,Complete IPM,One Time Service,Large,22000.00,19350.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent + mosquito cold fogging",Society,72,3960.00,25960.00
-society,Complete IPM,Quarterly - 3 Visits,Large,60000.00,52800.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent + mosquito cold fogging",Society,73,10800.00,70800.00
-society,Complete IPM,Bi-monthly - 6 Visits,Large,110000.00,96800.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent + mosquito cold fogging",Society,74,19800.00,129800.00
-society,Complete IPM,Monthly - 12 Visits,Large,205000.00,180400.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent + mosquito cold fogging",Society,75,36900.00,241900.00
+society,Essential IPM Society,One Time Service,Small,6500.00,5700.00,18.00,,"1 wing, up to 7 floors. General pest + rodent monitoring",Society,52,1170.00,7670.00
+society,Essential IPM Society,Quarterly - 3 Visits,Small,17500.00,15400.00,18.00,,"1 wing, up to 7 floors. General pest + rodent monitoring",Society,53,3150.00,20650.00
+society,Essential IPM Society,Bi-monthly - 6 Visits,Small,31500.00,27700.00,18.00,,"1 wing, up to 7 floors. General pest + rodent monitoring",Society,54,5670.00,37170.00
+society,Essential IPM Society,Monthly - 12 Visits,Small,58000.00,51050.00,18.00,,"1 wing, up to 7 floors. General pest + rodent monitoring",Society,55,10440.00,68440.00
+society,Essential IPM Society,One Time Service,Medium,10000.00,8800.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent monitoring",Society,56,1800.00,11800.00
+society,Essential IPM Society,Quarterly - 3 Visits,Medium,28000.00,24650.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent monitoring",Society,57,5040.00,33040.00
+society,Essential IPM Society,Bi-monthly - 6 Visits,Medium,50000.00,44000.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent monitoring",Society,58,9000.00,59000.00
+society,Essential IPM Society,Monthly - 12 Visits,Medium,90000.00,79200.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent monitoring",Society,59,16200.00,106200.00
+society,Essential IPM Society,One Time Service,Large,16000.00,14100.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent monitoring",Society,60,2880.00,18880.00
+society,Essential IPM Society,Quarterly - 3 Visits,Large,44000.00,38700.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent monitoring",Society,61,7920.00,51920.00
+society,Essential IPM Society,Bi-monthly - 6 Visits,Large,80000.00,70400.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent monitoring",Society,62,14400.00,94400.00
+society,Essential IPM Society,Monthly - 12 Visits,Large,145000.00,127600.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent monitoring",Society,63,26100.00,171100.00
+society,Complete IPM Society,One Time Service,Small,8500.00,7500.00,18.00,,"1 wing, up to 7 floors. General pest + rodent + mosquito cold fogging",Society,64,1530.00,10030.00
+society,Complete IPM Society,Quarterly - 3 Visits,Small,23000.00,20250.00,18.00,,"1 wing, up to 7 floors. General pest + rodent + mosquito cold fogging",Society,65,4140.00,27140.00
+society,Complete IPM Society,Bi-monthly - 6 Visits,Small,42000.00,36950.00,18.00,,"1 wing, up to 7 floors. General pest + rodent + mosquito cold fogging",Society,66,7560.00,49560.00
+society,Complete IPM Society,Monthly - 12 Visits,Small,78000.00,68650.00,18.00,,"1 wing, up to 7 floors. General pest + rodent + mosquito cold fogging",Society,67,14040.00,92040.00
+society,Complete IPM Society,One Time Service,Medium,14000.00,12300.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent + mosquito cold fogging",Society,68,2520.00,16520.00
+society,Complete IPM Society,Quarterly - 3 Visits,Medium,38000.00,33450.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent + mosquito cold fogging",Society,69,6840.00,44840.00
+society,Complete IPM Society,Bi-monthly - 6 Visits,Medium,70000.00,61600.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent + mosquito cold fogging",Society,70,12600.00,82600.00
+society,Complete IPM Society,Monthly - 12 Visits,Medium,130000.00,114400.00,18.00,,"1-2 wings, 8-15 floors. General pest + rodent + mosquito cold fogging",Society,71,23400.00,153400.00
+society,Complete IPM Society,One Time Service,Large,22000.00,19350.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent + mosquito cold fogging",Society,72,3960.00,25960.00
+society,Complete IPM Society,Quarterly - 3 Visits,Large,60000.00,52800.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent + mosquito cold fogging",Society,73,10800.00,70800.00
+society,Complete IPM Society,Bi-monthly - 6 Visits,Large,110000.00,96800.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent + mosquito cold fogging",Society,74,19800.00,129800.00
+society,Complete IPM Society,Monthly - 12 Visits,Large,205000.00,180400.00,18.00,,"2-4 wings, 16-30 floors. General pest + rodent + mosquito cold fogging",Society,75,36900.00,241900.00
 hospital,Integrated IPM,One Time Service,"Clinic / Diagnostic Centre - Up to 2,500 sq.ft.",3000.00,2650.00,18.00,Per service,Cockroach/crawling insects + rodent monitoring + mosquito treatment,Hospital & Clinic,4,540.00,3540.00
 hospital,Integrated IPM,Monthly AMC - 1 Visit/Month,"Clinic / Diagnostic Centre - Up to 2,500 sq.ft.",2800.00,2450.00,18.00,Per month,Cockroach/crawling insects + rodent monitoring + mosquito treatment,Hospital & Clinic,5,504.00,3304.00
 hospital,Integrated IPM,Fortnightly AMC - 2 Visits/Month,"Clinic / Diagnostic Centre - Up to 2,500 sq.ft.",5000.00,4400.00,18.00,Per month,Cockroach/crawling insects + rodent monitoring + mosquito treatment,Hospital & Clinic,6,900.00,5900.00
