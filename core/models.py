@@ -1569,9 +1569,15 @@ class TechnicianSettlement(BaseModel):
 
     technician = models.ForeignKey(
         Technician,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='settlements',
         verbose_name="Technician",
+        help_text=(
+            "Owning technician. Null when the technician was permanently deleted; "
+            "settlement financial history is retained."
+        ),
     )
     partner = models.ForeignKey(
         'partner.Partner',

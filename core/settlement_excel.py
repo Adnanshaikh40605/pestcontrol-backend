@@ -27,10 +27,12 @@ def settlements_workbook(settlements: Iterable) -> BytesIO:
         cell.font = Font(bold=True)
 
     for s in settlements:
+        tech_name = s.technician.name if s.technician_id else '(deleted technician)'
+        tech_mobile = s.technician.mobile if s.technician_id else ''
         summary.append([
             s.id,
-            s.technician.name,
-            s.technician.mobile,
+            tech_name,
+            tech_mobile,
             s.period_start.isoformat(),
             s.period_end.isoformat(),
             s.cadence,
@@ -44,7 +46,7 @@ def settlements_workbook(settlements: Iterable) -> BytesIO:
         for line in s.line_items.select_related('job').all():
             lines_sheet.append([
                 s.id,
-                s.technician.name,
+                tech_name,
                 line.job.code,
                 line.earning_type,
                 float(line.amount),

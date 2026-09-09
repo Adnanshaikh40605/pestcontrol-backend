@@ -303,7 +303,48 @@ class TechnicianService:
         technician.save()
         return technician
 
+    @staticmethod
+    def permanently_delete_technician(technician: Technician) -> None:
+        """
+        Hard-delete a technician and tidy associated links.
 
+        Cascade / nullify choices:
+        - JobCard.technician: SET_NULL / cleared (bookings kept)
+        - JobCard.partner: left intact for audit (partner row is deactivated)
+        - TechnicianSettlement.technician: SET_NULL (payout batches kept)
+        - JobCardTechnicianParticipation: CASCADE (crew rows for this tech only)
+        - TechnicianRemark: CASCADE
+        - staff_tracking.TrackingProfile: CASCADE
+        - partner.Partner.core_technician: SET_NULL; partner is deactivated and
+          app approval revoked (Partner + earnings/tokens kept for audit)
+        - M2M service_cities: cleared with the technician row
+        """
+        from django.db import transaction
+
+        from core.models import JobCard
+        from partner.models import Partner
+
+        partner = Partner.objects.filter(core_technician_id=technician.id).first()
+
+        with transaction.atomic():
+            JobCard.objects.filter(technician_id=technician.id).update(
+                technician=None,
+                assigned_to=None,
+            )
+            if partner is not None:
+                partner.core_technician = None
+                partner.is_app_approved = False
+                partner.is_active = False
+                partner.save(
+                    update_fields=[
+                        'core_technician',
+                        'is_app_approved',
+                        'is_active',
+                        'updated_at',
+                    ]
+                )
+
+            technician.delete()
 
 
 

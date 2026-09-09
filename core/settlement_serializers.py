@@ -23,8 +23,12 @@ class SettlementLineItemSerializer(serializers.ModelSerializer):
 
 
 class TechnicianSettlementSerializer(serializers.ModelSerializer):
-    technician_name = serializers.CharField(source='technician.name', read_only=True)
-    technician_mobile = serializers.CharField(source='technician.mobile', read_only=True)
+    technician_name = serializers.CharField(
+        source='technician.name', read_only=True, allow_null=True, default=None,
+    )
+    technician_mobile = serializers.CharField(
+        source='technician.mobile', read_only=True, allow_null=True, default=None,
+    )
     partner_name = serializers.CharField(source='partner.full_name', read_only=True, allow_null=True)
     approved_by_name = serializers.SerializerMethodField()
     paid_by_name = serializers.SerializerMethodField()

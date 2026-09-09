@@ -423,8 +423,13 @@ class LocationViewSet(BaseModelViewSet):
         tags=['Technician']
     ),
     destroy=extend_schema(
-        summary="Delete Technician",
-        description="Remove a technician from the system",
+        summary="Permanently Delete Technician",
+        description=(
+            "Hard-delete a technician. Job cards and settlement history are kept "
+            "(technician FKs nullified). Remarks and crew participation rows for "
+            "this technician are removed. Linked Partner App account is unlinked "
+            "and deactivated."
+        ),
         tags=['Technician']
     )
 )
@@ -448,6 +453,15 @@ class TechnicianViewSet(BaseModelViewSet):
             ),
         ).annotate(
             active_jobs=Count('jobcards', filter=Q(jobcards__status__iexact='On Process'))
+        )
+
+    def perform_destroy(self, instance):
+        tech_label = f"{instance.name} ({instance.mobile})"
+        TechnicianService.permanently_delete_technician(instance)
+        log_activity(
+            self.request.user,
+            "Deleted Technician",
+            details=f"Permanently deleted technician: {tech_label}",
         )
 
     @action(detail=True, methods=['get', 'post'], url_path='remarks')
