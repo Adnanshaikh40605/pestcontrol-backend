@@ -126,26 +126,106 @@ class CustomerApiTests(TestCase):
         self.assertIn('access', login.data)
 
     @override_settings(DEBUG=True, CUSTOMER_OTP_FIXED='1234')
+    def test_register_otp_is_idempotent_when_account_already_exists(self):
+        """If account exists mid-register, verifying register OTP still returns tokens."""
+        from customer.models import CustomerAccount, CustomerOTPChallenge
+        from core.models import Client
+
+        client = Client.objects.create(full_name='Existing', mobile='9000111555')
+        CustomerAccount.objects.create(
+            client=client,
+            mobile='9000111555',
+            full_name='Existing',
+            is_active=True,
+        )
+        send = self.api.post(
+            '/api/customer/otp/send/',
+            {'mobile': '9000111555', 'purpose': 'register', 'full_name': 'Existing'},
+            format='json',
+        )
+        # Send should reject already-registered mobiles.
+        self.assertEqual(send.status_code, 400, send.data)
+
+        # Simulate a leftover open register challenge (legacy race).
+        from django.utils import timezone
+        from datetime import timedelta
+        from django.contrib.auth.hashers import make_password
+
+        ch = CustomerOTPChallenge.objects.create(
+            mobile='9000111555',
+            purpose='register',
+            full_name='Existing',
+            otp_hash=make_password('1234'),
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        verify = self.api.post(
+            '/api/customer/otp/verify/',
+            {'mobile': '9000111555', 'otp': '1234', 'purpose': 'register', 'full_name': 'Existing'},
+            format='json',
+        )
+        self.assertEqual(verify.status_code, 200, verify.data)
+        self.assertIn('access', verify.data)
+        ch.refresh_from_db()
+        self.assertIsNotNone(ch.consumed_at)
+
+    @override_settings(DEBUG=True, CUSTOMER_OTP_FIXED='1234')
+    def test_login_otp_unregistered_does_not_consume_challenge(self):
+        """Login OTP send for unknown mobile fails before creating a challenge."""
+        from customer.models import CustomerOTPChallenge
+
+        send = self.api.post(
+            '/api/customer/otp/send/',
+            {'mobile': '9000999777', 'purpose': 'login'},
+            format='json',
+        )
+        self.assertEqual(send.status_code, 404, send.data)
+        self.assertEqual(send.data.get('code'), 'not_registered')
+        self.assertFalse(
+            CustomerOTPChallenge.objects.filter(mobile='9000999777', purpose='login').exists()
+        )
+
+    @override_settings(DEBUG=True, CUSTOMER_OTP_FIXED='1234')
     def test_login_otp_unregistered_mobile_can_verify_then_register(self):
-        """Login OTP is allowed without an account; verify returns not_registered."""
+        """Login OTP is blocked for unknown mobiles; lookup points to register."""
+        lookup = self.api.post(
+            '/api/customer/mobile/lookup/',
+            {'mobile': '9000999888'},
+            format='json',
+        )
+        self.assertEqual(lookup.status_code, 200, lookup.data)
+        self.assertFalse(lookup.data.get('registered'))
+        self.assertEqual(lookup.data.get('action'), 'register')
+
         send = self.api.post(
             '/api/customer/otp/send/',
             {'mobile': '9000999888', 'purpose': 'login'},
             format='json',
         )
-        self.assertEqual(send.status_code, 200, send.data)
+        self.assertEqual(send.status_code, 404, send.data)
+        self.assertEqual(send.data.get('code'), 'not_registered')
+        self.assertEqual(send.data.get('action'), 'register')
+        self.assertIn('registered', send.data.get('error', '').lower())
 
-        verify = self.api.post(
-            '/api/customer/otp/verify/',
-            {'mobile': '9000999888', 'otp': '1234', 'purpose': 'login'},
+    @override_settings(DEBUG=True, CUSTOMER_OTP_FIXED='1234')
+    def test_mobile_lookup_registered(self):
+        from core.models import Client
+        from customer.models import CustomerAccount
+
+        client = Client.objects.create(full_name='Lookup User', mobile='9000111666')
+        CustomerAccount.objects.create(
+            client=client,
+            mobile='9000111666',
+            full_name='Lookup User',
+            is_active=True,
+        )
+        res = self.api.post(
+            '/api/customer/mobile/lookup/',
+            {'mobile': '9000111666'},
             format='json',
         )
-        self.assertEqual(verify.status_code, 404, verify.data)
-        self.assertEqual(verify.data.get('code'), 'not_registered')
-        self.assertEqual(verify.data.get('action'), 'register')
-        self.assertEqual(verify.data.get('mobile'), '9000999888')
-        self.assertIn('No account found', verify.data.get('error', ''))
-        self.assertIn('register', verify.data.get('error', '').lower())
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertTrue(res.data.get('registered'))
+        self.assertEqual(res.data.get('action'), 'login')
 
     def test_catalog_lists_rates_with_package_tiers(self):
         res = self.api.get('/api/customer/catalog/')

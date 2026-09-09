@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
+import '../../core/api_exception.dart';
 import '../../core/models/booking_type.dart';
 import '../../core/routing/booking_open_args.dart';
 import '../../core/theme/app_colors.dart';
@@ -80,6 +81,13 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
       await _fetchLatest(silent: false);
     } catch (e) {
       if (mounted) {
+        if (isPartnerSessionExpiredError(e)) {
+          setState(() {
+            _error = null;
+            _loading = false;
+          });
+          return;
+        }
         setState(() {
           _error = userErrorMessage(e, fallback: 'Could not load booking.');
           _loading = false;
@@ -110,6 +118,15 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+      if (isPartnerSessionExpiredError(e)) {
+        if (!silent) {
+          setState(() {
+            _error = null;
+            _loading = false;
+          });
+        }
+        return;
+      }
       if (!silent) {
         setState(() {
           _error = userErrorMessage(e, fallback: 'Could not load booking.');

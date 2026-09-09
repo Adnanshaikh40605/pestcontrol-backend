@@ -11,15 +11,26 @@ import '../shared/widgets/pc99_widgets.dart';
 
 /// Login — mobile number only, then 4-digit OTP.
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.initialMobile = ''});
+
+  final String initialMobile;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _mobile = TextEditingController();
+  late final TextEditingController _mobile;
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final digits = widget.initialMobile.replaceAll(RegExp(r'\D'), '');
+    _mobile = TextEditingController(
+      text: digits.length > 10 ? digits.substring(digits.length - 10) : digits,
+    );
+  }
 
   @override
   void dispose() {
@@ -27,61 +38,59 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  Future<void> _sendOtp() async {
+  Future<void> _continue() async {
     final mobile = _mobile.text.replaceAll(RegExp(r'\D'), '');
     if (mobile.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid 10-digit mobile number'), backgroundColor: AppColors.danger),
+        const SnackBar(
+          content: Text('Enter a valid 10-digit mobile number'),
+          backgroundColor: AppColors.danger,
+        ),
       );
       return;
     }
+
     setState(() => _busy = true);
-    final result = await context.read<AuthProvider>().sendOtp(mobile: mobile, purpose: 'login');
+    final result = await context.read<AuthProvider>().continueWithMobile(mobile);
     if (!mounted) return;
-    setState(() => _busy = false);
+
     if (!result.ok) {
-      final err = result.error ?? 'Could not send OTP';
-      final lower = err.toLowerCase();
-      final looksUnregistered = lower.contains('no account') ||
-          lower.contains('not registered') ||
-          lower.contains('register first') ||
-          lower.contains('register to continue');
-      if (looksUnregistered) {
-        final goRegister = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('No account found'),
-            content: Text(
-              err.contains('register')
-                  ? err
-                  : 'No account found with this mobile number. Please register to continue.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('Register'),
-              ),
-            ],
-          ),
-        );
-        if (!mounted) return;
-        if (goRegister == true) {
-          context.go('/register', extra: {'mobile': mobile});
-        }
-        return;
-      }
+      setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(err), backgroundColor: AppColors.danger),
+        SnackBar(
+          content: Text(result.error ?? 'Something went wrong. Please try again.'),
+          backgroundColor: AppColors.danger,
+        ),
       );
       return;
     }
+
+    if (!result.registered) {
+      setState(() => _busy = false);
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.clearSnackBars();
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text("This number isn't registered yet. Let's create your account."),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(milliseconds: 1800),
+          margin: EdgeInsets.fromLTRB(16, 0, 16, 16),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      if (!mounted) return;
+      context.go('/register', extra: {'mobile': mobile});
+      return;
+    }
+
+    setState(() => _busy = false);
     if (kDebugMode && result.devOtp != null && result.devOtp!.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('OTP sent · use ${result.devOtp} to verify'), backgroundColor: AppColors.primary),
+        SnackBar(
+          content: Text('OTP sent · use ${result.devOtp} to verify'),
+          backgroundColor: AppColors.primary,
+        ),
       );
     }
     context.push('/otp', extra: {
@@ -121,7 +130,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Enter your mobile number. We will send a WhatsApp OTP.',
+                'Enter your mobile number to continue.',
                 style: TextStyle(fontSize: 14, color: AppColors.textMuted),
               ),
               const SizedBox(height: 28),
@@ -158,7 +167,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 18),
-              Pc99PrimaryButton(label: 'Send OTP', onPressed: _sendOtp, busy: _busy),
+              Pc99PrimaryButton(label: 'Continue', onPressed: _continue, busy: _busy),
               const Spacer(),
               Center(
                 child: TextButton(
@@ -270,13 +279,23 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
           mobile: widget.mobile,
           otp: _otp,
           purpose: widget.purpose,
-          fullName: widget.fullName,
+          fullName: widget.fullName.isNotEmpty
+              ? widget.fullName
+              : (context.read<AuthProvider>().pendingRegisterName ?? ''),
         );
     if (!mounted) return;
     setState(() => _busy = false);
     if (result.ok) {
+      // One successful OTP completes auth. Never bounce to Login.
       final next = context.read<AuthProvider>().takePendingRoute();
-      context.go(next ?? '/home');
+      final dest = (next != null &&
+              next.isNotEmpty &&
+              next != '/login' &&
+              next != '/register' &&
+              next != '/otp')
+          ? next
+          : '/home';
+      context.go(dest);
       return;
     }
 

@@ -204,26 +204,8 @@ class ApiClient {
     try {
       final options = await _options(auth, json: json);
       final res = await call(options);
-      if (auth && res.statusCode == 401 && !retried) {
-        final refreshed = await _refreshTokens();
-        if (refreshed) {
-          return _request(
-            call,
-            path: path,
-            method: method,
-            auth: auth,
-            retried: true,
-            json: json,
-          );
-        }
-        await _expireSession();
-        throw ApiException(_sessionExpiredMessage, statusCode: 401);
-      }
-      return _decode(res, path: path, method: method);
-    } on DioException catch (e) {
-      if (e.response != null) {
-        final res = e.response!;
-        if (auth && res.statusCode == 401 && !retried) {
+      if (auth && res.statusCode == 401) {
+        if (!retried) {
           final refreshed = await _refreshTokens();
           if (refreshed) {
             return _request(
@@ -235,7 +217,29 @@ class ApiClient {
               json: json,
             );
           }
-          await _expireSession();
+        }
+        await _expireSession(_messageFromUnauthorized(res) ?? _sessionExpiredMessage);
+        throw ApiException(_sessionExpiredMessage, statusCode: 401);
+      }
+      return _decode(res, path: path, method: method);
+    } on DioException catch (e) {
+      if (e.response != null) {
+        final res = e.response!;
+        if (auth && res.statusCode == 401) {
+          if (!retried) {
+            final refreshed = await _refreshTokens();
+            if (refreshed) {
+              return _request(
+                call,
+                path: path,
+                method: method,
+                auth: auth,
+                retried: true,
+                json: json,
+              );
+            }
+          }
+          await _expireSession(_messageFromUnauthorized(res) ?? _sessionExpiredMessage);
           throw ApiException(_sessionExpiredMessage, statusCode: 401);
         }
         return _decode(res, path: path, method: method);
@@ -308,11 +312,20 @@ class ApiClient {
     }
   }
 
-  Future<void> _expireSession() async {
+  Future<void> _expireSession([String? message]) async {
     await clearSession();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('partner_app_approved');
-    _session?.notifySessionExpired(_sessionExpiredMessage);
+    _session?.notifySessionExpired(message ?? _sessionExpiredMessage);
+  }
+
+  String? _messageFromUnauthorized(Response<dynamic> res) {
+    final data = res.data;
+    if (data is Map) {
+      final detail = data['detail'] ?? data['error'] ?? data['message'];
+      if (detail is String && detail.trim().isNotEmpty) return detail.trim();
+    }
+    return null;
   }
 
   Future<Options> _options(bool auth, {bool json = true}) async {
@@ -324,6 +337,7 @@ class ApiClient {
         if (DebugConfig.enabled) {
           DebugLogStore.instance.logAuth('Missing access token');
         }
+        await _expireSession();
         throw ApiException(_sessionExpiredMessage, statusCode: 401);
       }
       headers['Authorization'] = 'Bearer $token';

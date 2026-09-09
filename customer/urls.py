@@ -9,6 +9,7 @@ urlpatterns = [
     path('login/', apis.LoginAPIView.as_view(), name='login'),
     path('otp/send/', apis.SendOTPAPIView.as_view(), name='otp-send'),
     path('otp/verify/', apis.VerifyOTPAPIView.as_view(), name='otp-verify'),
+    path('mobile/lookup/', apis.MobileLookupAPIView.as_view(), name='mobile-lookup'),
     path('token/refresh/', apis.RefreshTokenAPIView.as_view(), name='token-refresh'),
     path('profile/', apis.ProfileAPIView.as_view(), name='profile'),
     path('profile/delete/', apis.DeleteAccountAPIView.as_view(), name='profile-delete'),

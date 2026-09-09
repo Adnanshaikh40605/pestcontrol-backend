@@ -43,7 +43,7 @@ class HomeDashboardScreen extends StatelessWidget {
     final flow = context.read<BookingFlowProvider>();
     flow.resetFlow();
     if (serviceId != null) {
-      flow.selectOnlyService(serviceId);
+      flow.beginWithService(serviceId);
     }
     final route = serviceId == null
         ? '/book/property'

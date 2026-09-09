@@ -8,12 +8,17 @@ class AvailableBookingsResult {
     this.isSuspended = false,
     this.suspendReason = '',
     this.message = '',
+    this.manualAssignOnly = false,
   });
 
   final List<PartnerBooking> bookings;
   final bool isSuspended;
   final String suspendReason;
   final String message;
+
+  /// Secondary technicians get their work assigned by the office instead of
+  /// from the open pool, so an empty list here is normal, not a failure.
+  final bool manualAssignOnly;
 }
 
 class BookingService {
@@ -36,6 +41,7 @@ class BookingService {
       isSuspended: data['is_suspended'] == true,
       suspendReason: (data['suspend_reason'] as String?) ?? '',
       message: (data['message'] as String?) ?? '',
+      manualAssignOnly: data['manual_assign_only'] == true,
     );
   }
 

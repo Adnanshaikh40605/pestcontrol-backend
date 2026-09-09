@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/api_client.dart';
+import '../../core/api_exception.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/user_error.dart';
@@ -45,6 +46,13 @@ class _LeaveRequestsScreenState extends State<LeaveRequestsScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+      if (isPartnerSessionExpiredError(e)) {
+        setState(() {
+          _error = null;
+          _loading = false;
+        });
+        return;
+      }
       setState(() {
         _error = userErrorMessage(e, fallback: 'Could not load leave requests.');
         _loading = false;

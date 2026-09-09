@@ -35,13 +35,16 @@ class AuthProvider extends ChangeNotifier {
 
   void _onSessionEvent() {
     final msg = _session.sessionExpiredMessage;
-    if (msg != null && _loggedIn) {
-      _sessionExpiredMessage = msg;
-      _loggedIn = false;
-      _appApproved = false;
-      _partnerName = null;
-      notifyListeners();
-    }
+    if (msg == null || msg.isEmpty) return;
+
+    // Always clear local auth state so GoRouter redirects to Login.
+    _sessionExpiredMessage = msg;
+    _loggedIn = false;
+    _appApproved = false;
+    _partnerName = null;
+    _error = null;
+    _initFuture = null;
+    notifyListeners();
   }
 
   Future<void>? _initFuture;
@@ -195,7 +198,9 @@ class AuthProvider extends ChangeNotifier {
     _loggedIn = false;
     _appApproved = false;
     _partnerName = null;
+    _sessionExpiredMessage = null;
     _session.clearMessage();
+    _initFuture = null;
     notifyListeners();
   }
 

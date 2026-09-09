@@ -33,6 +33,7 @@ from .serializers import (
     CustomerLocationSerializer,
     CustomerOTPSendSerializer,
     CustomerOTPVerifySerializer,
+    CustomerMobileLookupSerializer,
     CustomerPaymentConfirmSerializer,
     CustomerProfileSerializer,
     CustomerProfileUpdateSerializer,
@@ -122,6 +123,27 @@ def _generate_customer_otp(mobile: str = '') -> str:
     return f'{secrets.randbelow(10000):04d}'
 
 
+class MobileLookupAPIView(CustomerPublicAPIView):
+    """Check whether a mobile already has a customer account (no OTP sent)."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=['Customer Auth'], summary='Lookup whether mobile is registered')
+    def post(self, request):
+        serializer = CustomerMobileLookupSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'errors': serializer.errors}, status=400)
+        mobile = serializer.validated_data['mobile']
+        registered = CustomerAccount.objects.filter(mobile=mobile, is_active=True).exists()
+        return Response(
+            {
+                'mobile': mobile,
+                'registered': registered,
+                'action': 'login' if registered else 'register',
+            }
+        )
+
+
 class SendOTPAPIView(CustomerPublicAPIView):
     permission_classes = [AllowAny]
 
@@ -135,12 +157,28 @@ class SendOTPAPIView(CustomerPublicAPIView):
         full_name = serializer.validated_data.get('full_name') or ''
 
         exists = CustomerAccount.objects.filter(mobile=mobile).exists()
-        # Allow login OTP even when no account exists — verify step returns
-        # not_registered with a clear register CTA (better UX than blocking send).
         if purpose == CustomerOTPChallenge.PURPOSE_REGISTER and exists:
             return Response(
-                {'error': 'An account with this mobile already exists. Please login.', 'code': 'already_registered'},
+                {
+                    'error': 'An account with this mobile already exists. Please login.',
+                    'code': 'already_registered',
+                    'mobile': mobile,
+                    'action': 'login',
+                },
                 status=400,
+            )
+        if purpose == CustomerOTPChallenge.PURPOSE_LOGIN and not exists:
+            # Do not send a login OTP for unknown numbers — app should open Register.
+            return Response(
+                {
+                    'error': (
+                        "This number isn't registered yet. Let's create your account."
+                    ),
+                    'code': 'not_registered',
+                    'mobile': mobile,
+                    'action': 'register',
+                },
+                status=404,
             )
 
         otp = _generate_customer_otp(mobile)
@@ -222,35 +260,63 @@ class VerifyOTPAPIView(CustomerPublicAPIView):
             .first()
         )
         if not challenge:
-            return Response({'error': 'OTP expired or not found. Please request a new OTP.', 'code': 'otp_missing'}, status=400)
+            return Response(
+                {'error': 'OTP expired or not found. Please request a new OTP.', 'code': 'otp_missing'},
+                status=400,
+            )
         if challenge.is_expired:
-            return Response({'error': 'OTP expired. Please request a new OTP.', 'code': 'otp_expired'}, status=400)
+            return Response(
+                {'error': 'OTP expired. Please request a new OTP.', 'code': 'otp_expired'},
+                status=400,
+            )
         if challenge.attempts >= 5:
-            return Response({'error': 'Too many incorrect attempts. Request a new OTP.', 'code': 'otp_locked'}, status=400)
+            return Response(
+                {'error': 'Too many incorrect attempts. Request a new OTP.', 'code': 'otp_locked'},
+                status=400,
+            )
 
         if not challenge.check_otp(otp):
             challenge.attempts += 1
             challenge.save(update_fields=['attempts'])
             return Response({'error': 'Invalid OTP. Please try again.', 'code': 'otp_invalid'}, status=400)
 
-        challenge.consumed_at = timezone.now()
-        challenge.save(update_fields=['consumed_at'])
-
+        # Resolve account BEFORE consuming OTP so failures can retry the same code.
         if purpose == CustomerOTPChallenge.PURPOSE_REGISTER:
-            name = full_name or challenge.full_name
-            if len(name.strip()) < 2:
-                return Response({'error': 'Name is required to create an account.', 'code': 'name_required'}, status=400)
-            reg = CustomerRegisterSerializer(
-                data={'full_name': name.strip(), 'mobile': mobile, 'password': ''}
+            name = (full_name or challenge.full_name or '').strip()
+            if len(name) < 2:
+                return Response(
+                    {'error': 'Name is required to create an account.', 'code': 'name_required'},
+                    status=400,
+                )
+            existing = (
+                CustomerAccount.objects.select_related('client').filter(mobile=mobile).first()
             )
-            if not reg.is_valid():
-                return Response({'errors': reg.errors}, status=400)
-            account = reg.save()
-            message = 'Registered successfully.'
+            if existing is not None:
+                # Idempotent: account already created (e.g. prior verify succeeded
+                # but the app failed to persist tokens). Authenticate immediately.
+                if not existing.is_active:
+                    return Response({'error': 'Account deactivated.', 'code': 'inactive'}, status=403)
+                account = existing
+                if name and existing.full_name != name:
+                    existing.full_name = name
+                    existing.save(update_fields=['full_name'])
+                    if existing.client_id and existing.client.full_name != name:
+                        existing.client.full_name = name
+                        existing.client.save(update_fields=['full_name', 'updated_at'])
+                message = 'Registered successfully.'
+            else:
+                reg = CustomerRegisterSerializer(
+                    data={'full_name': name, 'mobile': mobile, 'password': ''}
+                )
+                if not reg.is_valid():
+                    return Response({'errors': reg.errors}, status=400)
+                account = reg.save()
+                message = 'Registered successfully.'
         else:
             try:
                 account = CustomerAccount.objects.select_related('client').get(mobile=mobile)
             except CustomerAccount.DoesNotExist:
+                # Do NOT consume OTP — user can register and request a new register OTP.
                 return Response(
                     {
                         'error': (
@@ -266,6 +332,9 @@ class VerifyOTPAPIView(CustomerPublicAPIView):
             if not account.is_active:
                 return Response({'error': 'Account deactivated.', 'code': 'inactive'}, status=403)
             message = 'Login successful.'
+
+        challenge.consumed_at = timezone.now()
+        challenge.save(update_fields=['consumed_at'])
 
         tokens = generate_customer_tokens(account)
         return Response(

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/api_client.dart';
+import '../core/booking_timezone.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
 import '../models/customer_models.dart';
@@ -63,12 +63,8 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   }
 
   String _formatDate(String? raw) {
-    if (raw == null || raw.isEmpty) return 'To be confirmed';
-    try {
-      return DateFormat('EEE, d MMM yyyy · h:mm a').format(DateTime.parse(raw).toLocal());
-    } catch (_) {
-      return raw;
-    }
+    return BookingTimezone.formatSchedule(raw, pattern: 'EEE, d MMM yyyy · h:mm a')
+        .replaceFirst('Unscheduled', 'To be confirmed');
   }
 
   Future<void> _callTechnician(String mobile) async {
@@ -79,11 +75,33 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   }
 
   Future<void> _cancelBooking() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel booking?'),
+        content: Text(
+          'Are you sure you want to cancel booking #${widget.bookingId}?',
+          style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Keep Booking'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Cancel Booking', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     final controller = TextEditingController();
     final reason = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Cancel booking'),
+        title: const Text('Reason for cancellation'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -105,10 +123,10 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Keep booking')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Back')),
           TextButton(
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Cancel booking', style: TextStyle(color: AppColors.danger)),
+            child: const Text('Confirm cancel', style: TextStyle(color: AppColors.danger)),
           ),
         ],
       ),
@@ -135,7 +153,10 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         _cancelling = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Booking cancelled.')),
+        const SnackBar(
+          content: Text('✓ Booking cancelled successfully'),
+          backgroundColor: AppColors.primary,
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -266,6 +287,34 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                             _DetailRow(label: 'Plan', value: b.planTypeLabel!),
                           if (b.customerNotes != null)
                             _DetailRow(label: 'Notes', value: b.customerNotes!),
+                          if (b.canCancel) ...[
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 44,
+                              child: OutlinedButton.icon(
+                                onPressed: _cancelling ? null : _cancelBooking,
+                                icon: _cancelling
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.cancel_outlined, color: AppColors.danger, size: 18),
+                                label: Text(
+                                  _cancelling ? 'Cancelling…' : 'Cancel Booking',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.danger,
+                                  ),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: AppColors.danger),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -399,34 +448,6 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                         ),
                       ),
-                    if (b.canCancel) ...[
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 46,
-                        child: OutlinedButton.icon(
-                          onPressed: _cancelling ? null : _cancelBooking,
-                          icon: _cancelling
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.cancel_outlined, color: AppColors.danger),
-                          label: Text(
-                            _cancelling ? 'Cancelling…' : 'Cancel Booking',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.danger,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: AppColors.danger),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          ),
-                        ),
-                      ),
-                    ],
                     if (b.canRate) ...[
                       const SizedBox(height: 12),
                       OutlinedButton.icon(

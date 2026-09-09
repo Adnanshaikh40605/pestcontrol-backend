@@ -1,4 +1,6 @@
 from decimal import Decimal, InvalidOperation
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from rest_framework import serializers
@@ -73,6 +75,13 @@ class CustomerOTPSendSerializer(serializers.Serializer):
             raise serializers.ValidationError({'full_name': 'Name is required to create an account.'})
         attrs['full_name'] = name
         return attrs
+
+
+class CustomerMobileLookupSerializer(serializers.Serializer):
+    mobile = serializers.CharField(max_length=15)
+
+    def validate_mobile(self, value):
+        return normalize_mobile(value)
 
 
 class CustomerOTPVerifySerializer(serializers.Serializer):
@@ -208,6 +217,10 @@ class CustomerBookSerializer(serializers.Serializer):
     )
     schedule_datetime = serializers.DateTimeField(required=False, allow_null=True)
     time_slot = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+    booking_date = serializers.DateField(required=False, allow_null=True)
+    booking_time = serializers.CharField(max_length=8, required=False, allow_blank=True, default='')
+    timezone = serializers.CharField(max_length=64, required=False, allow_blank=True, default='Asia/Kolkata')
+    place_id = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
     pricing_rate_id = serializers.IntegerField(required=False, allow_null=True)
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     notes = serializers.CharField(required=False, allow_blank=True, default='')
@@ -240,6 +253,39 @@ class CustomerBookSerializer(serializers.Serializer):
                 attrs['city'] = location.city.name
             if not master_city_id:
                 attrs['master_city_id'] = location.city_id
+
+        # Prefer explicit booking_date + booking_time in the booking timezone.
+        # This avoids device UTC conversion mistakes on the client.
+        booking_date = attrs.get('booking_date')
+        booking_time = (attrs.get('booking_time') or '').strip()
+        if booking_date and booking_time:
+            parts = booking_time.split(':')
+            if len(parts) < 2:
+                raise serializers.ValidationError({
+                    'booking_time': 'Use HH:MM in 24-hour format (e.g. 14:30).',
+                })
+            try:
+                hour = int(parts[0])
+                minute = int(parts[1])
+                if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+                    raise ValueError('out of range')
+            except (ValueError, TypeError):
+                raise serializers.ValidationError({
+                    'booking_time': 'Use HH:MM in 24-hour format (e.g. 14:30).',
+                })
+            tz_name = (attrs.get('timezone') or 'Asia/Kolkata').strip() or 'Asia/Kolkata'
+            try:
+                tz = ZoneInfo(tz_name)
+            except Exception:
+                tz = ZoneInfo('Asia/Kolkata')
+            attrs['schedule_datetime'] = datetime(
+                booking_date.year,
+                booking_date.month,
+                booking_date.day,
+                hour,
+                minute,
+                tzinfo=tz,
+            )
         return attrs
 
 

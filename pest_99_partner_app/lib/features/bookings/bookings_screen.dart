@@ -127,46 +127,46 @@ class _BookingsScreenState extends State<BookingsScreen> {
           ),
           const SizedBox(height: AppSpacing.elementGap),
         ],
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'New Bookings',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF111827),
-                        ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Accept new jobs to grow your business',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFF6B7280),
-                        ),
-                  ),
-                ],
-              ),
+        if (bookings.manualAssignOnly && !bookings.isSuspended) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFBE6),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFFFE58F)),
             ),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F4F6),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                '${list.length} ${list.length == 1 ? 'request' : 'requests'}',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: const Color(0xFF374151),
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Office assigns your jobs',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: const Color(0xFFAD6800),
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  bookings.manualAssignMessage.isNotEmpty
+                      ? bookings.manualAssignMessage
+                      : 'New bookings are assigned to you by the office. '
+                          'Check the Accepted tab for your jobs.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF874D00),
+                      ),
+                ),
+              ],
             ),
-          ],
+          ),
+          const SizedBox(height: AppSpacing.elementGap),
+        ],
+        Text(
+          'New Bookings',
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF111827),
+              ),
         ),
         const SizedBox(height: AppSpacing.sectionGap),
         if (list.isEmpty)
@@ -176,7 +176,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
               child: Text(
                 bookings.isSuspended
                     ? 'No bookings available while suspended'
-                    : 'No new bookings right now',
+                    : bookings.manualAssignOnly
+                        ? 'Nothing assigned to you yet'
+                        : 'No new bookings right now',
               ),
             ),
           )

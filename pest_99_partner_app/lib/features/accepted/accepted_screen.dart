@@ -88,24 +88,12 @@ class _AcceptedScreenState extends State<AcceptedScreen> {
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Accepted Jobs',
-                                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                        color: const Color(0xFF111827),
-                                      ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Jobs you’ve accepted and are working on',
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                        color: const Color(0xFF6B7280),
-                                      ),
-                                ),
-                              ],
+                            child: Text(
+                              'Accepted Jobs',
+                              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF111827),
+                                  ),
                             ),
                           ),
                           const SizedBox(width: 10),

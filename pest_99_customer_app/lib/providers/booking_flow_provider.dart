@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../core/booking_timezone.dart';
 import '../models/customer_models.dart';
 
 class ServiceOption {
@@ -59,29 +60,6 @@ class BookingFlowProvider extends ChangeNotifier {
     ServiceOption(id: 'general', name: 'General Pest Control', icon: 'general', matchKeys: ['general']),
   ];
 
-  static const timeSlots = <String>[
-    '10:00 AM',
-    '10:30 AM',
-    '11:00 AM',
-    '11:30 AM',
-    '12:00 PM',
-    '12:30 PM',
-    '01:00 PM',
-    '01:30 PM',
-    '02:00 PM',
-    '02:30 PM',
-    '03:00 PM',
-    '03:30 PM',
-    '04:00 PM',
-    '04:30 PM',
-    '05:00 PM',
-    '05:30 PM',
-    '06:00 PM',
-    '06:30 PM',
-    '07:00 PM',
-    '07:30 PM',
-  ];
-
   /// Plan options allowed per service catalog id.
   static List<String> planOptionsFor(String serviceId) {
     switch (serviceId) {
@@ -109,13 +87,36 @@ class BookingFlowProvider extends ChangeNotifier {
   final Set<String> selectedServiceIds = {};
   final Map<String, bool> planIsAmc = {};
 
-  DateTime selectedDate = DateTime.now().add(const Duration(days: 1));
-  String? selectedSlot = timeSlots.first;
+  /// When set (from Home `?service=` or popular tap), only this service is shown.
+  String? lockedServiceId;
+
+  DateTime selectedDate = BookingTimezone.today();
+  int selectedHour = 10;
+  int selectedMinute = 0;
   CustomerBooking? confirmedBooking;
 
   String serviceAddress = '';
   String serviceCity = '';
   String serviceArea = '';
+  String serviceFullAddress = '';
+  String servicePlaceId = '';
+  int? masterCityId;
+  int? masterLocationId;
+  double? serviceLatitude;
+  double? serviceLongitude;
+
+  BookingFlowProvider() {
+    final t = BookingTimezone.defaultTimeFor(selectedDate);
+    selectedHour = t.$1;
+    selectedMinute = t.$2;
+  }
+
+  /// 12h display label for the selected time (e.g. "02:30 PM").
+  String get selectedSlot => BookingTimezone.format12h(selectedHour, selectedMinute);
+
+  bool get hasValidSelectedTime =>
+      BookingTimezone.isWithinServiceWindow(selectedHour, selectedMinute) &&
+      BookingTimezone.isNotInPast(selectedDate, selectedHour, selectedMinute);
 
   List<CatalogRate> rates = [];
   bool ratesLoading = false;
@@ -149,6 +150,29 @@ class BookingFlowProvider extends ChangeNotifier {
 
   List<ServiceOption> get selectedServices =>
       catalog.where((s) => selectedServiceIds.contains(s.id)).toList();
+
+  bool get isServiceLocked => lockedServiceId != null;
+
+  ServiceOption? get lockedService =>
+      lockedServiceId != null ? serviceById(lockedServiceId!) : null;
+
+  /// Services shown on the booking page — filtered by lock and backend catalog rates.
+  List<ServiceOption> get visibleCatalog {
+    if (lockedServiceId != null) {
+      final locked = serviceById(lockedServiceId!);
+      if (locked != null) return [locked];
+    }
+    return catalogFromRates;
+  }
+
+  /// Catalog entries that have at least one matching CRM rate (when rates are loaded).
+  List<ServiceOption> get catalogFromRates {
+    if (rates.isEmpty) return catalog;
+    final matched = catalog
+        .where((s) => rates.any((r) => _packageMatches(s, r.servicePackage)))
+        .toList();
+    return matched.isNotEmpty ? matched : catalog;
+  }
 
   void setCategory(String category) {
     if (propertyCategory == category) return;
@@ -186,6 +210,12 @@ class BookingFlowProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Start booking from Home with one service locked for the whole flow.
+  void beginWithService(String id) {
+    lockedServiceId = id;
+    selectOnlyService(id);
+  }
+
   /// Start booking flow with a single popular service pre-selected.
   void selectOnlyService(String id) {
     selectedServiceIds
@@ -197,6 +227,14 @@ class BookingFlowProvider extends ChangeNotifier {
     if (options.contains('2_service')) {
       planIsAmc[id] = false;
     }
+    notifyListeners();
+  }
+
+  /// Allow picking a different service (clears Home lock + selection).
+  void unlockServiceSelection() {
+    lockedServiceId = null;
+    selectedServiceIds.clear();
+    planIsAmc.clear();
     notifyListeners();
   }
 
@@ -226,22 +264,74 @@ class BookingFlowProvider extends ChangeNotifier {
 
   void setDate(DateTime date) {
     selectedDate = DateTime(date.year, date.month, date.day);
+    // Keep time if still valid; otherwise bump to a sensible default for the day.
+    if (!hasValidSelectedTime) {
+      final t = BookingTimezone.defaultTimeFor(selectedDate);
+      selectedHour = t.$1;
+      selectedMinute = t.$2;
+    }
     notifyListeners();
   }
 
+  void setTime(int hour24, int minute) {
+    selectedHour = hour24.clamp(0, 23);
+    selectedMinute = minute.clamp(0, 59);
+    notifyListeners();
+  }
+
+  /// Legacy alias — parses a 12h label if needed.
   void setSlot(String slot) {
-    selectedSlot = slot;
-    notifyListeners();
+    final match = RegExp(r'(\d{1,2}):(\d{2})\s*(AM|PM)', caseSensitive: false).firstMatch(slot);
+    if (match == null) return;
+    var hour = int.tryParse(match.group(1)!) ?? 10;
+    final minute = int.tryParse(match.group(2)!) ?? 0;
+    final meridiem = (match.group(3) ?? 'AM').toUpperCase();
+    if (meridiem == 'PM' && hour < 12) hour += 12;
+    if (meridiem == 'AM' && hour == 12) hour = 0;
+    setTime(hour, minute);
   }
 
-  void setServiceAddress({String? address, String? city, String? area}) {
+  void setServiceAddress({
+    String? address,
+    String? city,
+    String? area,
+    String? fullAddress,
+    String? placeId,
+    int? masterCityId,
+    int? masterLocationId,
+    double? latitude,
+    double? longitude,
+    bool clearLocationIds = false,
+    bool clearPlaceId = false,
+  }) {
     if (address != null) serviceAddress = address;
     if (city != null) serviceCity = city;
     if (area != null) serviceArea = area;
+    if (fullAddress != null) serviceFullAddress = fullAddress;
+    if (placeId != null) servicePlaceId = placeId;
+    if (clearPlaceId) servicePlaceId = '';
+    if (clearLocationIds) {
+      this.masterCityId = null;
+      this.masterLocationId = null;
+      serviceArea = '';
+    }
+    if (masterCityId != null) this.masterCityId = masterCityId;
+    if (masterLocationId != null) this.masterLocationId = masterLocationId;
+    if (latitude != null) serviceLatitude = latitude;
+    if (longitude != null) serviceLongitude = longitude;
     notifyListeners();
   }
 
-  bool get hasServiceAddress => serviceAddress.trim().length >= 8;
+  void clearMasterLocation() {
+    masterLocationId = null;
+    serviceArea = '';
+    notifyListeners();
+  }
+
+  bool get hasServiceAddress =>
+      serviceAddress.trim().length >= 5 &&
+      masterCityId != null &&
+      masterLocationId != null;
 
   void setConfirmed(CustomerBooking booking) {
     confirmedBooking = booking;
@@ -272,14 +362,23 @@ class BookingFlowProvider extends ChangeNotifier {
     homeBhk = null;
     commercialType = null;
     customConfig = '';
+    lockedServiceId = null;
     selectedServiceIds.clear();
     planIsAmc.clear();
-    selectedDate = DateTime.now().add(const Duration(days: 1));
-    selectedSlot = timeSlots.first;
+    selectedDate = BookingTimezone.today();
+    final t = BookingTimezone.defaultTimeFor(selectedDate);
+    selectedHour = t.$1;
+    selectedMinute = t.$2;
     confirmedBooking = null;
     serviceAddress = '';
     serviceCity = '';
     serviceArea = '';
+    serviceFullAddress = '';
+    servicePlaceId = '';
+    masterCityId = null;
+    masterLocationId = null;
+    serviceLatitude = null;
+    serviceLongitude = null;
     notifyListeners();
   }
 

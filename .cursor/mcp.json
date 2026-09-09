@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "vercel": {
+      "url": "https://mcp.vercel.com"
+    },
+    "google-play": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@blocktopus/mcp-google-play",
+        "--api-key",
+        "/Users/adnanshaikh/.config/pest99/google-play-service-account.json"
+      ]
+    }
+  }
+}

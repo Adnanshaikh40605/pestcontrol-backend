@@ -1,0 +1,264 @@
+{
+  "project": "PestControl99 - Areas We Serve Section + Local Area Pages",
+  "domain": "pestcontrol99.com",
+  "instruction_for_developer": "Implement two things only: (1) An 'Areas We Serve' section on the homepage before the footer, and (2) Dedicated SEO-friendly area pages for each location. No content needed yet — structure and technical SEO only.",
+
+  "task_1_homepage_section": {
+    "name": "Areas We Serve Section",
+    "placement": "Homepage — directly above the footer",
+    "design": {
+      "layout": "Zone-grouped grid",
+      "zone_heading_style": "Bold label per group e.g. 'Mumbai – Western Suburbs'",
+      "area_links": "Each area name is a clickable hyperlink",
+      "columns_desktop": 4,
+      "columns_mobile": 2,
+      "background": "Light grey or white — distinct from footer"
+    },
+    "section_heading": "Areas We Serve",
+    "section_subheading": "Pest Control Services Across Mumbai, Navi Mumbai, Thane & Lonavala",
+    "zones": [
+      {
+        "zone": "Mumbai – Western Suburbs",
+        "areas": [
+          { "label": "Pest Control Andheri", "url": "/pest-control-andheri/" },
+          { "label": "Pest Control Borivali", "url": "/pest-control-borivali/" },
+          { "label": "Pest Control Kandivali", "url": "/pest-control-kandivali/" },
+          { "label": "Pest Control Malad", "url": "/pest-control-malad/" },
+          { "label": "Pest Control Goregaon", "url": "/pest-control-goregaon/" },
+          { "label": "Pest Control Santacruz", "url": "/pest-control-santacruz/" },
+          { "label": "Pest Control Vile Parle", "url": "/pest-control-vile-parle/" },
+          { "label": "Pest Control Bandra", "url": "/pest-control-bandra/" }
+        ]
+      },
+      {
+        "zone": "Mumbai – Central & Eastern",
+        "areas": [
+          { "label": "Pest Control Dadar", "url": "/pest-control-dadar/" },
+          { "label": "Pest Control Chembur", "url": "/pest-control-chembur/" },
+          { "label": "Pest Control Ghatkopar", "url": "/pest-control-ghatkopar/" },
+          { "label": "Pest Control Mulund", "url": "/pest-control-mulund/" },
+          { "label": "Pest Control Worli", "url": "/pest-control-worli/" },
+          { "label": "Pest Control Powai", "url": "/pest-control-powai/" },
+          { "label": "Pest Control Kurla", "url": "/pest-control-kurla/" },
+          { "label": "Pest Control Wadala", "url": "/pest-control-wadala/" }
+        ]
+      },
+      {
+        "zone": "Navi Mumbai",
+        "areas": [
+          { "label": "Pest Control Vashi", "url": "/pest-control-vashi/" },
+          { "label": "Pest Control Nerul", "url": "/pest-control-nerul/" },
+          { "label": "Pest Control Kharghar", "url": "/pest-control-kharghar/" },
+          { "label": "Pest Control Airoli", "url": "/pest-control-airoli/" },
+          { "label": "Pest Control Belapur", "url": "/pest-control-belapur/" },
+          { "label": "Pest Control Seawoods", "url": "/pest-control-seawoods/" },
+          { "label": "Pest Control Ghansoli", "url": "/pest-control-ghansoli/" },
+          { "label": "Pest Control Ulwe", "url": "/pest-control-ulwe/" }
+        ]
+      },
+      {
+        "zone": "Thane & Mira-Bhayandar Belt",
+        "areas": [
+          { "label": "Pest Control Thane", "url": "/pest-control-thane/" },
+          { "label": "Pest Control Mira Road", "url": "/pest-control-mira-road/" },
+          { "label": "Pest Control Bhayandar", "url": "/pest-control-bhayandar/" },
+          { "label": "Pest Control Vasai", "url": "/pest-control-vasai/" },
+          { "label": "Pest Control Virar", "url": "/pest-control-virar/" },
+          { "label": "Pest Control Bhiwandi", "url": "/pest-control-bhiwandi/" },
+          { "label": "Pest Control Kalyan", "url": "/pest-control-kalyan/" },
+          { "label": "Pest Control Dombivli", "url": "/pest-control-dombivli/" }
+        ]
+      },
+      {
+        "zone": "Beyond Thane",
+        "areas": [
+          { "label": "Pest Control Ambernath", "url": "/pest-control-ambernath/" },
+          { "label": "Pest Control Ulhasnagar", "url": "/pest-control-ulhasnagar/" },
+          { "label": "Pest Control Badlapur", "url": "/pest-control-badlapur/" },
+          { "label": "Pest Control Panvel", "url": "/pest-control-panvel/" },
+          { "label": "Pest Control Kamothe", "url": "/pest-control-kamothe/" },
+          { "label": "Pest Control Taloja", "url": "/pest-control-taloja/" }
+        ]
+      },
+      {
+        "zone": "Lonavala & Pune Belt",
+        "areas": [
+          { "label": "Pest Control Lonavala", "url": "/pest-control-lonavala/" },
+          { "label": "Pest Control Khandala", "url": "/pest-control-khandala/" },
+          { "label": "Pest Control Khopoli", "url": "/pest-control-khopoli/" }
+        ]
+      }
+    ]
+  },
+
+  "task_2_area_pages": {
+    "name": "Dedicated Local Area Pages",
+    "total_pages": 43,
+    "url_pattern": "/pest-control-[area-slug]/",
+    "url_rules": [
+      "All lowercase only",
+      "Hyphens between words — never underscores",
+      "No trailing content after the area name",
+      "Consistent trailing slash — use it everywhere or nowhere, pick one"
+    ],
+    "url_examples": [
+      "/pest-control-andheri/",
+      "/pest-control-mira-road/",
+      "/pest-control-navi-mumbai/",
+      "/pest-control-vile-parle/"
+    ],
+
+    "page_structure": {
+      "note": "No real content yet. Use placeholder text everywhere. Build the structure and SEO scaffolding only.",
+
+      "section_1_hero": {
+        "element": "H1 tag",
+        "pattern": "Pest Control Services in [Area Name]",
+        "example": "Pest Control Services in Andheri",
+        "note": "H1 must contain exact area name — this is critical for local SEO"
+      },
+
+      "section_2_intro": {
+        "element": "Paragraph text",
+        "content": "[CONTENT PLACEHOLDER — 150 words about pest control in this area]",
+        "note": "Leave as placeholder. Content writer will fill later. Must be unique per page."
+      },
+
+      "section_3_services_grid": {
+        "element": "Grid of service cards",
+        "items": [
+          "Cockroach Control",
+          "Termite Control",
+          "Bed Bug Treatment",
+          "Rodent Control",
+          "Mosquito Control",
+          "Ant Control",
+          "General Pest Control"
+        ],
+        "note": "Each card links to /services/[service-slug]/"
+      },
+
+      "section_4_quote_form": {
+        "fields": ["Name", "Phone", "Area (pre-filled with page area)", "Pest Type (dropdown)", "Property Type (dropdown)"],
+        "cta": "Get Free Quote",
+        "action": "WhatsApp redirect with pre-filled message"
+      },
+
+      "section_5_faq": {
+        "element": "FAQ accordion — minimum 5 questions",
+        "content": "[PLACEHOLDER questions and answers — content team will finalize]",
+        "schema": "FAQPage JSON-LD schema must be added to this section",
+        "faq_question_pattern": [
+          "How much does pest control cost in [Area]?",
+          "Which is the best pest control service in [Area]?",
+          "Do you offer same-day pest control in [Area]?",
+          "Is the treatment safe for children and pets?",
+          "How often should I get pest control done in [Area]?"
+        ]
+      },
+
+      "section_6_nearby_areas": {
+        "element": "Linked tags / pill buttons",
+        "label": "Also Serving Nearby Areas",
+        "note": "Show 4-6 nearby area page links. This builds internal linking automatically.",
+        "example_for_andheri": [
+          "/pest-control-borivali/",
+          "/pest-control-kandivali/",
+          "/pest-control-malad/",
+          "/pest-control-santacruz/"
+        ]
+      }
+    },
+
+    "seo_requirements_per_page": {
+      "title_tag": "Pest Control in [Area] | PestControl99 | Call Now",
+      "meta_description": "[PLACEHOLDER — 150 chars with area name, pest control, and call to action]",
+      "canonical_tag": "Self-referencing canonical on every page",
+      "h1": "One H1 only — Pest Control Services in [Area Name]",
+      "breadcrumb": "Home > Areas We Serve > [Area Name]",
+      "robots": "index, follow"
+    },
+
+    "schema_per_page": {
+      "schema_1": {
+        "type": "LocalBusiness",
+        "key_fields": {
+          "name": "PestControl99",
+          "areaServed": "[Area Name], Maharashtra",
+          "telephone": "[PLACEHOLDER: Add phone]",
+          "url": "https://pestcontrol99.com/pest-control-[area-slug]/"
+        }
+      },
+      "schema_2": {
+        "type": "FAQPage",
+        "note": "JSON-LD block for the FAQ section on every area page"
+      },
+      "schema_3": {
+        "type": "BreadcrumbList",
+        "note": "Matches the visible breadcrumb trail on the page"
+      }
+    },
+
+    "internal_linking_rules": [
+      "Every area page links to 4-6 nearby area pages",
+      "Every area page links to all service pages",
+      "Homepage Areas We Serve section links to every area page",
+      "Footer should also list top 10 area links"
+    ]
+  },
+
+  "all_area_urls": [
+    "/pest-control-andheri/",
+    "/pest-control-borivali/",
+    "/pest-control-kandivali/",
+    "/pest-control-malad/",
+    "/pest-control-goregaon/",
+    "/pest-control-santacruz/",
+    "/pest-control-vile-parle/",
+    "/pest-control-bandra/",
+    "/pest-control-dadar/",
+    "/pest-control-chembur/",
+    "/pest-control-ghatkopar/",
+    "/pest-control-mulund/",
+    "/pest-control-worli/",
+    "/pest-control-powai/",
+    "/pest-control-kurla/",
+    "/pest-control-wadala/",
+    "/pest-control-vashi/",
+    "/pest-control-nerul/",
+    "/pest-control-kharghar/",
+    "/pest-control-airoli/",
+    "/pest-control-belapur/",
+    "/pest-control-seawoods/",
+    "/pest-control-ghansoli/",
+    "/pest-control-ulwe/",
+    "/pest-control-thane/",
+    "/pest-control-mira-road/",
+    "/pest-control-bhayandar/",
+    "/pest-control-vasai/",
+    "/pest-control-virar/",
+    "/pest-control-bhiwandi/",
+    "/pest-control-kalyan/",
+    "/pest-control-dombivli/",
+    "/pest-control-ambernath/",
+    "/pest-control-ulhasnagar/",
+    "/pest-control-badlapur/",
+    "/pest-control-panvel/",
+    "/pest-control-kamothe/",
+    "/pest-control-taloja/",
+    "/pest-control-lonavala/",
+    "/pest-control-khandala/",
+    "/pest-control-khopoli/",
+    "/pest-control-mumbra/",
+    "/pest-control-diva/"
+  ],
+
+  "what_NOT_to_do": [
+    "Do NOT write duplicate content across area pages — use placeholders for now",
+    "Do NOT use underscores in URLs — use hyphens only",
+    "Do NOT put two H1 tags on any page",
+    "Do NOT skip the FAQPage schema — it is required for AI Overview visibility",
+    "Do NOT link area pages to external sites in the nearby areas section",
+    "Do NOT create a single page listing all areas as text — each area MUST have its own dedicated URL"
+  ]
+}

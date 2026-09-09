@@ -50,3 +50,6 @@ app.*.map.json
 *.aab
 android/key.properties
 android/upload-keystore.jks
+
+# Android local SDK path
+**/local.properties

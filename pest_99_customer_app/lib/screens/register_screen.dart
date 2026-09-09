@@ -40,39 +40,80 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  Future<void> _redirectToLogin(String mobile) async {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        content: const Text(
+          'Welcome back! This number is already registered. Redirecting to Login…',
+        ),
+        backgroundColor: AppColors.primary,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1800),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 1500));
+    if (!mounted) return;
+    context.go('/login', extra: {'mobile': mobile});
+  }
+
   Future<void> _submit() async {
     final name = _name.text.trim();
     final mobile = _mobile.text.trim();
     if (name.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your name'), backgroundColor: AppColors.danger),
+        const SnackBar(
+          content: Text('Please enter your name'),
+          backgroundColor: AppColors.danger,
+        ),
       );
       return;
     }
     if (mobile.length != 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid 10-digit mobile number'), backgroundColor: AppColors.danger),
+        const SnackBar(
+          content: Text('Enter a valid 10-digit mobile number'),
+          backgroundColor: AppColors.danger,
+        ),
       );
       return;
     }
 
     setState(() => _busy = true);
-    final result = await context.read<AuthProvider>().sendOtp(
-          mobile: mobile,
-          purpose: 'register',
-          fullName: name,
-        );
+    final auth = context.read<AuthProvider>();
+    auth.setRegistrationDraft(fullName: name, mobile: mobile);
+    final result = await auth.sendOtp(
+      mobile: mobile,
+      purpose: 'register',
+      fullName: name,
+    );
     if (!mounted) return;
-    setState(() => _busy = false);
+
     if (!result.ok) {
+      setState(() => _busy = false);
+      if (result.alreadyRegistered) {
+        await _redirectToLogin(mobile);
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result.error ?? 'Could not send OTP'), backgroundColor: AppColors.danger),
+        SnackBar(
+          content: Text(result.error ?? 'Could not send OTP'),
+          backgroundColor: AppColors.danger,
+        ),
       );
       return;
     }
+
+    setState(() => _busy = false);
     if (kDebugMode && result.devOtp != null && result.devOtp!.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('OTP sent · use ${result.devOtp} to verify'), backgroundColor: AppColors.primary),
+        SnackBar(
+          content: Text('OTP sent · use ${result.devOtp} to verify'),
+          backgroundColor: AppColors.primary,
+        ),
       );
     }
     context.push('/otp', extra: {
@@ -143,7 +184,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: 12),
             Center(
               child: TextButton(
-                onPressed: () => context.go('/login'),
+                onPressed: _busy
+                    ? null
+                    : () => context.go('/login', extra: {
+                          'mobile': _mobile.text.trim(),
+                        }),
                 child: const Text.rich(
                   TextSpan(
                     text: 'Already have an account? ',

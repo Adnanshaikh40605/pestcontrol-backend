@@ -1,9 +1,10 @@
 class ApiException implements Exception {
-  ApiException(this.message, {this.statusCode, this.code});
+  ApiException(this.message, {this.statusCode, this.code, this.action});
 
   final String message;
   final int? statusCode;
   final String? code;
+  final String? action;
 
   @override
   String toString() => message;
@@ -12,7 +13,12 @@ class ApiException implements Exception {
     if (body == null) return ApiException('Request failed ($status)', statusCode: status);
     final error = body['error'] ?? body['message'] ?? body['detail'];
     if (error is String) {
-      return ApiException(error, statusCode: status, code: body['code'] as String?);
+      return ApiException(
+        error,
+        statusCode: status,
+        code: body['code'] as String?,
+        action: body['action'] as String?,
+      );
     }
     final errors = body['errors'];
     if (errors is Map) {

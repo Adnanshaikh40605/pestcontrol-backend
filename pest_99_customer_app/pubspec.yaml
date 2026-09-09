@@ -1,7 +1,7 @@
 name: pest_99_customer_app
 description: Pest Control 99 — Customer App
 publish_to: 'none'
-version: 1.0.6+7
+version: 1.0.11+12
 
 environment:
   sdk: ^3.11.0
@@ -23,6 +23,8 @@ dependencies:
   pdf: ^3.13.0
   printing: ^5.15.0
   flutter_native_splash: ^2.4.6
+  geolocator: ^13.0.2
+  permission_handler: ^11.4.0
 
 dev_dependencies:
   flutter_test:

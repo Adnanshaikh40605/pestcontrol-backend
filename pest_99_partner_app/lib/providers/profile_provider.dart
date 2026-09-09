@@ -40,9 +40,17 @@ class ProfileProvider extends ChangeNotifier {
       _profile = PartnerProfile.fromProfileResponse(data);
       _error = null;
     } on ApiException catch (e) {
-      _error = userErrorMessage(e, fallback: 'Could not load profile.');
+      if (e.isSessionExpired) {
+        _error = null;
+      } else {
+        _error = userErrorMessage(e, fallback: 'Could not load profile.');
+      }
     } catch (e) {
-      _error = userErrorMessage(e, fallback: 'Could not load profile.');
+      if (isPartnerSessionExpiredError(e)) {
+        _error = null;
+      } else {
+        _error = userErrorMessage(e, fallback: 'Could not load profile.');
+      }
       if (kDebugMode) debugPrint('Profile load error: $e');
     } finally {
       _loading = false;
@@ -80,9 +88,17 @@ class ProfileProvider extends ChangeNotifier {
       _error = null;
       return true;
     } on ApiException catch (e) {
+      if (e.isSessionExpired) {
+        _error = null;
+        return false;
+      }
       _error = userErrorMessage(e, fallback: 'Could not save profile.');
       return false;
     } catch (e) {
+      if (isPartnerSessionExpiredError(e)) {
+        _error = null;
+        return false;
+      }
       _error = userErrorMessage(e, fallback: 'Could not save profile.');
       if (kDebugMode) debugPrint('Profile update error: $e');
       return false;

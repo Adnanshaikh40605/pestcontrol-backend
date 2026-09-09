@@ -75,10 +75,12 @@ def _parse_address_components(components: list[dict[str, Any]]) -> dict[str, str
 
     street_parts = [part for part in (street_number, route) if part]
     street_line = ' '.join(street_parts).strip()
+    # Prefer locality (e.g. Mumbai) over admin districts (e.g. Konkan Division).
+    preferred_city = locality or city_hint
     return {
         'sublocality': sublocality,
         'locality': locality,
-        'city_hint': city_hint or locality,
+        'city_hint': preferred_city,
         'street_line': street_line,
     }
 
@@ -110,7 +112,7 @@ def _resolved_place_from_result(result: dict[str, Any]) -> dict[str, Any]:
 
 def places_autocomplete(input_text: str) -> list[dict[str, str]]:
     query = (input_text or '').strip()
-    if len(query) < 3:
+    if len(query) < 2:
         return []
     payload = _google_get(
         'place/autocomplete/json',

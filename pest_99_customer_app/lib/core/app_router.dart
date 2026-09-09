@@ -35,8 +35,16 @@ class AppRouter {
         }
 
         if (_auth.loggedIn && onAuth) {
+          // Prefer a real post-auth destination; never loop auth screens.
           final next = _auth.takePendingRoute();
-          return next ?? '/home';
+          if (next != null &&
+              next.isNotEmpty &&
+              next != '/login' &&
+              next != '/register' &&
+              next != '/otp') {
+            return next;
+          }
+          return '/home';
         }
         return null;
       },
@@ -45,7 +53,19 @@ class AppRouter {
           path: '/splash',
           pageBuilder: (_, _) => const NoTransitionPage(child: SplashScreen()),
         ),
-        GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
+        GoRoute(
+          path: '/login',
+          builder: (_, state) {
+            final extra = state.extra;
+            String mobile = '';
+            if (extra is Map) {
+              mobile = '${extra['mobile'] ?? ''}';
+            } else if (extra is String) {
+              mobile = extra;
+            }
+            return LoginScreen(initialMobile: mobile);
+          },
+        ),
         GoRoute(
           path: '/register',
           builder: (_, state) {

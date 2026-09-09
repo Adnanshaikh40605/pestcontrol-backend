@@ -1,5 +1,6 @@
 import '../config/api_config.dart';
 import '../core/api_client.dart';
+import '../core/api_exception.dart';
 import '../models/customer_models.dart';
 
 class AuthService {
@@ -22,6 +23,14 @@ class AuthService {
     );
   }
 
+  Future<Map<String, dynamic>> lookupMobile(String mobile) {
+    return _api.post(
+      ApiConfig.mobileLookup,
+      auth: false,
+      body: {'mobile': mobile},
+    );
+  }
+
   Future<CustomerProfile> verifyOtp({
     required String mobile,
     required String otp,
@@ -38,11 +47,25 @@ class AuthService {
         if (fullName.isNotEmpty) 'full_name': fullName,
       },
     );
-    await _api.saveTokens(
-      access: data['access'] as String,
-      refresh: data['refresh'] as String,
-    );
-    return CustomerProfile.fromJson(data['customer'] as Map<String, dynamic>);
+    final access = '${data['access'] ?? ''}';
+    final refresh = '${data['refresh'] ?? ''}';
+    if (access.isEmpty || refresh.isEmpty) {
+      throw ApiException(
+        'Verification succeeded but login tokens were missing. Please try again.',
+        code: 'tokens_missing',
+      );
+    }
+    await _api.saveTokens(access: access, refresh: refresh);
+
+    final customerRaw = data['customer'];
+    if (customerRaw is Map<String, dynamic>) {
+      return CustomerProfile.fromJson(customerRaw);
+    }
+    if (customerRaw is Map) {
+      return CustomerProfile.fromJson(Map<String, dynamic>.from(customerRaw));
+    }
+    // Tokens are saved — profile can be loaded next; keep session alive.
+    return CustomerProfile(id: 0, fullName: fullName, mobile: mobile);
   }
 
   Future<void> logout() => _api.clearTokens();
@@ -81,6 +104,25 @@ class CatalogService {
     final raw = data['results'];
     if (raw is! List) return [];
     return raw.whereType<Map<String, dynamic>>().map(CatalogRate.fromJson).toList();
+  }
+}
+
+class MasterDataService {
+  MasterDataService(this._api);
+  final ApiClient _api;
+
+  Future<List<MasterCity>> listCities() async {
+    final data = await _api.get(ApiConfig.cities, auth: false);
+    final raw = data['results'];
+    if (raw is! List) return [];
+    return raw.whereType<Map<String, dynamic>>().map(MasterCity.fromJson).toList();
+  }
+
+  Future<List<MasterLocation>> listLocations(int cityId) async {
+    final data = await _api.get(ApiConfig.locationsForCity(cityId), auth: false);
+    final raw = data['results'];
+    if (raw is! List) return [];
+    return raw.whereType<Map<String, dynamic>>().map(MasterLocation.fromJson).toList();
   }
 }
 
@@ -126,14 +168,23 @@ class BookingService {
     required int pricingRateId,
     required String packageTier,
     required String address,
+    String fullAddress = '',
     String city = '',
     String area = '',
+    int? masterCityId,
+    int? masterLocationId,
+    double? latitude,
+    double? longitude,
+    String? placeId,
     String bhkSize = '',
     String propertyType = 'Home / Flat',
     String bookingType = 'one_time',
     String notes = '',
     String? scheduleDatetime,
     String? timeSlot,
+    String? bookingDate,
+    String? bookingTime,
+    String? timezone,
     bool priceConfirmationPending = false,
   }) async {
     final body = <String, dynamic>{
@@ -144,12 +195,21 @@ class BookingService {
       'booking_type': bookingType,
       'price_confirmation_pending': priceConfirmationPending,
       if (pricingRateId > 0) 'pricing_rate_id': pricingRateId,
+      if (fullAddress.isNotEmpty) 'full_address': fullAddress,
       if (city.isNotEmpty) 'city': city,
       if (area.isNotEmpty) 'area': area,
+      if (masterCityId != null) 'master_city_id': masterCityId,
+      if (masterLocationId != null) 'master_location_id': masterLocationId,
+      if (latitude != null) 'latitude': latitude.toStringAsFixed(6),
+      if (longitude != null) 'longitude': longitude.toStringAsFixed(6),
+      if (placeId != null && placeId.isNotEmpty) 'place_id': placeId,
       if (bhkSize.isNotEmpty) 'bhk_size': bhkSize,
       if (notes.isNotEmpty) 'notes': notes,
       if (scheduleDatetime != null) 'schedule_datetime': scheduleDatetime,
       if (timeSlot != null) 'time_slot': timeSlot,
+      if (bookingDate != null && bookingDate.isNotEmpty) 'booking_date': bookingDate,
+      if (bookingTime != null && bookingTime.isNotEmpty) 'booking_time': bookingTime,
+      if (timezone != null && timezone.isNotEmpty) 'timezone': timezone,
     };
     final data = await _api.post(ApiConfig.bookings, body: body);
     return CustomerBooking.fromJson(data['booking'] as Map<String, dynamic>);

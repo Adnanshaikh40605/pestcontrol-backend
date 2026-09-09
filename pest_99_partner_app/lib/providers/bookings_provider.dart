@@ -27,6 +27,11 @@ class BookingsProvider extends ChangeNotifier {
   String suspendReason = '';
   String suspendMessage = '';
 
+  /// True for secondary technicians: the office assigns their jobs, so the
+  /// New Bookings tab is empty by design rather than because of an error.
+  bool manualAssignOnly = false;
+  String manualAssignMessage = '';
+
   final Map<int, String> _processingLabels = {};
   final Set<int> _processingIds = {};
 
@@ -112,16 +117,24 @@ class BookingsProvider extends ChangeNotifier {
       isSuspended = availableResult.isSuspended;
       suspendReason = availableResult.suspendReason;
       suspendMessage = availableResult.message;
+      manualAssignOnly = availableResult.manualAssignOnly;
+      manualAssignMessage =
+          availableResult.manualAssignOnly ? availableResult.message : '';
       accepted = results[2] as List<PartnerBooking>;
       completed = results[3] as List<PartnerBooking>;
       if (!showGlobalLoader) error = null;
     } on ApiException catch (e) {
-      if (showGlobalLoader || available.isEmpty) {
+      if (e.isSessionExpired) {
+        // ApiClient already cleared tokens + SessionCoordinator will route to Login.
+        error = null;
+      } else if (showGlobalLoader || available.isEmpty) {
         error = userErrorMessage(e, fallback: 'Could not load bookings.');
       }
     } catch (e) {
       if (kDebugMode) debugPrint('[Bookings] refresh error: $e');
-      if (showGlobalLoader || available.isEmpty) {
+      if (isPartnerSessionExpiredError(e)) {
+        error = null;
+      } else if (showGlobalLoader || available.isEmpty) {
         error = userErrorMessage(e, fallback: 'Could not load bookings.');
       }
     } finally {

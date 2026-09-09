@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../core/api_client.dart';
 import '../core/auth_gate.dart';
+import '../core/booking_timezone.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
 import '../models/customer_models.dart';
@@ -65,11 +65,83 @@ class _BookingsScreenState extends State<BookingsScreen> {
   }
 
   String _formatDate(String? raw) {
-    if (raw == null || raw.isEmpty) return 'Unscheduled';
+    return BookingTimezone.formatSchedule(raw, pattern: 'd MMM yyyy, h:mm a');
+  }
+
+  Future<void> _cancelFromList(CustomerBooking booking) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel booking?'),
+        content: Text(
+          'Are you sure you want to cancel booking #${booking.id}?',
+          style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep Booking')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Cancel Booking', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final controller = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reason for cancellation'),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          maxLength: 500,
+          decoration: const InputDecoration(
+            hintText: 'e.g. Plans changed, wrong date selected',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Back')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Confirm cancel', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (reason == null || !mounted) return;
+    if (reason.trim().length < 4) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a reason (at least 4 characters).'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
     try {
-      return DateFormat('d MMM yyyy, h:mm a').format(DateTime.parse(raw).toLocal());
-    } catch (_) {
-      return raw;
+      final updated = await BookingService(context.read<ApiClient>()).cancel(
+        booking.id,
+        reason: reason,
+      );
+      if (!mounted) return;
+      setState(() {
+        final idx = _items.indexWhere((b) => b.id == booking.id);
+        if (idx >= 0) _items[idx] = updated;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✓ Booking cancelled successfully'),
+          backgroundColor: AppColors.primary,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e'), backgroundColor: AppColors.danger),
+      );
     }
   }
 
@@ -179,7 +251,6 @@ class _BookingsScreenState extends State<BookingsScreen> {
                               (b) => Padding(
                                 padding: const EdgeInsets.only(bottom: 12),
                                 child: SectionCard(
-                                  onTap: () => context.push('/booking/${b.id}'),
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
@@ -234,6 +305,48 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                             '₹${b.invoiceAmount ?? b.price ?? '—'}',
                                             style: Theme.of(context).textTheme.titleMedium,
                                           ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: OutlinedButton(
+                                              onPressed: () => context.push('/booking/${b.id}'),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: AppColors.primary,
+                                                side: const BorderSide(color: AppColors.primary),
+                                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius: BorderRadius.circular(10),
+                                                ),
+                                              ),
+                                              child: const Text(
+                                                'View Details',
+                                                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+                                              ),
+                                            ),
+                                          ),
+                                          if (b.canCancel) ...[
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: OutlinedButton(
+                                                onPressed: () => _cancelFromList(b),
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: AppColors.danger,
+                                                  side: const BorderSide(color: AppColors.danger),
+                                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius: BorderRadius.circular(10),
+                                                  ),
+                                                ),
+                                                child: const Text(
+                                                  'Cancel',
+                                                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ],
                                       ),
                                     ],

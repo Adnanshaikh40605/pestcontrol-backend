@@ -9,6 +9,9 @@ class ApiException implements Exception {
   /// From HTTP Retry-After header when status is 429.
   final int? retryAfterSeconds;
 
+  /// True when the partner JWT is invalid/expired and the user must log in again.
+  bool get isSessionExpired => isPartnerSessionExpiredError(this);
+
   @override
   String toString() => message;
 
@@ -112,4 +115,23 @@ class ApiException implements Exception {
         return ApiException(e.message ?? 'Network error. Check your connection.');
     }
   }
+}
+
+/// Detect partner auth/session failures from status or server copy.
+bool isPartnerSessionExpiredError(Object error) {
+  if (error is ApiException) {
+    if (error.statusCode == 401) return true;
+    return _looksLikeSessionExpiredMessage(error.message);
+  }
+  return _looksLikeSessionExpiredMessage(error.toString());
+}
+
+bool _looksLikeSessionExpiredMessage(String message) {
+  final m = message.toLowerCase();
+  return m.contains('expired partner session') ||
+      m.contains('invalid or expired partner') ||
+      m.contains('session expired') ||
+      m.contains('please log in again') ||
+      m.contains('please login again') ||
+      m.contains('partner authentication required');
 }

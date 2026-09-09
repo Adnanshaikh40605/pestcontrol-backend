@@ -4,11 +4,13 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../core/api_client.dart';
+import '../core/booking_timezone.dart';
 import '../core/theme/app_colors.dart';
 import '../providers/auth_provider.dart';
 import '../providers/booking_flow_provider.dart';
 import '../services/customer_services.dart';
 import '../shared/widgets/pc99_widgets.dart';
+import '../widgets/service_address_section.dart';
 import 'package:intl/intl.dart';
 
 /// Booking page — Home / Commercial tabs, property configuration,
@@ -39,7 +41,7 @@ class _PropertySelectionScreenState extends State<PropertySelectionScreen> {
     if (id == null || id.isEmpty) return;
     final flow = context.read<BookingFlowProvider>();
     if (flow.serviceById(id) == null) return;
-    flow.selectOnlyService(id);
+    flow.beginWithService(id);
   }
 
   Future<void> _loadCatalog() async {
@@ -75,6 +77,7 @@ class _PropertySelectionScreenState extends State<PropertySelectionScreen> {
   Widget build(BuildContext context) {
     final flow = context.watch<BookingFlowProvider>();
     final canContinue = flow.propertySelected && flow.selectedServiceIds.isNotEmpty;
+    final locked = flow.lockedService;
 
     return Pc99Scaffold(
       brandTitle: true,
@@ -89,10 +92,18 @@ class _PropertySelectionScreenState extends State<PropertySelectionScreen> {
         children: [
           const Text('Book Service', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
           const SizedBox(height: 4),
-          const Text('Select your property type to get started', style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
-          if (flow.selectedServiceIds.isNotEmpty) ...[
+          Text(
+            locked != null
+                ? 'Complete your ${locked.name} booking'
+                : 'Select your property type to get started',
+            style: const TextStyle(color: AppColors.textMuted, fontSize: 13),
+          ),
+          if (locked != null) ...[
             const SizedBox(height: 14),
-            _PreselectedServiceBanner(flow: flow),
+            _LockedServiceHeader(
+              service: locked,
+              onChange: flow.unlockServiceSelection,
+            ),
           ],
           const SizedBox(height: 16),
           _CategoryTabs(
@@ -120,7 +131,6 @@ class _PropertySelectionScreenState extends State<PropertySelectionScreen> {
                   } else {
                     flow.selectCommercialType(opt);
                   }
-                  // Reveal the Select Service section that appears below.
                   if (firstSelection && flow.propertySelected) _nudgeScroll(180);
                 },
               );
@@ -148,17 +158,20 @@ class _PropertySelectionScreenState extends State<PropertySelectionScreen> {
           ],
           if (flow.propertySelected) ...[
             const SizedBox(height: 22),
-            const Pc99SectionTitle('Select Service'),
+            Pc99SectionTitle(locked != null ? '${locked.name} Services' : 'Select Service'),
             const SizedBox(height: 4),
-            const Text('Choose one or more services', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+            Text(
+              locked != null ? 'Choose your service plan' : 'Choose one or more services',
+              style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+            ),
             const SizedBox(height: 12),
-            ...BookingFlowProvider.catalog.map((s) => _ServiceTile(
+            ...flow.visibleCatalog.map((s) => _ServiceTile(
                   service: s,
                   flow: flow,
+                  allowToggle: locked == null,
                   onToggle: () {
                     final selecting = !flow.selectedServiceIds.contains(s.id);
                     flow.toggleService(s.id);
-                    // Reveal the More Options panel that expands below.
                     if (selecting) _nudgeScroll(170);
                   },
                 )),
@@ -170,17 +183,14 @@ class _PropertySelectionScreenState extends State<PropertySelectionScreen> {
   }
 }
 
-class _PreselectedServiceBanner extends StatelessWidget {
-  const _PreselectedServiceBanner({required this.flow});
+class _LockedServiceHeader extends StatelessWidget {
+  const _LockedServiceHeader({required this.service, required this.onChange});
 
-  final BookingFlowProvider flow;
+  final ServiceOption service;
+  final VoidCallback onChange;
 
   @override
   Widget build(BuildContext context) {
-    final id = flow.selectedServiceIds.first;
-    final service = flow.serviceById(id);
-    if (service == null) return const SizedBox.shrink();
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -191,8 +201,8 @@ class _PreselectedServiceBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.check_circle, size: 20, color: AppColors.primary),
-          const SizedBox(width: 10),
+          Pc99IconBubble(icon: pc99ServiceIcon(service.icon)),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -207,16 +217,13 @@ class _PreselectedServiceBanner extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 const Text(
-                  'Selected — choose property size below to continue',
+                  'Selected from Home — choose property size below',
                   style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                 ),
               ],
             ),
           ),
-          TextButton(
-            onPressed: () => flow.toggleService(id),
-            child: const Text('Change'),
-          ),
+          TextButton(onPressed: onChange, child: const Text('Change')),
         ],
       ),
     );
@@ -318,11 +325,17 @@ class _ConfigChip extends StatelessWidget {
 }
 
 class _ServiceTile extends StatelessWidget {
-  const _ServiceTile({required this.service, required this.flow, required this.onToggle});
+  const _ServiceTile({
+    required this.service,
+    required this.flow,
+    required this.onToggle,
+    this.allowToggle = true,
+  });
 
   final ServiceOption service;
   final BookingFlowProvider flow;
   final VoidCallback onToggle;
+  final bool allowToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -333,7 +346,7 @@ class _ServiceTile extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 10),
       child: Pc99Card(
         selected: selected,
-        onTap: onToggle,
+        onTap: allowToggle ? onToggle : null,
         child: Column(
           children: [
             Row(
@@ -357,7 +370,7 @@ class _ServiceTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                Pc99CheckBox(selected: selected),
+                if (allowToggle) Pc99CheckBox(selected: selected),
               ],
             ),
             if (selected) ...[
@@ -451,19 +464,93 @@ class _ModeRow extends StatelessWidget {
 class DateTimeSelectionScreen extends StatelessWidget {
   const DateTimeSelectionScreen({super.key});
 
+  Future<void> _openClockPicker(BuildContext context, BookingFlowProvider flow) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: flow.selectedHour, minute: flow.selectedMinute),
+      initialEntryMode: TimePickerEntryMode.dial,
+      helpText: 'SELECT TIME',
+      confirmText: 'SET TIME',
+      cancelText: 'CANCEL',
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: false),
+          child: Theme(
+            data: Theme.of(context).copyWith(
+              timePickerTheme: TimePickerThemeData(
+                backgroundColor: Colors.white,
+                dialHandColor: AppColors.primary,
+                dialBackgroundColor: AppColors.planSelectedBg,
+                hourMinuteColor: WidgetStateColor.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return AppColors.primary;
+                  }
+                  return AppColors.planSelectedBg;
+                }),
+                hourMinuteTextColor: WidgetStateColor.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return Colors.white;
+                  }
+                  return AppColors.textPrimary;
+                }),
+                dayPeriodColor: AppColors.primary,
+                dayPeriodTextColor: WidgetStateColor.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return Colors.white;
+                  }
+                  return AppColors.textPrimary;
+                }),
+              ),
+              colorScheme: Theme.of(context).colorScheme.copyWith(
+                    primary: AppColors.primary,
+                    onPrimary: Colors.white,
+                    surface: Colors.white,
+                    onSurface: AppColors.textPrimary,
+                  ),
+            ),
+            child: child!,
+          ),
+        );
+      },
+    );
+    if (picked == null || !context.mounted) return;
+
+    if (!BookingTimezone.isWithinServiceWindow(picked.hour, picked.minute)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please choose a time between 10:00 AM and 7:30 PM'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+    if (!BookingTimezone.isNotInPast(flow.selectedDate, picked.hour, picked.minute)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('That time has already passed today. Choose a later time.'),
+          backgroundColor: AppColors.danger,
+        ),
+      );
+      return;
+    }
+    flow.setTime(picked.hour, picked.minute);
+  }
+
   @override
   Widget build(BuildContext context) {
     final flow = context.watch<BookingFlowProvider>();
     final month = DateTime(flow.selectedDate.year, flow.selectedDate.month);
     final daysInMonth = DateUtils.getDaysInMonth(month.year, month.month);
     final firstWeekday = DateTime(month.year, month.month, 1).weekday % 7; // Sun=0
+    final minDate = BookingTimezone.today();
+    final canContinue = flow.hasValidSelectedTime;
 
     return Pc99Scaffold(
       title: 'Select Date & Time',
       onBack: () => context.pop(),
       floatingBottom: Pc99PrimaryButton(
         label: 'Continue',
-        onPressed: flow.selectedSlot == null ? null : () => context.push('/book/summary'),
+        onPressed: canContinue ? () => context.push('/book/summary') : null,
       ),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
@@ -471,7 +558,12 @@ class DateTimeSelectionScreen extends StatelessWidget {
           Row(
             children: [
               IconButton(
-                onPressed: () => flow.setDate(DateTime(month.year, month.month - 1, 1)),
+                onPressed: () {
+                  final prev = DateTime(month.year, month.month - 1, 1);
+                  final keepDay = flow.selectedDate.day.clamp(1, DateUtils.getDaysInMonth(prev.year, prev.month));
+                  final candidate = DateTime(prev.year, prev.month, keepDay);
+                  flow.setDate(candidate.isBefore(minDate) ? minDate : candidate);
+                },
                 icon: const Icon(Icons.chevron_left_rounded, size: 22),
                 visualDensity: VisualDensity.compact,
               ),
@@ -483,7 +575,11 @@ class DateTimeSelectionScreen extends StatelessWidget {
                 ),
               ),
               IconButton(
-                onPressed: () => flow.setDate(DateTime(month.year, month.month + 1, 1)),
+                onPressed: () {
+                  final next = DateTime(month.year, month.month + 1, 1);
+                  final keepDay = flow.selectedDate.day.clamp(1, DateUtils.getDaysInMonth(next.year, next.month));
+                  flow.setDate(DateTime(next.year, next.month, keepDay));
+                },
                 icon: const Icon(Icons.chevron_right_rounded, size: 22),
                 visualDensity: VisualDensity.compact,
               ),
@@ -514,8 +610,6 @@ class DateTimeSelectionScreen extends StatelessWidget {
               if (index < firstWeekday) return const SizedBox.shrink();
               final day = index - firstWeekday + 1;
               final date = DateTime(month.year, month.month, day);
-              final today = DateTime.now();
-              final minDate = DateTime(today.year, today.month, today.day);
               final selected = DateUtils.isSameDay(date, flow.selectedDate);
               final disabled = date.isBefore(minDate);
               return InkWell(
@@ -542,45 +636,73 @@ class DateTimeSelectionScreen extends StatelessWidget {
             },
           ),
           const SizedBox(height: 18),
-          const Text('Select exact service time', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
+          const Text('Select Time', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
           const SizedBox(height: 4),
-          const Text('Choose a preferred start time · 10 AM to 7:30 PM', style: TextStyle(color: AppColors.textMuted, fontSize: 11.5)),
-          const SizedBox(height: 10),
-          GridView.count(
-            crossAxisCount: 3,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            childAspectRatio: 2.4,
-            children: BookingFlowProvider.timeSlots.map((slot) {
-              final selected = flow.selectedSlot == slot;
-              return InkWell(
-                onTap: () => flow.setSlot(slot),
-                borderRadius: BorderRadius.circular(10),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 120),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: selected ? AppColors.planSelectedBg : AppColors.surface,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: selected ? AppColors.primary : AppColors.border,
-                      width: selected ? 1.5 : 1,
-                    ),
+          const Text(
+            'Tap to open the clock · 10:00 AM to 7:30 PM (Asia/Kolkata)',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 11.5),
+          ),
+          const SizedBox(height: 12),
+          Material(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            child: InkWell(
+              onTap: () => _openClockPicker(context, flow),
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: canContinue ? AppColors.primary : AppColors.border,
+                    width: canContinue ? 1.5 : 1,
                   ),
-                  child: Text(
-                    slot,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                      color: selected ? AppColors.primary : AppColors.textPrimary,
-                    ),
-                  ),
+                  color: canContinue ? AppColors.planSelectedBg.withValues(alpha: 0.45) : Colors.white,
                 ),
-              );
-            }).toList(),
+                child: Column(
+                  children: [
+                    Icon(Icons.schedule_rounded, color: AppColors.primary, size: 36),
+                    const SizedBox(height: 10),
+                    Text(
+                      flow.selectedSlot,
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      DateFormat('EEEE, d MMMM yyyy').format(flow.selectedDate),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12.5, color: AppColors.textMuted, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Text(
+                        'SET TIME',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.4),
+                      ),
+                    ),
+                    if (!canContinue) ...[
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Choose a valid future time within the service window',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 11.5, color: AppColors.danger, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -635,7 +757,10 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     }
     if (!flow.hasServiceAddress) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter your full service address'), backgroundColor: AppColors.danger),
+        const SnackBar(
+          content: Text('Enter your service address and select city & area'),
+          backgroundColor: AppColors.danger,
+        ),
       );
       return;
     }
@@ -662,17 +787,27 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       if (rate == null) pricePending = true;
       final amount = flow.amountForService(first.id);
       final rateId = pricePending ? 0 : (rate?.id ?? 0);
-      final parts = _slotParts(flow.selectedSlot);
       final pendingNote = missing.isEmpty
           ? 'Price Confirmation Pending'
           : 'Price Confirmation Pending (${missing.join(', ')})';
+      final scheduleIso = BookingTimezone.toIstIso8601(
+        flow.selectedDate,
+        flow.selectedHour,
+        flow.selectedMinute,
+      );
       final booking = await BookingService(api).book(
         serviceType: flow.selectedServices.map((s) => s.name).join(', '),
         pricingRateId: rateId,
         packageTier: 'standard',
         address: flow.serviceAddress.trim(),
+        fullAddress: flow.serviceFullAddress.trim(),
         city: flow.serviceCity.trim(),
         area: flow.serviceArea.trim(),
+        masterCityId: flow.masterCityId,
+        masterLocationId: flow.masterLocationId,
+        latitude: flow.serviceLatitude,
+        longitude: flow.serviceLongitude,
+        placeId: flow.servicePlaceId.trim().isEmpty ? null : flow.servicePlaceId.trim(),
         bhkSize: flow.bhkSizeForApi,
         propertyType: flow.propertyTypeForApi,
         bookingType: isAmc ? 'amc' : 'one_time',
@@ -680,14 +815,11 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         notes:
             'App booking · ${flow.propertyLabel} · ${flow.propertyConfig} · ${flow.selectedSlot}'
             '${pricePending ? ' · $pendingNote' : ' · CRM ₹${(amount ?? 0).round()}'}',
-        scheduleDatetime: DateTime(
-          flow.selectedDate.year,
-          flow.selectedDate.month,
-          flow.selectedDate.day,
-          parts.$1,
-          parts.$2,
-        ).toUtc().toIso8601String(),
+        scheduleDatetime: scheduleIso,
         timeSlot: flow.selectedSlot,
+        bookingDate: BookingTimezone.bookingDate(flow.selectedDate),
+        bookingTime: BookingTimezone.bookingTime24(flow.selectedHour, flow.selectedMinute),
+        timezone: BookingTimezone.id,
       );
       flow.setConfirmed(booking);
       if (!mounted) return;
@@ -700,19 +832,6 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
-  }
-
-  /// Returns (hour, minute) in 24h for a label like "10:30 AM".
-  (int, int) _slotParts(String? slot) {
-    if (slot == null || slot.isEmpty) return (10, 0);
-    final match = RegExp(r'(\d{1,2}):(\d{2})\s*(AM|PM)', caseSensitive: false).firstMatch(slot);
-    if (match == null) return (10, 0);
-    var hour = int.tryParse(match.group(1)!) ?? 10;
-    final minute = int.tryParse(match.group(2)!) ?? 0;
-    final meridiem = (match.group(3) ?? 'AM').toUpperCase();
-    if (meridiem == 'PM' && hour < 12) hour += 12;
-    if (meridiem == 'AM' && hour == 12) hour = 0;
-    return (hour, minute);
   }
 
   @override
@@ -730,46 +849,14 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     return Pc99Scaffold(
       title: 'Booking Summary',
       onBack: () => context.pop(),
-      floatingBottom: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: hasPriced ? AppColors.successSoft : const Color(0xFFFFF7ED),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  hasPriced ? Icons.currency_rupee_rounded : Icons.schedule_outlined,
-                  color: hasPriced ? AppColors.primary : AppColors.warning,
-                  size: 18,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    hasPriced
-                        ? 'Total ${BookingFlowProvider.formatInr(total)} · Unpaid until payment received'
-                        : 'Fixed rate not found · booking will be created as Price Confirmation Pending',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Pc99PrimaryButton(
-            label: _busy
-                ? 'Confirming…'
-                : (loggedIn
-                    ? (hasPriced ? 'Confirm Booking' : 'Request Price Confirmation')
-                    : 'Login to Confirm'),
-            onPressed: _confirm,
-            busy: _busy,
-          ),
-        ],
+      floatingBottom: Pc99PrimaryButton(
+        label: _busy
+            ? 'Confirming…'
+            : (loggedIn
+                ? (hasPriced ? 'Confirm Booking' : 'Request Price Confirmation')
+                : 'Login to Confirm'),
+        onPressed: _confirm,
+        busy: _busy,
       ),
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
@@ -778,7 +865,16 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Pc99SectionTitle('Property', action: 'Change', onAction: () => context.go('/book/property')),
+                Pc99SectionTitle(
+                  'Property',
+                  action: 'Change',
+                  onAction: () {
+                    final lock = flow.lockedServiceId;
+                    context.go(
+                      lock != null ? '/book/property?service=$lock' : '/book/property',
+                    );
+                  },
+                ),
                 const SizedBox(height: 10),
                 Row(
                   children: [
@@ -812,50 +908,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
                 ),
                 const SizedBox(height: 8),
-                TextFormField(
-                  initialValue: flow.serviceAddress,
-                  onChanged: (v) => flow.setServiceAddress(address: v),
-                  maxLines: 1,
-                  style: const TextStyle(fontSize: 13),
-                  decoration: const InputDecoration(
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                    hintText: 'Flat / building, street, landmark',
-                    hintStyle: TextStyle(fontSize: 12, color: AppColors.textHint),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        initialValue: flow.serviceArea,
-                        onChanged: (v) => flow.setServiceAddress(area: v),
-                        style: const TextStyle(fontSize: 13),
-                        decoration: const InputDecoration(
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                          hintText: 'Area',
-                          hintStyle: TextStyle(fontSize: 12, color: AppColors.textHint),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: TextFormField(
-                        initialValue: flow.serviceCity,
-                        onChanged: (v) => flow.setServiceAddress(city: v),
-                        style: const TextStyle(fontSize: 13),
-                        decoration: const InputDecoration(
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                          hintText: 'City',
-                          hintStyle: TextStyle(fontSize: 12, color: AppColors.textHint),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                const ServiceAddressSection(),
               ],
             ),
           ),
@@ -953,33 +1006,6 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
               ),
             ),
           ],
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.successSoft,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  hasPriced ? Icons.currency_rupee_rounded : Icons.info_outline_rounded,
-                  color: AppColors.primary,
-                  size: 20,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    hasPriced
-                        ? 'Price from CRM rate card. Pay after service.'
-                        : 'Select property size + service, then Continue twice to open this summary with CRM prices.',
-                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );

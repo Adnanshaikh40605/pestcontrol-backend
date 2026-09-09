@@ -14,12 +14,16 @@ class CustomerProfile {
   final int? clientId;
 
   factory CustomerProfile.fromJson(Map<String, dynamic> json) {
+    final idRaw = json['id'];
+    final clientRaw = json['client_id'];
     return CustomerProfile(
-      id: json['id'] as int,
-      fullName: (json['full_name'] as String?) ?? '',
-      mobile: (json['mobile'] as String?) ?? '',
-      email: (json['email'] as String?) ?? '',
-      clientId: json['client_id'] as int?,
+      id: idRaw is int ? idRaw : int.tryParse('$idRaw') ?? 0,
+      fullName: '${json['full_name'] ?? ''}',
+      mobile: '${json['mobile'] ?? ''}',
+      email: '${json['email'] ?? ''}',
+      clientId: clientRaw is int
+          ? clientRaw
+          : int.tryParse(clientRaw == null ? '' : '$clientRaw'),
     );
   }
 }
@@ -247,6 +251,34 @@ class AmcScheduleGroup {
               .map(CustomerBooking.fromJson)
               .toList()
           : const [],
+    );
+  }
+}
+
+class MasterCity {
+  const MasterCity({required this.id, required this.name});
+
+  final int id;
+  final String name;
+
+  factory MasterCity.fromJson(Map<String, dynamic> json) {
+    return MasterCity(
+      id: json['id'] as int,
+      name: (json['name'] as String?) ?? '',
+    );
+  }
+}
+
+class MasterLocation {
+  const MasterLocation({required this.id, required this.name});
+
+  final int id;
+  final String name;
+
+  factory MasterLocation.fromJson(Map<String, dynamic> json) {
+    return MasterLocation(
+      id: json['id'] as int,
+      name: (json['name'] as String?) ?? '',
     );
   }
 }
