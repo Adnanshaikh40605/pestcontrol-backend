@@ -160,8 +160,13 @@ class CommercialAreaOptionTests(TestCase):
             commercial_type='other',
             selected_services=['Cockroach / Ants'],
         )
-        self.assertIn('1 BHK', options)
-        self.assertIn(COMMERCIAL_AREA_KEY, options)
+        # Commercial bookings must not fall back to residential BHK sizes.
+        self.assertNotIn('1 BHK', options)
+        # Legacy catch-all and/or 2026 hotel bands are acceptable.
+        self.assertTrue(
+            COMMERCIAL_AREA_KEY in options or any('Hotel' in a for a in options),
+            f'expected Commercial catch-all or hotel chart areas, got {options}',
+        )
 
     def test_get_area_options_home_excludes_commercial(self):
         options = get_area_options(

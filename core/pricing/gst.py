@@ -80,4 +80,6 @@ def rate_gst_payload(rate) -> dict[str, Any]:
         'base_amount': str(breakdown['base_amount']),
         'gst_amount': str(breakdown['gst_amount']),
         'total_with_gst': str(breakdown['total_with_gst']),
+        # Lets the CRM filter Area options by booking type (home vs hotel/office).
+        'property_category': getattr(rate, 'property_category', None) or 'residential',
     }

@@ -5,6 +5,10 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+from .aliases import (
+    is_cockroach_family,
+    packages_for_area_lookup,
+)
 from .lonavala import (
     LONAVALA_MOSQUITO_FOGGING_LOCATIONS,
     LONAVALA_PRICING,
@@ -66,8 +70,9 @@ def _append_commercial_area_option(
     *,
     commercial_type: str,
     selected_services: list[str],
+    region_slug: str | None = None,
 ) -> list[str]:
-    """Add Commercial area for office/hotel/society/other bookings."""
+    """Add Commercial area only when a real PricingRate (or legacy card) has it."""
     if commercial_type not in COMMERCIAL_PROPERTY_TYPES:
         return options
     residential_svcs = [
@@ -75,8 +80,26 @@ def _append_commercial_area_option(
     ]
     if not residential_svcs:
         return options
-    if COMMERCIAL_AREA_KEY not in options:
-        options.append(COMMERCIAL_AREA_KEY)
+    if COMMERCIAL_AREA_KEY in options:
+        return options
+
+    if region_slug:
+        from .aliases import resolve_service_package
+
+        live = set(
+            _rates_queryset(region_slug).values_list('service_package', flat=True).distinct()
+        )
+        check_packages = [
+            resolve_service_package(service, live) for service in residential_svcs
+        ]
+        has_row = _rates_queryset(region_slug).filter(
+            service_package__in=check_packages,
+            area_key=COMMERCIAL_AREA_KEY,
+        ).exists()
+        if not has_row:
+            return options
+
+    options.append(COMMERCIAL_AREA_KEY)
     return options
 
 
@@ -243,6 +266,73 @@ def _location_list(region_slug: str, category: str, hardcoded: list[str]) -> lis
     return db_areas if db_areas else hardcoded
 
 
+def _service_area_queryset(qs, service: str, commercial_type: str):
+    """Narrow rates for one selected service, honouring legacy name aliases."""
+    packages = packages_for_area_lookup(service)
+    service_qs = qs.filter(service_package__in=packages)
+    lower = (service or '').casefold()
+    cockroach = is_cockroach_family(service)
+    bed_or_termite = (
+        service in ('Bed Bugs', 'Termite', 'Termite Spot Treatment')
+        or 'bed bug' in lower
+        or 'termite' in lower
+    )
+    mosquito = service == 'Mosquito' or 'mosquito' in lower or 'fogging' in lower
+    rodent = service == 'Rodent' or 'rodent' in lower
+    hotel_commercial = service == 'Hotel / Commercial'
+
+    if commercial_type == 'villa':
+        if bed_or_termite:
+            return service_qs.filter(property_category='residential')
+        if cockroach:
+            return service_qs.filter(property_category__in=['villa', 'residential'])
+        if mosquito:
+            return service_qs.filter(property_category__in=['fogging', 'residential'])
+        if rodent:
+            return service_qs.filter(property_category__in=['rodent', 'residential'])
+        return service_qs
+
+    if bed_or_termite:
+        # Home bookings only see BHK sizes. Other property types keep hotel /
+        # hospital ward rates from the 2026 chart.
+        if commercial_type == 'home':
+            return service_qs.filter(property_category='residential')
+        return service_qs
+
+    if cockroach:
+        if commercial_type == 'home':
+            return service_qs.filter(property_category='residential')
+        if commercial_type == 'hotel':
+            return service_qs.filter(property_category='hotel')
+        if commercial_type == 'office':
+            return service_qs.filter(property_category__in=['corporate', 'corporate_monthly'])
+        if commercial_type == 'society':
+            return service_qs.filter(property_category='society')
+        # other / unknown commercial: chart commercial segments only (no BHK).
+        return service_qs.filter(
+            property_category__in=['hotel', 'corporate', 'corporate_monthly', 'commercial', 'hospital'],
+        )
+
+    if mosquito:
+        if commercial_type == 'home':
+            return service_qs.filter(property_category='residential')
+        return service_qs.filter(
+            property_category__in=['residential', 'fogging', 'commercial'],
+        )
+
+    if rodent:
+        if commercial_type == 'home':
+            return service_qs.filter(property_category__in=['rodent', 'residential'])
+        return service_qs.filter(
+            property_category__in=['rodent', 'residential', 'commercial'],
+        )
+
+    if hotel_commercial:
+        return service_qs.filter(property_category='commercial')
+
+    return service_qs
+
+
 def get_area_options(
     *,
     city: str | None = None,
@@ -257,36 +347,13 @@ def get_area_options(
     if qs.exists():
         options: list[str] = []
         for service in services:
-            service_qs = qs.filter(service_package=service)
-            if commercial_type == 'villa':
-                if service in ('Bed Bugs', 'Termite'):
-                    service_qs = service_qs.filter(property_category='residential')
-                elif service == 'Cockroach / Ants':
-                    service_qs = service_qs.filter(property_category='villa')
-                elif service == 'Mosquito':
-                    service_qs = service_qs.filter(property_category__in=['fogging', 'residential'])
-                elif service == 'Rodent':
-                    service_qs = service_qs.filter(property_category='rodent')
-            else:
-                if service in ('Bed Bugs', 'Termite'):
-                    # A home booking should only see BHK sizes. Narrowing every
-                    # other property type to residential as well hid the
-                    # per-room hotel and hospital ward rates completely.
-                    if commercial_type == 'home':
-                        service_qs = service_qs.filter(property_category='residential')
-                elif service == 'Cockroach / Ants':
-                    service_qs = service_qs.filter(property_category='residential')
-                elif service == 'Mosquito':
-                    service_qs = service_qs.filter(property_category='residential')
-                elif service == 'Rodent':
-                    service_qs = service_qs.filter(property_category='rodent')
-                elif service == 'Hotel / Commercial':
-                    service_qs = service_qs.filter(property_category='commercial')
+            service_qs = _service_area_queryset(qs, service, commercial_type)
             options.extend(service_qs.values_list('area_key', flat=True).distinct())
         return list(dict.fromkeys(_append_commercial_area_option(
             options,
             commercial_type=commercial_type,
             selected_services=services,
+            region_slug=resolved,
         )))
 
     residential_locs = HARDCODED_RESIDENTIAL.get(resolved, MUMBAI_PROPERTY_LOCATIONS)
@@ -295,23 +362,35 @@ def get_area_options(
     rodent_locs = HARDCODED_RODENT.get(resolved, ['Society Area', 'Windows'])
 
     options: list[str] = []
+    has_cockroach = any(is_cockroach_family(s) for s in services)
+    has_mosquito = any(
+        s == 'Mosquito' or 'mosquito' in s.casefold() for s in services
+    )
+    has_rodent = any(s == 'Rodent' or 'rodent' in s.casefold() for s in services)
+    has_bed_or_termite = any(
+        s in ('Bed Bugs', 'Termite', 'Termite Spot Treatment')
+        or 'bed bug' in s.casefold()
+        or 'termite' in s.casefold()
+        for s in services
+    )
+
     if commercial_type == 'villa':
-        if 'Cockroach / Ants' in services:
+        if has_cockroach:
             options.extend(villa_locs)
-        if 'Mosquito' in services:
+        if has_mosquito:
             options.extend(fogging_locs)
-        if 'Rodent' in services:
+        if has_rodent:
             options.extend(rodent_locs)
-        if any(s in services for s in ('Bed Bugs', 'Termite')):
+        if has_bed_or_termite:
             options.extend(['1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK'])
     else:
         residential_svcs = [s for s in services if s not in ('Rodent', 'Hotel / Commercial')]
         if residential_svcs:
-            if any(s in services for s in ('Bed Bugs', 'Termite')):
+            if has_bed_or_termite:
                 options.extend(['1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK'])
-            if any(s in services for s in ('Cockroach / Ants', 'Mosquito')):
+            if has_cockroach or has_mosquito:
                 options.extend(residential_locs)
-        if 'Rodent' in services:
+        if has_rodent:
             options.extend(rodent_locs)
         if 'Hotel / Commercial' in services:
             options.append('Commercial Space')

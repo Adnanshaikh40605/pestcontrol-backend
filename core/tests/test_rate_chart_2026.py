@@ -179,6 +179,45 @@ class RateChartImportTests(TestCase):
         self.assertIn('Hotel - Minimum 3 affected rooms', hotel)
         self.assertIn('Hospital Room / Ward - Minimum 3 affected rooms', hotel)
 
+    def test_legacy_cockroach_alias_reaches_hotel_chart_areas(self):
+        """Website bookings store 'Cockroach / Ants'; hotel edit must see chart bands."""
+        from core.pricing import resolve_service_package
+        from core.pricing.db import get_area_options, get_pricing_data
+
+        available = set(get_pricing_data(region='mumbai'))
+        self.assertEqual(
+            resolve_service_package('Cockroach / Ants', available),
+            'Cockroach Standard',
+        )
+
+        hotel = get_area_options(
+            region='mumbai',
+            commercial_type='hotel',
+            selected_services=['Cockroach / Ants'],
+        )
+        self.assertIn('Hotel - 1-10 rooms', hotel)
+        self.assertNotIn('1 BHK', hotel, 'commercial hotel must not fall back to BHK')
+
+        home = get_area_options(
+            region='mumbai',
+            commercial_type='home',
+            selected_services=['Cockroach / Ants'],
+        )
+        self.assertIn('1 BHK', home)
+        self.assertNotIn('Hotel - 1-10 rooms', home)
+
+        office = get_area_options(
+            region='mumbai',
+            commercial_type='office',
+            selected_services=['Cockroach / Ants'],
+        )
+        self.assertEqual(office, [], 'cockroach has no corporate chart bands')
+
+    def test_rate_gst_exposes_property_category_for_crm_filters(self):
+        r = rate('mumbai', 'Cockroach Standard', 'One Time Service', 'Hotel - 1-10 rooms')
+        payload = rate_gst_payload(r)
+        self.assertEqual(payload['property_category'], 'hotel')
+
     def test_add_ons_stay_out_of_the_booking_matrix(self):
         self.assertTrue(
             PricingRate.objects.filter(region__slug='mumbai', property_category='addon').exists()

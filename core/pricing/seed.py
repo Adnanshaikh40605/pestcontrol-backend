@@ -169,7 +169,13 @@ def ensure_commercial_area_rates(
     PricingRate: Any = None,
     City: Any = None,
 ) -> int:
-    """Insert Commercial area rows (amount 0) for office/hotel/society/other bookings."""
+    """Insert Commercial area rows (amount 0) for legacy hardcoded packages only.
+
+    The 2026 chart prices commercial work under real category bands (Hotel rooms,
+    Corporate Office sizes, Society Small/Medium/Large). Do not invent a
+    Commercial=0 catch-all for those packages — the booking form must offer the
+    chart areas instead.
+    """
     from .mumbai import COMMERCIAL_AREA_KEY
 
     PricingRegion, PricingRate, _City = _models(
