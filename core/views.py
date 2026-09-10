@@ -20,6 +20,7 @@ from .models import (
     Client, Inquiry, JobCard, JobCardTechnicianParticipation, Renewal, Technician, CRMInquiry, Feedback, ActivityLog, Reminder,
     Country, State, City, Location, Quotation, QuotationItem, QuotationScope, QuotationPaymentTerm,
     QuotationHistory, InquiryRemark, WebsiteLeadRemark, RemarkType, TechnicianRemark,
+    Invoice,
 )
 from django.db.models import Count, Prefetch
 from .serializers import (
@@ -28,7 +29,8 @@ from .serializers import (
     FeedbackSerializer, TechnicianPerformanceSerializer,
     StaffSerializer, ActivityLogSerializer, ReminderSerializer,
     CountrySerializer, StateSerializer, CitySerializer, LocationSerializer,
-    QuotationSerializer, QuotationItemSerializer, QuotationHistorySerializer
+    QuotationSerializer, QuotationItemSerializer, QuotationHistorySerializer,
+    InvoiceSerializer,
 )
 from django.contrib.auth.models import User
 from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField, Exists, OuterRef
@@ -5105,6 +5107,33 @@ class QuotationViewSet(BaseModelViewSet):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class InvoiceViewSet(BaseModelViewSet):
+    """CRM standalone invoices with customer GSTIN snapshot."""
+
+    queryset = Invoice.objects.prefetch_related('items').all()
+    serializer_class = InvoiceSerializer
+    pagination_class = StandardListPagination
+    search_fields = ['invoice_no', 'customer_name', 'customer_mobile', 'customer_gst_number', 'booking_code']
+    filterset_fields = ['invoice_date']
+    http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.query_params.get('q', self.request.query_params.get('search', ''))
+        if q:
+            qs = qs.filter(
+                Q(invoice_no__icontains=q)
+                | Q(customer_name__icontains=q)
+                | Q(customer_mobile__icontains=q)
+                | Q(customer_gst_number__icontains=q)
+                | Q(booking_code__icontains=q)
+            )
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 
 def log_activity(user, action, booking_id=None, details=None):

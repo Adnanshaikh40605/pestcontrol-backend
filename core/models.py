@@ -2766,3 +2766,82 @@ class ECardWhatsAppSend(BaseModel):
 
     def __str__(self) -> str:
         return f"E-Card send {self.mobile} @ {self.sent_at}"
+
+
+class Invoice(BaseModel):
+    """Standalone CRM invoice (manual create) with snapshot customer details."""
+
+    invoice_no = models.CharField(max_length=50, unique=True, db_index=True)
+    invoice_date = models.DateField(default=timezone.localdate, db_index=True)
+
+    billed_by_name = models.CharField(max_length=255, blank=True, default='')
+    billed_by_address = models.TextField(blank=True, default='')
+
+    customer_name = models.CharField(max_length=255, db_index=True)
+    customer_mobile = models.CharField(max_length=20, blank=True, default='')
+    customer_address = models.TextField(blank=True, default='')
+    customer_gst_number = models.CharField(
+        max_length=30,
+        blank=True,
+        default='',
+        help_text='Customer GSTIN captured at invoice time (e.g. 27AYTPA2835Q1ZR)',
+    )
+
+    booking_code = models.CharField(max_length=50, blank=True, default='')
+    booking_created_at = models.DateField(null=True, blank=True)
+    next_service_date = models.DateField(null=True, blank=True)
+    reference = models.CharField(max_length=120, blank=True, default='')
+
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    notes = models.TextField(blank=True, default='')
+
+    created_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_invoices',
+    )
+
+    class Meta:
+        ordering = ['-invoice_date', '-id']
+        verbose_name = 'Invoice'
+        verbose_name_plural = 'Invoices'
+
+    def __str__(self) -> str:
+        return f'{self.invoice_no} - {self.customer_name}'
+
+    def save(self, *args, **kwargs):
+        if not self.invoice_no:
+            year = timezone.now().year
+            last = (
+                Invoice.objects.filter(invoice_no__startswith=f'INV-{year}-')
+                .order_by('id')
+                .last()
+            )
+            if last:
+                try:
+                    last_no = int(last.invoice_no.split('-')[-1])
+                    new_no = last_no + 1
+                except (ValueError, IndexError):
+                    new_no = 1
+            else:
+                new_no = 1
+            self.invoice_no = f'INV-{year}-{new_no:05d}'
+        super().save(*args, **kwargs)
+
+
+class InvoiceItem(BaseModel):
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='items')
+    service = models.CharField(max_length=255)
+    schedule = models.CharField(max_length=100, blank=True, default='')
+    technician = models.CharField(max_length=255, blank=True, default='')
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+
+    class Meta:
+        ordering = ['created_at', 'id']
+
+    def __str__(self) -> str:
+        return f'{self.service} ({self.invoice.invoice_no})'

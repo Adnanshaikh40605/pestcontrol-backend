@@ -26,6 +26,7 @@ from .views import (
     CityViewSet,
     LocationViewSet,
     QuotationViewSet,
+    InvoiceViewSet,
 )
 from .remark_views import (
     CRMInquiryRemarkListCreateView,
@@ -71,6 +72,7 @@ router.register(r'states', StateViewSet, basename='state')
 router.register(r'cities', CityViewSet, basename='city')
 router.register(r'locations', LocationViewSet, basename='location')
 router.register(r'quotations', QuotationViewSet, basename='quotation')
+router.register(r'invoices', InvoiceViewSet, basename='invoice')
 router.register(r'partner-referrals', PartnerReferralViewSet, basename='partner-referral')
 router.register(r'pricing-regions', PricingRegionViewSet, basename='pricing-region')
 router.register(r'pricing-rates', PricingRateViewSet, basename='pricing-rate')

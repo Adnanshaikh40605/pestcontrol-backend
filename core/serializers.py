@@ -7,6 +7,8 @@ from .models import (
     BookingPayment,
     Client,
     Inquiry,
+    Invoice,
+    InvoiceItem,
     JobCard,
     JobCardTechnicianParticipation,
     Renewal,
@@ -1742,4 +1744,75 @@ class QuotationSerializer(serializers.ModelSerializer):
             performed_by=self.context.get('request').user if 'request' in self.context else None
         )
         
+        return instance
+
+
+class InvoiceItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvoiceItem
+        fields = ['id', 'service', 'schedule', 'technician', 'amount']
+
+
+class InvoiceSerializer(serializers.ModelSerializer):
+    items = InvoiceItemSerializer(many=True)
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+
+    class Meta:
+        model = Invoice
+        fields = [
+            'id', 'invoice_no', 'invoice_date',
+            'billed_by_name', 'billed_by_address',
+            'customer_name', 'customer_mobile', 'customer_address', 'customer_gst_number',
+            'booking_code', 'booking_created_at', 'next_service_date', 'reference',
+            'tax_amount', 'subtotal', 'grand_total', 'notes',
+            'created_by', 'created_by_name',
+            'items', 'created_at', 'updated_at',
+        ]
+        read_only_fields = [
+            'id', 'created_by', 'created_by_name', 'created_at', 'updated_at',
+            'subtotal', 'grand_total',
+        ]
+        extra_kwargs = {
+            'invoice_no': {'required': False, 'allow_blank': True},
+        }
+
+    def validate_customer_gst_number(self, value):
+        if value is None:
+            return ''
+        cleaned = str(value).strip().upper()
+        # Allow optional "GSTIN " prefix from paste; store the number only.
+        if cleaned.startswith('GSTIN'):
+            cleaned = cleaned[5:].strip()
+        return cleaned
+
+    def _sync_totals(self, invoice, items_data):
+        subtotal = sum(Decimal(str(item.get('amount') or 0)) for item in items_data)
+        tax = Decimal(str(invoice.tax_amount or 0))
+        invoice.subtotal = quantize_money(subtotal)
+        invoice.grand_total = quantize_money(subtotal + tax)
+        invoice.save(update_fields=['subtotal', 'grand_total', 'updated_at'])
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        invoice = Invoice.objects.create(**validated_data)
+        for item_data in items_data:
+            InvoiceItem.objects.create(invoice=invoice, **item_data)
+        self._sync_totals(invoice, items_data)
+        return invoice
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('items', None)
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        if items_data is not None:
+            instance.items.all().delete()
+            for item_data in items_data:
+                InvoiceItem.objects.create(invoice=instance, **item_data)
+
+        sync_items = items_data if items_data is not None else list(
+            instance.items.values('service', 'schedule', 'technician', 'amount'),
+        )
+        self._sync_totals(instance, sync_items)
         return instance
