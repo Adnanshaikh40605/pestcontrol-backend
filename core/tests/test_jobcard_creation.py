@@ -279,6 +279,55 @@ class JobCardCreationTests(TestCase):
         self.assertEqual(response.status_code, 201, response.data)
         self.assertIsNone(response.data['society_billing_type'])
 
+    def test_update_price_on_done_commercial_booking(self):
+        """Staff can PATCH final price/service_items on Done commercial like Home."""
+        job = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            commercial_type=JobCard.CommercialType.HOTEL,
+            is_price_estimated=True,
+            schedule_datetime=self.schedule,
+            price='0',
+            total_amount=Decimal('0.00'),
+            pending_amount=Decimal('0.00'),
+            reference='Other',
+            status=JobCard.JobStatus.DONE,
+            service_items=[
+                {
+                    'service': 'Cockroach / Ants',
+                    'plan': 'One Time Service',
+                    'area': 'Hotel - 1-10 rooms',
+                    'base_amount': 0,
+                    'discount': 0,
+                    'amount': 0,
+                },
+            ],
+        )
+        response = self.api.patch(
+            f'/api/v1/jobcards/{job.id}/',
+            {
+                'price': '4500',
+                'is_price_estimated': True,
+                'service_items': [
+                    {
+                        'service': 'Cockroach / Ants',
+                        'plan': 'One Time Service',
+                        'area': 'Hotel - 1-10 rooms',
+                        'base_amount': 5000,
+                        'discount': 500,
+                        'amount': 4500,
+                    },
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        job.refresh_from_db()
+        self.assertEqual(job.price, '4500')
+        self.assertFalse(job.is_price_estimated)
+        self.assertEqual(job.service_items[0]['amount'], 4500.0)
+        self.assertEqual(job.total_amount, Decimal('4500.00'))
+
 
 class CRMInquiryConversionTests(TestCase):
     def setUp(self):

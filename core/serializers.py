@@ -1019,9 +1019,17 @@ class JobCardSerializer(serializers.ModelSerializer):
         payment_remarks = validated_data.pop('payment_remarks', '')
         old_status = instance.status
         previous_technician_id = instance.technician_id
+        previous_price = parse_jobcard_price(instance.price)
+        previous_items = instance.service_items
         new_status = validated_data.get('status', instance.status)
         payment_mode = validated_data.get('payment_mode', instance.payment_mode)
         requested_payment_status = validated_data.get('payment_status')
+
+        # Staff setting a real price after visit / Done clears the estimate flag.
+        if 'price' in validated_data:
+            new_price = parse_jobcard_price(validated_data.get('price'))
+            if new_price > 0:
+                validated_data['is_price_estimated'] = False
 
         instance = super().update(instance, validated_data)
 
@@ -1083,6 +1091,33 @@ class JobCardSerializer(serializers.ModelSerializer):
                     instance.refresh_from_db()
                 except Exception:
                     pass
+
+        # Commercial (and residential) price edits on an already-Done booking must
+        # refresh visit payout / ledger the same way plan changes do.
+        price_or_items_changed = (
+            parse_jobcard_price(instance.price) != previous_price
+            or instance.service_items != previous_items
+        )
+        if (
+            instance.status == JobCard.JobStatus.DONE
+            and old_status == JobCard.JobStatus.DONE
+            and price_or_items_changed
+            and not plan_changed
+        ):
+            try:
+                from core.payout_engine import calculate_and_apply_payout
+
+                if is_multi_service_booking(instance):
+                    BookingScheduleEngine.sync_multi_service_day1_children(
+                        instance,
+                        completing=False,
+                    )
+                calculate_and_apply_payout(instance, force=True)
+                instance.refresh_from_db()
+            except Exception:
+                logger.exception(
+                    'Payout after Done price edit failed for %s', instance.code,
+                )
 
         completing = (
             new_status == JobCard.JobStatus.DONE
