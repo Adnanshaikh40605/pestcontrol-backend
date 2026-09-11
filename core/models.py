@@ -977,6 +977,30 @@ class JobCard(BaseModel):
         verbose_name="Pending Amount",
         help_text="Outstanding balance remaining on this booking",
     )
+    gst_paid = models.BooleanField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name="GST Paid",
+        help_text=(
+            "Whether the customer paid GST on completion. "
+            "True = amount includes GST; False = customer paid base only; "
+            "null = not recorded (legacy)."
+        ),
+    )
+    has_extra_amount = models.BooleanField(
+        default=False,
+        verbose_name="Has Extra Amount",
+        help_text="Whether an extra amount was collected at Done Service (only when GST Paid).",
+    )
+    extra_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Extra Amount",
+        help_text="Extra rupees collected at Done Service when has_extra_amount is True.",
+    )
     assigned_to = models.CharField(
         max_length=255,
         blank=True,

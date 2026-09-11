@@ -533,3 +533,91 @@ class PendingPaymentReportTests(TestCase):
         self.assertEqual(response.data['total_pending_bookings'], 1)
         self.assertEqual(Decimal(str(response.data['total_outstanding_amount'])), Decimal('1000.00'))
         self.assertEqual(Decimal(str(response.data['total_collected_amount'])), Decimal('1000.00'))
+
+
+class DoneServiceGstExtraAmountAPITests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='gststaff', password='pass1234')
+        self.client_record = Client.objects.create(full_name='GST Client', mobile='9876543299')
+        self.job = JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach',
+            schedule_datetime=datetime(2026, 6, 11, 10, 0, tzinfo=dt_timezone.utc),
+            price='2000',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            master_location_id=None,
+        )
+        self.api = APIClient()
+        self.api.force_authenticate(user=self.user)
+
+    def test_complete_with_gst_paid_and_extra_amount(self):
+        response = self.api.patch(
+            f'/api/v1/jobcards/{self.job.id}/',
+            {
+                'status': 'Done',
+                'payment_mode': 'Cash',
+                'payment_collection_type': 'full',
+                'gst_paid': True,
+                'has_extra_amount': True,
+                'extra_amount': '150.00',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.job.refresh_from_db()
+        self.assertTrue(self.job.gst_paid)
+        self.assertTrue(self.job.has_extra_amount)
+        self.assertEqual(self.job.extra_amount, Decimal('150.00'))
+        self.assertEqual(self.job.paid_amount, Decimal('2000.00'))
+
+    def test_complete_gst_paid_no_rejects_extra_amount(self):
+        response = self.api.patch(
+            f'/api/v1/jobcards/{self.job.id}/',
+            {
+                'status': 'Done',
+                'payment_mode': 'Cash',
+                'payment_collection_type': 'full',
+                'gst_paid': False,
+                'has_extra_amount': True,
+                'extra_amount': '50.00',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 400, response.data)
+        self.job.refresh_from_db()
+        self.assertNotEqual(self.job.status, JobCard.JobStatus.DONE)
+
+    def test_complete_gst_paid_no_clears_extra_amount(self):
+        response = self.api.patch(
+            f'/api/v1/jobcards/{self.job.id}/',
+            {
+                'status': 'Done',
+                'payment_mode': 'Online',
+                'payment_collection_type': 'full',
+                'gst_paid': False,
+                'has_extra_amount': False,
+                'extra_amount': '0',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.job.refresh_from_db()
+        self.assertFalse(self.job.gst_paid)
+        self.assertFalse(self.job.has_extra_amount)
+        self.assertEqual(self.job.extra_amount, Decimal('0.00'))
+
+    def test_complete_extra_yes_requires_positive_amount(self):
+        response = self.api.patch(
+            f'/api/v1/jobcards/{self.job.id}/',
+            {
+                'status': 'Done',
+                'payment_mode': 'Cash',
+                'payment_collection_type': 'full',
+                'gst_paid': True,
+                'has_extra_amount': True,
+                'extra_amount': '0',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 400, response.data)

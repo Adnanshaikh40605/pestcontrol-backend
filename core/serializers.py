@@ -599,6 +599,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             'price', 'price_display', 'requires_payment_on_completion', 'client_address',
             'payment_status', 'payment_status_display', 'payment_mode',
             'total_amount', 'paid_amount', 'pending_amount',
+            'gst_paid', 'has_extra_amount', 'extra_amount',
             'assigned_to', 'technician', 'technician_name', 'technician_mobile', 
             'partner', 'partner_name', 'partner_status', 'sent_to_app_at', 'sent_to_app',
             'job_start_selfie', 'job_start_selfie_url',
@@ -1009,7 +1010,53 @@ class JobCardSerializer(serializers.ModelSerializer):
                 items_total = sum(parse_jobcard_price(i['amount']) for i in normalized)
                 if items_total > 0:
                     data['price'] = str(float(items_total))
-        
+
+        # Done Service GST / Extra Amount rules.
+        # GST Paid = No ⇒ Extra Amount must be No / zero.
+        from decimal import Decimal
+
+        gst_in_payload = 'gst_paid' in data
+        extra_flag_in_payload = 'has_extra_amount' in data
+        extra_amt_in_payload = 'extra_amount' in data
+
+        if gst_in_payload or extra_flag_in_payload or extra_amt_in_payload:
+            gst_paid = data['gst_paid'] if gst_in_payload else (
+                self.instance.gst_paid if self.instance is not None else None
+            )
+            has_extra = data['has_extra_amount'] if extra_flag_in_payload else (
+                self.instance.has_extra_amount if self.instance is not None else False
+            )
+            raw_extra = data['extra_amount'] if extra_amt_in_payload else (
+                self.instance.extra_amount if self.instance is not None else Decimal('0')
+            )
+            try:
+                extra_amt = Decimal(str(raw_extra if raw_extra is not None else 0))
+            except Exception:
+                raise serializers.ValidationError({'extra_amount': 'Enter a valid amount.'})
+
+            if extra_amt < 0:
+                raise serializers.ValidationError({
+                    'extra_amount': 'Extra amount cannot be negative.',
+                })
+
+            if gst_paid is False:
+                if has_extra or extra_amt > 0:
+                    raise serializers.ValidationError({
+                        'extra_amount': 'Extra amount is only allowed when GST Paid is Yes.',
+                    })
+                data['has_extra_amount'] = False
+                data['extra_amount'] = Decimal('0.00')
+            elif has_extra:
+                if extra_amt <= 0:
+                    raise serializers.ValidationError({
+                        'extra_amount': 'Enter an extra amount greater than zero.',
+                    })
+                data['has_extra_amount'] = True
+                data['extra_amount'] = extra_amt.quantize(Decimal('0.01'))
+            else:
+                data['has_extra_amount'] = False
+                data['extra_amount'] = Decimal('0.00')
+
         return data
 
     def update(self, instance, validated_data):
