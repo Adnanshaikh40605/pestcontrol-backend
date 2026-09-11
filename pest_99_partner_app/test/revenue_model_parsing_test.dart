@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:pest_99_partner_app/core/utils/gst_breakdown.dart';
 import 'package:pest_99_partner_app/models/booking.dart';
 import 'package:pest_99_partner_app/models/partner_earnings.dart';
 import 'package:pest_99_partner_app/models/partner_profile.dart';
@@ -162,6 +163,26 @@ void main() {
       expect(booking.hasRevenuePayout, isTrue);
     });
 
+    test('parses customer GST breakdown fields', () {
+      final booking = PartnerBooking.fromJson({
+        'id': 5,
+        'service_type': 'General Pest',
+        'partner_status': 'in_service',
+        'price': '1180',
+        'total_booking_amount': '1180',
+        'base_amount': '1000.00',
+        'gst_amount': '180.00',
+        'total_amount': '1180.00',
+        'gst_percent': '18.00',
+        'payment_mode': 'Cash',
+      });
+      expect(booking.baseAmount, '1000.00');
+      expect(booking.gstAmount, '180.00');
+      expect(booking.totalAmount, '1180.00');
+      expect(booking.gstPercent, '18.00');
+      expect(booking.paymentMode, 'Cash');
+    });
+
     test('legacy booking without payout', () {
       final booking = PartnerBooking.fromJson({
         'id': 4,
@@ -187,6 +208,29 @@ void main() {
       expect(booking.completedAt, '2026-05-27T14:30:00Z');
       expect(booking.clientName, 'Adnan Shaikh');
       expect(booking.hasRevenuePayout, isFalse);
+    });
+  });
+
+  group('GstBreakdown', () {
+    test('uses API fields when present', () {
+      final gst = GstBreakdown.resolve(
+        baseAmount: '1000.00',
+        gstAmount: '180.00',
+        totalAmount: '1180.00',
+        gstPercent: '18.00',
+      );
+      expect(gst.baseAmount, '1000');
+      expect(gst.gstAmount, '180');
+      expect(gst.totalAmount, '1180');
+      expect(gst.gstLabel, 'GST (18%)');
+    });
+
+    test('derives from inclusive total at 18%', () {
+      final gst = GstBreakdown.resolve(inclusiveTotal: '1180');
+      expect(gst.baseAmount, '1000');
+      expect(gst.gstAmount, '180');
+      expect(gst.totalAmount, '1180');
+      expect(gst.hasAmount, isTrue);
     });
   });
 

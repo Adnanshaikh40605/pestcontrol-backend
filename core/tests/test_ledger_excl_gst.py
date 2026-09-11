@@ -57,6 +57,20 @@ class AmountExcludingGstTests(TestCase):
             Decimal('400.00'),
         )
 
+    def test_partner_customer_gst_fields(self):
+        from core.pricing.gst import partner_customer_gst_fields
+
+        job = JobCard(
+            price='1180',
+            total_amount=Decimal('1180.00'),
+            service_items=[{'service': 'General', 'gst_percent': '18.00', 'amount': 1180}],
+        )
+        fields = partner_customer_gst_fields(job)
+        self.assertEqual(fields['base_amount'], '1000.00')
+        self.assertEqual(fields['gst_amount'], '180.00')
+        self.assertEqual(fields['total_amount'], '1180.00')
+        self.assertEqual(fields['gst_percent'], '18.00')
+
 
 @override_settings(REVENUE_MODEL_V2=True)
 class LedgerExclGstDisplayTests(TestCase):

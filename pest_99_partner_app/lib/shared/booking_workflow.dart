@@ -45,27 +45,42 @@ class BookingWorkflow {
 
   static Future<void> completeFromCard(BuildContext context, int bookingId) async {
     final booking = _findBooking(context, bookingId);
+    await _showCompleteModal(context, bookingId, booking);
+  }
+
+  static Future<void> completeFromDetail(
+    BuildContext context,
+    int bookingId, {
+    api.PartnerBooking? booking,
+  }) async {
+    final resolved = booking ?? _findBooking(context, bookingId);
+    await _showCompleteModal(context, bookingId, resolved);
+  }
+
+  static Future<void> _showCompleteModal(
+    BuildContext context,
+    int bookingId,
+    api.PartnerBooking? booking,
+  ) async {
     final mode = await showEndServiceModal(
       context,
       payableAmount: booking?.visitPayoutAmount,
       jobAmount: booking?.totalBookingAmount ?? booking?.priceDisplay ?? booking?.price,
+      baseAmount: booking?.baseAmount,
+      gstAmount: booking?.gstAmount,
+      totalAmount: booking?.totalAmount ?? booking?.totalBookingAmount,
+      gstPercent: booking?.gstPercent,
+      initialMode: _parsePaymentMode(booking?.paymentMode),
     );
     if (mode == null || !context.mounted) return;
     await _runComplete(context, bookingId, mode);
   }
 
-  static Future<void> completeFromDetail(
-    BuildContext context,
-    int bookingId,
-  ) async {
-    final booking = _findBooking(context, bookingId);
-    final mode = await showEndServiceModal(
-      context,
-      payableAmount: booking?.visitPayoutAmount,
-      jobAmount: booking?.totalBookingAmount ?? booking?.priceDisplay ?? booking?.price,
-    );
-    if (mode == null || !context.mounted) return;
-    await _runComplete(context, bookingId, mode);
+  static PaymentMode? _parsePaymentMode(String? raw) {
+    final v = (raw ?? '').toLowerCase();
+    if (v.contains('online')) return PaymentMode.online;
+    if (v.contains('cash')) return PaymentMode.cash;
+    return null;
   }
 
   static api.PartnerBooking? _findBooking(BuildContext context, int bookingId) {

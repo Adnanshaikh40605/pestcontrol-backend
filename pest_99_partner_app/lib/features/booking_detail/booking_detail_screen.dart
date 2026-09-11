@@ -10,6 +10,7 @@ import '../../core/routing/booking_open_args.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/user_error.dart';
+import '../../core/utils/gst_breakdown.dart';
 import '../../core/utils/money_format.dart';
 import '../../models/booking.dart' as api;
 import '../../providers/bookings_provider.dart';
@@ -395,7 +396,11 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
             onPressed: processing
                 ? null
                 : () async {
-                    await BookingWorkflow.completeFromDetail(context, widget.bookingId);
+                    await BookingWorkflow.completeFromDetail(
+                      context,
+                      widget.bookingId,
+                      booking: b,
+                    );
                     if (!mounted) return;
                     if (!context.read<BookingsProvider>().accepted.any((x) => x.id == widget.bookingId)) {
                       context.pop();
@@ -465,7 +470,13 @@ class _MoneyBreakdownCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final jobAmount = booking.priceDisplay ?? booking.price;
+    final gst = GstBreakdown.resolve(
+      baseAmount: booking.baseAmount,
+      gstAmount: booking.gstAmount,
+      totalAmount: booking.totalAmount ?? booking.totalBookingAmount,
+      gstPercent: booking.gstPercent,
+      inclusiveTotal: booking.totalBookingAmount ?? booking.price,
+    );
     final yourShare = booking.visitPayoutAmount;
     final companyShare = booking.companyShareAmount;
     final visitRev = booking.visitRevenueAmount;
@@ -491,26 +502,40 @@ class _MoneyBreakdownCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             showSplit
-                ? 'Your money is only the technician share. Job amount is what the customer pays.'
-                : 'No revenue-share payout on this visit (included / complaint / salaried).',
+                ? 'Customer may pay base only or total with GST. Your money is the technician share (excl. GST).'
+                : 'Customer may pay base only or total with GST. No revenue-share payout on this visit.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
                 ),
           ),
-          const SizedBox(height: 12),
-          _DetailMoneyRow(
-            label: 'Total booking amount',
-            value: MoneyFormat.rupees(jobAmount),
-            muted: true,
-          ),
+          if (gst.hasAmount) ...[
+            const SizedBox(height: 12),
+            _DetailMoneyRow(
+              label: 'Base price (excl. GST)',
+              value: MoneyFormat.rupees(gst.baseAmount),
+              muted: true,
+            ),
+            const SizedBox(height: 8),
+            _DetailMoneyRow(
+              label: gst.gstLabel,
+              value: MoneyFormat.rupees(gst.gstAmount),
+              muted: true,
+            ),
+            const SizedBox(height: 8),
+            _DetailMoneyRow(
+              label: 'Total (incl. GST)',
+              value: MoneyFormat.rupees(gst.totalAmount),
+              emphasize: true,
+            ),
+          ],
           if (visitRev != null &&
               visitRev.isNotEmpty &&
               visitRev != '0' &&
               visitRev != '0.00' &&
-              visitRev != jobAmount?.replaceAll('₹', '')) ...[
+              visitRev != gst.totalAmount) ...[
             const SizedBox(height: 8),
             _DetailMoneyRow(
-              label: 'This visit value',
+              label: 'This visit value (excl. GST)',
               value: MoneyFormat.rupees(visitRev),
               muted: true,
             ),

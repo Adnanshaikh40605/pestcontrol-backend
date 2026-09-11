@@ -22,6 +22,10 @@ class PartnerBooking {
     this.paymentStatus,
     this.paymentMode,
     this.paymentModel,
+    this.baseAmount,
+    this.gstAmount,
+    this.totalAmount,
+    this.gstPercent,
     this.visitPayoutAmount,
     this.payoutStatus,
     this.technicianSharePercent,
@@ -60,6 +64,13 @@ class PartnerBooking {
   final String? paymentStatus;
   final String? paymentMode;
   final String? paymentModel;
+  /// Customer payable excl. GST (from API or derived).
+  final String? baseAmount;
+  /// GST rupees on customer payable.
+  final String? gstAmount;
+  /// Customer payable incl. GST (same idea as [totalBookingAmount] / [price]).
+  final String? totalAmount;
+  final String? gstPercent;
   final String? visitPayoutAmount;
   final String? payoutStatus;
   final String? technicianSharePercent;
@@ -144,6 +155,10 @@ class PartnerBooking {
       paymentStatus: json['payment_status']?.toString(),
       paymentMode: json['payment_mode']?.toString(),
       paymentModel: json['payment_model']?.toString(),
+      baseAmount: json['base_amount']?.toString(),
+      gstAmount: json['gst_amount']?.toString(),
+      totalAmount: json['total_amount']?.toString(),
+      gstPercent: json['gst_percent']?.toString(),
       visitPayoutAmount: json['visit_payout_amount']?.toString(),
       payoutStatus: json['payout_status']?.toString(),
       technicianSharePercent: json['technician_share_percent']?.toString(),

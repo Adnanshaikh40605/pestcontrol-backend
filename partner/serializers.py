@@ -3,6 +3,31 @@ from .models import Partner, PartnerEarning, PartnerLeaveRequest, PartnerRating
 from core.models import JobCard, TechnicianSettlement
 
 
+def _inject_partner_money_fields(data, instance):
+    """
+    Strip GST from tech/company share fields; add customer GST breakdown.
+
+    Customer price stays inclusive on price / total_booking_amount.
+    base_amount / gst_amount / total_amount / gst_percent support Cash/Online UI.
+    """
+    from core.pricing.gst import (
+        amount_excluding_gst,
+        partner_customer_gst_fields,
+        resolve_job_gst_percent,
+    )
+
+    gst = resolve_job_gst_percent(instance)
+    for key in ('visit_payout_amount', 'visit_revenue_amount', 'company_share_amount'):
+        raw = data.get(key)
+        if raw is None or raw == '':
+            continue
+        data[key] = str(amount_excluding_gst(raw, gst))
+
+    inclusive = data.get('total_booking_amount')
+    data.update(partner_customer_gst_fields(instance, inclusive_amount=inclusive))
+    return data
+
+
 class PartnerSerializer(serializers.ModelSerializer):
     """Serializer for Partner profile data."""
     class Meta:
@@ -278,16 +303,7 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        # Tech share / visit revenue display excl-GST; customer price stays inclusive.
-        from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
-
-        gst = resolve_job_gst_percent(instance)
-        for key in ('visit_payout_amount', 'visit_revenue_amount', 'company_share_amount'):
-            raw = data.get(key)
-            if raw is None or raw == '':
-                continue
-            data[key] = str(amount_excluding_gst(raw, gst))
-        return data
+        return _inject_partner_money_fields(data, instance)
 
 
 class PartnerBookingDetailSerializer(serializers.ModelSerializer):
@@ -436,15 +452,7 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
-
-        gst = resolve_job_gst_percent(instance)
-        for key in ('visit_payout_amount', 'visit_revenue_amount', 'company_share_amount'):
-            raw = data.get(key)
-            if raw is None or raw == '':
-                continue
-            data[key] = str(amount_excluding_gst(raw, gst))
-        return data
+        return _inject_partner_money_fields(data, instance)
 
 
 class PartnerCompleteBookingSerializer(serializers.Serializer):

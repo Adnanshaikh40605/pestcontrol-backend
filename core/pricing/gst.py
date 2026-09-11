@@ -100,6 +100,31 @@ def amount_excluding_gst(amount, gst_percent=DEFAULT_GST_PERCENT) -> Decimal:
     )['base_amount']
 
 
+def partner_customer_gst_fields(job, inclusive_amount=None) -> dict[str, str]:
+    """
+    Customer payable split for Partner App (Cash/Online collection UI).
+
+    JobCard.price / total_booking_amount are GST-inclusive. Returns string
+    fields ready to inject into partner booking list/detail payloads.
+    """
+    if inclusive_amount is None:
+        from core.payment_utils import partner_booking_display_amount
+
+        inclusive_amount = partner_booking_display_amount(job)
+    gst_percent = resolve_job_gst_percent(job)
+    bd = gst_breakdown(
+        inclusive_amount,
+        gst_percent=gst_percent,
+        price_includes_gst=True,
+    )
+    return {
+        'gst_percent': str(bd['gst_percent']),
+        'base_amount': str(bd['base_amount']),
+        'gst_amount': str(bd['gst_amount']),
+        'total_amount': str(bd['total_with_gst']),
+    }
+
+
 def resolve_job_gst_percent(job=None) -> Decimal:
     """
     GST % used when stripping tax for technician ledger / partner earnings.

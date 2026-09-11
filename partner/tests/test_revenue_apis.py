@@ -175,6 +175,33 @@ class PartnerRevenueApiTests(TestCase):
         self.assertEqual(Decimal(row['visit_payout_amount']), amount_excluding_gst('400.00'))
         self.assertIsNone(row['settlement_status'])
 
+    def test_booking_detail_includes_customer_gst_breakdown(self):
+        """Partner detail exposes base / GST / total for Cash-Online collection UI."""
+        from core.pricing.gst import gst_breakdown
+
+        job = JobCard.objects.create(
+            client=self.client_obj,
+            service_type='General Pest',
+            price='1180',
+            total_amount=Decimal('1180.00'),
+            technician=self.tech,
+            partner=self.partner,
+            status=JobCard.JobStatus.ON_PROCESS,
+            partner_status=JobCard.PartnerStatus.IN_SERVICE,
+            payment_model=JobCard.PaymentModel.REVENUE_SHARING,
+            visit_payout_amount=Decimal('400.00'),
+            job_type=JobCard.JobType.CUSTOMER,
+            commercial_type=JobCard.CommercialType.HOME,
+        )
+        res = self.api.get(f'/api/partner/bookings/{job.id}/')
+        self.assertEqual(res.status_code, 200, res.data)
+        bd = gst_breakdown('1180', price_includes_gst=True)
+        self.assertEqual(Decimal(res.data['base_amount']), bd['base_amount'])
+        self.assertEqual(Decimal(res.data['gst_amount']), bd['gst_amount'])
+        self.assertEqual(Decimal(res.data['total_amount']), bd['total_with_gst'])
+        self.assertEqual(Decimal(res.data['gst_percent']), bd['gst_percent'])
+        self.assertEqual(res.data['total_booking_amount'], '1180.00')
+
     def test_settlements_list_approved_only(self):
         TechnicianSettlement.objects.create(
             technician=self.tech,
