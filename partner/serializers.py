@@ -276,6 +276,19 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
             return (obj.master_location.name or '').strip()
         return ''
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Tech share / visit revenue display excl-GST; customer price stays inclusive.
+        from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
+
+        gst = resolve_job_gst_percent(instance)
+        for key in ('visit_payout_amount', 'visit_revenue_amount', 'company_share_amount'):
+            raw = data.get(key)
+            if raw is None or raw == '':
+                continue
+            data[key] = str(amount_excluding_gst(raw, gst))
+        return data
+
 
 class PartnerBookingDetailSerializer(serializers.ModelSerializer):
     """Detailed booking serializer for the detail screen."""
@@ -421,6 +434,18 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
             )
         return '0'
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
+
+        gst = resolve_job_gst_percent(instance)
+        for key in ('visit_payout_amount', 'visit_revenue_amount', 'company_share_amount'):
+            raw = data.get(key)
+            if raw is None or raw == '':
+                continue
+            data[key] = str(amount_excluding_gst(raw, gst))
+        return data
+
 
 class PartnerCompleteBookingSerializer(serializers.Serializer):
     """Serializer for completing a booking (End Service)."""
@@ -439,18 +464,13 @@ class PartnerCompleteBookingSerializer(serializers.Serializer):
 
 
 class PartnerEarningSerializer(serializers.ModelSerializer):
-    """Serializer for earnings history."""
+    """Serializer for earnings history (amounts shown excl-GST for revenue share)."""
     job_code = serializers.CharField(source='job.code', read_only=True)
     service_type = serializers.CharField(source='job.service_type', read_only=True)
     completed_at = serializers.DateTimeField(source='job.completed_at', read_only=True)
     payout_status = serializers.CharField(source='job.payout_status', read_only=True)
-    visit_payout_amount = serializers.DecimalField(
-        source='job.visit_payout_amount',
-        max_digits=12,
-        decimal_places=2,
-        read_only=True,
-        allow_null=True,
-    )
+    amount = serializers.SerializerMethodField()
+    visit_payout_amount = serializers.SerializerMethodField()
     settlement_status = serializers.SerializerMethodField()
     settlement_id = serializers.SerializerMethodField()
 
@@ -462,6 +482,25 @@ class PartnerEarningSerializer(serializers.ModelSerializer):
             'settlement_status', 'settlement_id',
             'completed_at', 'created_at',
         ]
+
+    def get_amount(self, obj):
+        from core.pricing.gst import earning_amount_excluding_gst
+
+        return str(
+            earning_amount_excluding_gst(
+                obj.amount,
+                earning_type=obj.earning_type,
+                job=obj.job,
+            )
+        )
+
+    def get_visit_payout_amount(self, obj):
+        from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
+
+        raw = getattr(obj.job, 'visit_payout_amount', None) if obj.job_id else None
+        if raw is None:
+            return None
+        return str(amount_excluding_gst(raw, resolve_job_gst_percent(obj.job)))
 
     def get_settlement_status(self, obj):
         line = getattr(obj, 'settlement_line', None)
@@ -494,6 +533,16 @@ class PartnerLeaveRequestSerializer(serializers.ModelSerializer):
 
 
 class PartnerSettlementSerializer(serializers.ModelSerializer):
+    """
+    Settlement totals for the partner app.
+
+    Revenue-share (gross) is shown excl-GST; incentives/deductions stay as stored
+    flat rupees. Net is recomputed for display so history matches the ledger base.
+    Stored settlement rows remain GST-inclusive for payout processing.
+    """
+    gross_amount = serializers.SerializerMethodField()
+    net_amount = serializers.SerializerMethodField()
+
     class Meta:
         model = TechnicianSettlement
         fields = [
@@ -501,6 +550,22 @@ class PartnerSettlementSerializer(serializers.ModelSerializer):
             'gross_amount', 'incentive_amount', 'deduction_amount', 'net_amount',
             'paid_at', 'created_at',
         ]
+
+    def get_gross_amount(self, obj):
+        from core.pricing.gst import amount_excluding_gst
+
+        return str(amount_excluding_gst(obj.gross_amount))
+
+    def get_net_amount(self, obj):
+        from decimal import Decimal
+
+        from core.payout_engine import quantize_money
+        from core.pricing.gst import amount_excluding_gst
+
+        gross = amount_excluding_gst(obj.gross_amount)
+        incentive = Decimal(str(obj.incentive_amount or 0))
+        deduction = Decimal(str(obj.deduction_amount or 0))
+        return str(quantize_money(gross + incentive - deduction))
 
 
 class PartnerProfileStatsSerializer(serializers.Serializer):

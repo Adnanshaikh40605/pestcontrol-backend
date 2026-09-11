@@ -16,6 +16,7 @@ from core.models import (
 )
 from partner.models import Partner, PartnerEarning
 from core.payment_utils import parse_jobcard_price
+from core.pricing.gst import amount_excluding_gst
 
 
 @override_settings(REVENUE_MODEL_V2=True)
@@ -156,13 +157,13 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data['count'], 1)
         row = res.data['results'][0]
-        self.assertEqual(Decimal(row['technician_share']), Decimal('400.00'))
-        self.assertEqual(Decimal(row['company_share']), Decimal('600.00'))
+        self.assertEqual(Decimal(row['technician_share']), amount_excluding_gst('400.00'))
+        self.assertEqual(Decimal(row['company_share']), amount_excluding_gst('600.00'))
         self.assertEqual(Decimal(row['bonus']), Decimal('50.00'))
         self.assertEqual(Decimal(row['penalty']), Decimal('20.00'))
-        self.assertEqual(Decimal(row['paid_amount']), Decimal('430.00'))
+        self.assertEqual(Decimal(row['paid_amount']), amount_excluding_gst('400.00') + Decimal('50.00') - Decimal('20.00'))
         self.assertEqual(Decimal(row['pending_amount']), Decimal('0.00'))
-        self.assertEqual(Decimal(row['net_payable']), Decimal('430.00'))
+        self.assertEqual(Decimal(row['net_payable']), amount_excluding_gst('400.00') + Decimal('50.00') - Decimal('20.00'))
         self.assertEqual(len(res.data['payment_history']), 1)
 
     def test_amc_pending_visit_has_no_share(self):
@@ -250,7 +251,7 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(row['booking_type_label'], '2-Service Package')
         self.assertEqual(row['service_number'], 'Service 2 of 2')
         # Bed Bugs follow-up should show per-visit value, not full package.
-        self.assertEqual(Decimal(row['booking_amount']), Decimal('1250.00'))
+        self.assertEqual(Decimal(row['booking_amount']), amount_excluding_gst('1250.00'))
 
     def test_bed_bugs_ledger_is_two_service_package_not_one_time(self):
         job = self._job(
@@ -283,8 +284,8 @@ class TechnicianLedgerTests(TestCase):
         res = self.api.get(f'/api/v1/technicians/{self.tech.id}/ledger/')
         row = res.data['results'][0]
         self.assertEqual(Decimal(row['bonus']), Decimal('75.00'))
-        self.assertEqual(Decimal(row['net_payable']), Decimal('475.00'))
-        self.assertEqual(Decimal(row['pending_amount']), Decimal('475.00'))
+        self.assertEqual(Decimal(row['net_payable']), amount_excluding_gst('400.00') + Decimal('75.00'))
+        self.assertEqual(Decimal(row['pending_amount']), amount_excluding_gst('400.00') + Decimal('75.00'))
 
     def test_status_and_pagination_filters(self):
         self._job(status='Done', amount='1000')
@@ -326,7 +327,7 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data['count'], 1)
         self.assertEqual(res.data['results'][0]['job_id'], inside.id)
-        self.assertEqual(Decimal(res.data['summary']['technician_share']), Decimal('400.00'))
+        self.assertEqual(Decimal(res.data['summary']['technician_share']), amount_excluding_gst('400.00'))
 
     def test_city_and_service_type_filters_and_options(self):
         """Scenario: city/service filters narrow rows and options list real values."""
@@ -343,7 +344,7 @@ class TechnicianLedgerTests(TestCase):
         res = self._ledger({'city': 'lonavala', 'service_type': 'termite'})
         self.assertEqual(res.data['count'], 1)
         self.assertEqual(res.data['results'][0]['city'], 'Lonavala')
-        self.assertEqual(Decimal(res.data['summary']['technician_share']), Decimal('800.00'))
+        self.assertEqual(Decimal(res.data['summary']['technician_share']), amount_excluding_gst('800.00'))
 
     def test_salaried_technician_has_no_revenue_share(self):
         """Scenario: salaried staff show bookings but never earn a partner share."""
@@ -362,7 +363,7 @@ class TechnicianLedgerTests(TestCase):
         row = res.data['results'][0]
         self.assertEqual(Decimal(row['technician_share']), Decimal('0.00'))
         self.assertEqual(Decimal(row['net_payable']), Decimal('0.00'))
-        self.assertEqual(Decimal(row['company_share']), Decimal('600.00'))
+        self.assertEqual(Decimal(row['company_share']), amount_excluding_gst('600.00'))
         self.assertEqual(Decimal(res.data['earnings']['lifetime']), Decimal('0.00'))
 
     def test_crew_member_sees_only_own_snapshot(self):
@@ -396,11 +397,11 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(helper_res.data['count'], 1)
         self.assertEqual(
             Decimal(helper_res.data['results'][0]['technician_share']),
-            Decimal('150.00'),
+            amount_excluding_gst('150.00'),
         )
         self.assertEqual(
             Decimal(lead_res.data['results'][0]['technician_share']),
-            Decimal('400.00'),
+            amount_excluding_gst('400.00'),
         )
 
     def test_pagination_second_page_and_invalid_params(self):
@@ -427,7 +428,7 @@ class TechnicianLedgerTests(TestCase):
         # Summary always reflects every filtered row, not just the current page.
         self.assertEqual(
             Decimal(page_two.data['summary']['technician_share']),
-            Decimal('2000.00'),
+            amount_excluding_gst('400.00') * 5,
         )
 
     def test_cancelled_job_and_pending_settlement_stay_unpaid(self):
@@ -459,8 +460,8 @@ class TechnicianLedgerTests(TestCase):
         self.assertEqual(Decimal(rows[cancelled.id]['visit_revenue']), Decimal('0.00'))
         self.assertFalse(rows[cancelled.id]['is_completed_visit'])
         self.assertEqual(Decimal(rows[done.id]['paid_amount']), Decimal('0.00'))
-        self.assertEqual(Decimal(rows[done.id]['pending_amount']), Decimal('400.00'))
-        self.assertEqual(Decimal(res.data['summary']['pending_amount']), Decimal('400.00'))
+        self.assertEqual(Decimal(rows[done.id]['pending_amount']), amount_excluding_gst('400.00'))
+        self.assertEqual(Decimal(res.data['summary']['pending_amount']), amount_excluding_gst('400.00'))
 
     def test_contract_filter_and_average_rating(self):
         """Scenario: society work is contract economics and ratings average correctly."""
@@ -469,6 +470,10 @@ class TechnicianLedgerTests(TestCase):
             job_type=JobCard.JobType.SOCIETY,
             property_type=JobCard.PropertyType.SOCIETY,
         )
+        # Default service_category is ONE_TIME which short-circuits contractual
+        # economics; clear it so society jobs classify as contract for this filter.
+        JobCard.objects.filter(pk=society.pk).update(service_category='')
+        society.refresh_from_db()
         one_time = self._job(amount='1000')
         Feedback.objects.create(
             booking=society,
@@ -520,7 +525,7 @@ class TechnicianLedgerTests(TestCase):
 
         self.assertEqual(res.data['count'], 1)
         self.assertEqual(res.data['results'][0]['booking_date'], local_today.isoformat())
-        self.assertEqual(Decimal(res.data['earnings']['daily']), Decimal('400.00'))
+        self.assertEqual(Decimal(res.data['earnings']['daily']), amount_excluding_gst('400.00'))
 
     def test_ledger_uses_booking_schedule_date_not_completion_date(self):
         """Scenario: closed next day still shows under the booked schedule date."""
@@ -569,9 +574,12 @@ class TechnicianLedgerTests(TestCase):
 
         earnings = self._ledger().data['earnings']
 
-        self.assertEqual(Decimal(earnings['daily']), Decimal('400.00'))
-        self.assertEqual(Decimal(earnings['lifetime']), Decimal('1200.00'))
-        self.assertGreaterEqual(Decimal(earnings['monthly']), Decimal('400.00'))
+        self.assertEqual(Decimal(earnings['daily']), amount_excluding_gst('400.00'))
+        self.assertEqual(
+            Decimal(earnings['lifetime']),
+            amount_excluding_gst('400.00') + amount_excluding_gst('800.00'),
+        )
+        self.assertGreaterEqual(Decimal(earnings['monthly']), amount_excluding_gst('400.00'))
 
     def test_settle_selected_jobs_marks_settled_keeps_row(self):
         """Scenario: multi-select settle → Unsettled becomes Settled; row stays."""
@@ -739,9 +747,9 @@ class TechnicianLedgerTests(TestCase):
         res = self._ledger({'settlement_status': 'unsettled'})
         self.assertEqual(res.status_code, 200, res.data)
         row = next(r for r in res.data['results'] if r['job_id'] == job.id)
-        self.assertEqual(Decimal(row['booking_amount']), Decimal('1000.00'))
-        self.assertEqual(Decimal(row['visit_revenue']), Decimal('1000.00'))
-        self.assertEqual(Decimal(row['technician_share']), Decimal('400.00'))
+        self.assertEqual(Decimal(row['booking_amount']), amount_excluding_gst('1000.00'))
+        self.assertEqual(Decimal(row['visit_revenue']), amount_excluding_gst('1000.00'))
+        self.assertEqual(Decimal(row['technician_share']), amount_excluding_gst('400.00'))
 
         job.refresh_from_db()
         self.assertEqual(parse_jobcard_price(job.service_items[0]['amount']), Decimal('1000.00'))

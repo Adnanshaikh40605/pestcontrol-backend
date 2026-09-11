@@ -21,6 +21,7 @@ from core.customer_revenue import service_line_breakdown
 from core.models import City, Client, Country, JobCard, Location, State, Technician
 from core.payment_utils import effective_service_total, parse_jobcard_price
 from core.payout_engine import calculate_and_apply_payout, service_line_package_amount
+from core.pricing.gst import amount_excluding_gst
 from core.technician_ledger import serialize_ledger_row
 
 
@@ -289,8 +290,8 @@ class ServiceLevelPricingE2ETests(TestCase):
 
         row_t = serialize_ledger_row(termite, self.tech)
         row_c = serialize_ledger_row(cockroach, self.tech)
-        self.assertEqual(Decimal(row_t['technician_share']), Decimal('1000.00'))
-        self.assertEqual(Decimal(row_c['technician_share']), Decimal('600.00'))
+        self.assertEqual(Decimal(row_t['technician_share']), amount_excluding_gst('1000.00'))
+        self.assertEqual(Decimal(row_c['technician_share']), amount_excluding_gst('600.00'))
         # Never combined 4000 * 40% / 2 = 800
         self.assertNotEqual(Decimal(row_t['technician_share']), Decimal('800.00'))
 

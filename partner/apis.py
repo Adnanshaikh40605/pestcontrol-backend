@@ -791,6 +791,8 @@ class CompleteBookingAPIView(PartnerAPIView):
             f"Partner {partner.full_name} completed booking #{job.id} via {payment_mode}"
         )
 
+        from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
+
         return Response({
             "message": f"Service completed! Payment recorded as {payment_mode}.",
             "status": job.status,
@@ -798,7 +800,11 @@ class CompleteBookingAPIView(PartnerAPIView):
             "payment_mode": job.payment_mode,
             "payment_status": job.payment_status,
             "payment_model": job.payment_model,
-            "visit_payout_amount": str(job.visit_payout_amount) if job.visit_payout_amount is not None else None,
+            "visit_payout_amount": (
+                str(amount_excluding_gst(job.visit_payout_amount, resolve_job_gst_percent(job)))
+                if job.visit_payout_amount is not None
+                else None
+            ),
             "payout_status": job.payout_status,
             "next_service_date": next_service_date,
         })
@@ -826,6 +832,9 @@ class ProfileAPIView(PartnerAPIView):
     def get(self, request):
         partner = request.partner
 
+        from core.payout_engine import quantize_money
+        from core.pricing.gst import earning_amount_excluding_gst
+
         # Stats
         total_jobs = JobCard.objects.filter(partner=partner).count()
         completed_jobs = JobCard.objects.filter(
@@ -846,8 +855,13 @@ class ProfileAPIView(PartnerAPIView):
         avg_rating_result = PartnerRating.objects.filter(partner=partner).aggregate(Avg('rating'))
         avg_rating = round(avg_rating_result['rating__avg'] or 0, 1)
 
-        total_earnings_result = PartnerEarning.objects.filter(partner=partner).aggregate(Sum('amount'))
-        total_earnings = total_earnings_result['amount__sum'] or 0
+        total_earnings = quantize_money(0)
+        for earning in PartnerEarning.objects.filter(partner=partner).select_related('job'):
+            total_earnings += earning_amount_excluding_gst(
+                earning.amount,
+                earning_type=earning.earning_type,
+                job=earning.job,
+            )
 
         pool_available = JobCard.objects.filter(broadcast_pending_filter()).count()
 
@@ -964,10 +978,20 @@ class EarningsHistoryAPIView(PartnerAPIView):
         )
         serializer = PartnerEarningSerializer(earnings, many=True)
 
-        total = earnings.aggregate(Sum('amount'))['amount__sum'] or 0
-        approved_total = (
-            earnings.filter(is_approved=True).aggregate(Sum('amount'))['amount__sum'] or 0
-        )
+        from core.pricing.gst import earning_amount_excluding_gst
+        from core.payout_engine import quantize_money
+
+        total = quantize_money(0)
+        approved_total = quantize_money(0)
+        for earning in earnings:
+            excl = earning_amount_excluding_gst(
+                earning.amount,
+                earning_type=earning.earning_type,
+                job=earning.job,
+            )
+            total += excl
+            if earning.is_approved:
+                approved_total += excl
 
         return Response({
             "total_earnings": str(total),

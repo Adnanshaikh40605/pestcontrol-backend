@@ -83,3 +83,81 @@ def rate_gst_payload(rate) -> dict[str, Any]:
         # Lets the CRM filter Area options by booking type (home vs hotel/office).
         'property_category': getattr(rate, 'property_category', None) or 'residential',
     }
+
+
+def amount_excluding_gst(amount, gst_percent=DEFAULT_GST_PERCENT) -> Decimal:
+    """
+    Convert a GST-inclusive rupee amount to the excl-GST base.
+
+    Booking matrix / JobCard.price store the customer payable (total_with_gst).
+    Technician Ledger + partner earnings/settlements display the excl-GST base
+    so Service ₹ / tech 40% / company 60% are not inflated by tax.
+    """
+    return gst_breakdown(
+        amount,
+        gst_percent=gst_percent,
+        price_includes_gst=True,
+    )['base_amount']
+
+
+def resolve_job_gst_percent(job=None) -> Decimal:
+    """
+    GST % used when stripping tax for technician ledger / partner earnings.
+
+    Prefer an explicit rate on service_items when present; otherwise the Pricing
+    Master default (DEFAULT_GST_PERCENT, currently 18%) — same source as
+    ``core.pricing.gst.gst_breakdown`` / booking matrix.
+    """
+    if job is None:
+        return DEFAULT_GST_PERCENT
+
+    items = getattr(job, 'service_items', None) or []
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get('gst_percent', item.get('gstPercent'))
+            if raw is None or str(raw).strip() == '':
+                continue
+            rate = _money(raw)
+            if rate >= 0:
+                return rate
+
+    # Fall back to the active Pricing Master rate for this region when uniform.
+    try:
+        from core.models import PricingRate
+        from core.pricing.db import pricing_region_for_city, resolve_pricing_region_slug
+
+        city = None
+        master_city = getattr(job, 'master_city', None)
+        if master_city is not None and getattr(master_city, 'name', None):
+            city = master_city.name
+        elif getattr(job, 'city', None):
+            city = job.city
+        slug = resolve_pricing_region_slug(pricing_region_for_city(city) if city else None)
+        if not slug:
+            slug = 'mumbai'
+        distinct = list(
+            PricingRate.objects.filter(region__slug=slug, is_active=True)
+            .values_list('gst_percent', flat=True)
+            .distinct()
+        )
+        if len(distinct) == 1 and distinct[0] is not None:
+            return _money(distinct[0])
+    except Exception:
+        pass
+
+    return DEFAULT_GST_PERCENT
+
+
+def earning_amount_excluding_gst(amount, *, earning_type: str | None = None, job=None) -> Decimal:
+    """
+    Partner earning / settlement line → excl-GST for display.
+
+    Revenue-share lines are derived from GST-inclusive booking totals, so strip
+    tax. Flat incentives/deductions are absolute rupees and stay unchanged.
+    """
+    et = (earning_type or '').strip().lower()
+    if et in ('incentive', 'deduction'):
+        return _money(amount)
+    return amount_excluding_gst(amount, resolve_job_gst_percent(job))

@@ -162,7 +162,7 @@ class _ProgressBanner extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Amounts below are your technician share only — not the full customer job price.',
+            'Amounts below are your technician share only (excl. GST) — not the full customer job price.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
                 ),

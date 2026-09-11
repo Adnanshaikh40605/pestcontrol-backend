@@ -14,6 +14,7 @@ from rest_framework.test import APIClient
 from core.models import Client, JobCard, Technician, TechnicianSettlement
 from partner.models import Partner, PartnerEarning, PartnerLeaveRequest
 from partner.utils import generate_partner_tokens
+from core.pricing.gst import amount_excluding_gst
 
 
 def _selfie_file():
@@ -171,7 +172,7 @@ class PartnerRevenueApiTests(TestCase):
         self.assertIn('approved_earnings', res.data)
         row = res.data['results'][0]
         self.assertEqual(row['payout_status'], JobCard.PayoutStatus.PENDING)
-        self.assertEqual(Decimal(row['visit_payout_amount']), Decimal('400.00'))
+        self.assertEqual(Decimal(row['visit_payout_amount']), amount_excluding_gst('400.00'))
         self.assertIsNone(row['settlement_status'])
 
     def test_settlements_list_approved_only(self):

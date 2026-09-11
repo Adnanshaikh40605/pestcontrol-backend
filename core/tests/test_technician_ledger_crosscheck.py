@@ -11,6 +11,7 @@ from core.booking_schedule_engine import (
 from core.models import Client, JobCard, JobCardTechnicianParticipation, Technician
 from core.payout_engine import calculate_and_apply_payout, is_amc_economics
 from core.technician_ledger import exclude_package_shells, serialize_ledger_row
+from core.pricing.gst import amount_excluding_gst
 from partner.models import Partner
 
 
@@ -255,9 +256,10 @@ class TechnicianLedgerCrossCheckTests(TestCase):
         self.assertEqual(Decimal(str(job.visit_payout_amount)), Decimal('333.33'))
         row = serialize_ledger_row(job, self.tech)
         # Ledger booking column shows per-visit value, not full package on every row.
-        self.assertEqual(row['booking_amount'], '833.33')
-        self.assertEqual(row['visit_revenue'], '833.33')
-        self.assertEqual(row['technician_share'], '333.33')
+        # Display amounts are excl-GST (18% Pricing Master default).
+        self.assertEqual(row['booking_amount'], str(amount_excluding_gst('833.33')))
+        self.assertEqual(row['visit_revenue'], str(amount_excluding_gst('833.33')))
+        self.assertEqual(row['technician_share'], str(amount_excluding_gst('333.33')))
         self.assertEqual(row['service_number'], 'Service 1 of 3')
 
     def test_cockroach_rodent_children_do_not_share_full_package(self):
@@ -354,10 +356,10 @@ class TechnicianLedgerCrossCheckTests(TestCase):
         self._part(job, self.tech, self.partner, 'completed')
         row = serialize_ledger_row(job, self.tech)
         self.assertEqual(row['settlement_status'], 'legacy')
-        # Display-only 40/60 from stored visit revenue; not payable.
-        self.assertEqual(row['visit_revenue'], '833.33')
-        self.assertEqual(row['technician_share'], '333.33')
-        self.assertEqual(row['company_share'], '500.00')
+        # Display-only 40/60 from stored visit revenue; not payable. Shown excl-GST.
+        self.assertEqual(row['visit_revenue'], str(amount_excluding_gst('833.33')))
+        self.assertEqual(row['technician_share'], str(amount_excluding_gst('333.33')))
+        self.assertEqual(row['company_share'], str(amount_excluding_gst('500.00')))
         self.assertEqual(row['pending_amount'], '0.00')
         self.assertEqual(row['net_payable'], '0.00')
 
@@ -433,7 +435,10 @@ class TechnicianLedgerCrossCheckTests(TestCase):
 
         job.refresh_from_db()
         self.assertTrue(job_needs_payout_heal(job))
-        self.assertEqual(serialize_ledger_row(job, self.tech)['technician_share'], '200.00')
+        self.assertEqual(
+            serialize_ledger_row(job, self.tech)['technician_share'],
+            str(amount_excluding_gst('200.00')),
+        )
 
         healed = heal_stuck_payouts([job])
         self.assertGreaterEqual(healed, 1)
@@ -446,8 +451,8 @@ class TechnicianLedgerCrossCheckTests(TestCase):
         self.assertEqual(Decimal(str(part.payout_amount_snapshot)), Decimal('400.00'))
 
         row = serialize_ledger_row(job, self.tech)
-        self.assertEqual(row['booking_amount'], '1000.00')
-        self.assertEqual(row['visit_revenue'], '1000.00')
-        self.assertEqual(row['technician_share'], '400.00')
-        self.assertEqual(row['company_share'], '600.00')
+        self.assertEqual(row['booking_amount'], str(amount_excluding_gst('1000.00')))
+        self.assertEqual(row['visit_revenue'], str(amount_excluding_gst('1000.00')))
+        self.assertEqual(row['technician_share'], str(amount_excluding_gst('400.00')))
+        self.assertEqual(row['company_share'], str(amount_excluding_gst('600.00')))
         self.assertEqual(row['technician_share_percent'], '40.00')

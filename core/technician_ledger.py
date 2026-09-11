@@ -111,10 +111,20 @@ def _technician_share(job: JobCard, technician: Technician) -> Decimal:
     return Decimal('0.00')
 
 
-def _line_totals(job: JobCard, technician: Technician) -> tuple[Decimal, Decimal, Decimal]:
+def _line_totals(
+    job: JobCard, technician: Technician,
+) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal]:
+    """
+    Return (bonus, penalty, paid_revenue, paid_incentive, paid_deduction).
+
+    Revenue-share paid is kept separate so excl-GST display can strip tax from
+    share lines only, leaving flat incentives/deductions unchanged.
+    """
     bonus = Decimal('0.00')
     penalty = Decimal('0.00')
-    paid = Decimal('0.00')
+    paid_revenue = Decimal('0.00')
+    paid_incentive = Decimal('0.00')
+    paid_deduction = Decimal('0.00')
     settled_earning_ids = set()
     for line in job.settlement_line_items.all():
         if line.settlement.technician_id != technician.id:
@@ -127,9 +137,11 @@ def _line_totals(job: JobCard, technician: Technician) -> tuple[Decimal, Decimal
             penalty += line.amount
         if line.settlement.status == TechnicianSettlement.Status.PAID:
             if line.earning_type == SettlementLineItem.EarningType.DEDUCTION:
-                paid -= line.amount
+                paid_deduction += line.amount
+            elif line.earning_type == SettlementLineItem.EarningType.INCENTIVE:
+                paid_incentive += line.amount
             else:
-                paid += line.amount
+                paid_revenue += line.amount
 
     # Approved bonus/penalty earnings can exist before a settlement batch is built.
     # Include those in payable totals, while avoiding double-counting settled lines.
@@ -142,7 +154,13 @@ def _line_totals(job: JobCard, technician: Technician) -> tuple[Decimal, Decimal
                 bonus += earning.amount
             elif earning.earning_type == PartnerEarning.EarningType.DEDUCTION:
                 penalty += earning.amount
-    return quantize_money(bonus), quantize_money(penalty), quantize_money(max(paid, 0))
+    return (
+        quantize_money(bonus),
+        quantize_money(penalty),
+        quantize_money(paid_revenue),
+        quantize_money(paid_incentive),
+        quantize_money(paid_deduction),
+    )
 
 
 def technician_jobs_queryset(technician: Technician):
@@ -538,6 +556,9 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
         ):
             visit_revenue = booking_amount
 
+    paid_revenue = Decimal('0.00')
+    paid_incentive = Decimal('0.00')
+    paid_deduction = Decimal('0.00')
     if is_legacy:
         # Old Service Calls are not payable, but still show the historical
         # service amount and the standard 40/60 split for staff reporting.
@@ -556,9 +577,10 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
             if stored_co > 0
             else quantize_money(max(display_rev - tech_share, Decimal('0.00')))
         )
-        bonus, penalty, paid = Decimal('0.00'), Decimal('0.00'), Decimal('0.00')
+        bonus, penalty = Decimal('0.00'), Decimal('0.00')
         net = Decimal('0.00')
         pending = Decimal('0.00')
+        paid = Decimal('0.00')
     else:
         tech_share = _technician_share(job, technician)
         company_share = (
@@ -569,9 +591,31 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
         # on rows that never ran 40/60.
         if company_share <= 0 and completed and visit_revenue > 0 and (job.technician_pool_amount or 0) > 0:
             company_share = quantize_money(max(visit_revenue - tech_share, Decimal('0.00')))
-        bonus, penalty, paid = _line_totals(job, technician)
+        bonus, penalty, paid_revenue, paid_incentive, paid_deduction = _line_totals(
+            job, technician,
+        )
+        paid = quantize_money(max(paid_revenue + paid_incentive - paid_deduction, Decimal('0.00')))
         net = quantize_money(max(tech_share + bonus - penalty, Decimal('0.00')))
         pending = quantize_money(max(net - paid, Decimal('0.00')))
+
+    # Display base is excl-GST. JobCard.price / payout snapshots are GST-inclusive
+    # (customer payable). Strip tax here only — do not change accounting double-entry
+    # or stored PartnerEarning / settlement rows used for actual payouts.
+    from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
+
+    gst_percent = resolve_job_gst_percent(job)
+    booking_amount = amount_excluding_gst(booking_amount, gst_percent)
+    visit_revenue = amount_excluding_gst(visit_revenue, gst_percent)
+    tech_share = amount_excluding_gst(tech_share, gst_percent)
+    company_share = amount_excluding_gst(company_share, gst_percent)
+    if not is_legacy:
+        paid_revenue_excl = amount_excluding_gst(paid_revenue, gst_percent)
+        paid = quantize_money(
+            max(paid_revenue_excl + paid_incentive - paid_deduction, Decimal('0.00'))
+        )
+        net = quantize_money(max(tech_share + bonus - penalty, Decimal('0.00')))
+        pending = quantize_money(max(net - paid, Decimal('0.00')))
+
     feedbacks = list(job.feedbacks.all())
     rating = feedbacks[0].rating if feedbacks else None
 

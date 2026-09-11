@@ -20,6 +20,7 @@ from core.models import (
 )
 from core.payout_engine import calculate_and_apply_payout
 from core.settlement_engine import settle_jobs_for_technician
+from core.pricing.gst import amount_excluding_gst
 from core.technician_ledger import heal_stuck_payouts, serialize_ledger_row
 from partner.models import Partner, PartnerEarning
 
@@ -97,7 +98,7 @@ class LedgerFixesMdCrossCheckTests(TestCase):
         self.assertEqual(job.visit_revenue_amount, Decimal('3000.00'))
         self.assertEqual(job.visit_payout_amount, Decimal('1200.00'))
         row = serialize_ledger_row(job, tech)
-        self.assertEqual(Decimal(row['technician_share']), Decimal('1200.00'))
+        self.assertEqual(Decimal(row['technician_share']), amount_excluding_gst('1200.00'))
         self.assertEqual(row['settlement_status'], 'unsettled')
         self.assertEqual(row['settlement_status_label'], 'Unsettled')
 
@@ -181,15 +182,15 @@ class LedgerFixesMdCrossCheckTests(TestCase):
         row_r = serialize_ledger_row(v2, rahul)
         row_s = serialize_ledger_row(v3, sameer)
 
-        self.assertEqual(Decimal(row_a['technician_share']), Decimal('400.00'))
+        self.assertEqual(Decimal(row_a['technician_share']), amount_excluding_gst('400.00'))
         self.assertEqual(row_a['service_number'], 'Service 1 of 3')
         self.assertEqual(row_a['settlement_status'], 'unsettled')
 
-        self.assertEqual(Decimal(row_r['technician_share']), Decimal('400.00'))
+        self.assertEqual(Decimal(row_r['technician_share']), amount_excluding_gst('400.00'))
         self.assertEqual(row_r['service_number'], 'Service 2 of 3')
 
         # Upcoming → no share yet
-        self.assertEqual(Decimal(row_s['technician_share']), Decimal('0.00'))
+        self.assertEqual(Decimal(row_s['technician_share']), amount_excluding_gst('0.00'))
         self.assertEqual(row_s['settlement_status'], 'n_a')
 
         # Cross-tech isolation: Akshay must not earn on Rahul's visit
@@ -238,8 +239,8 @@ class LedgerFixesMdCrossCheckTests(TestCase):
 
         r1 = serialize_ledger_row(job, t1)
         r2 = serialize_ledger_row(job, t2)
-        self.assertEqual(Decimal(r1['technician_share']), Decimal('200.00'))
-        self.assertEqual(Decimal(r2['technician_share']), Decimal('200.00'))
+        self.assertEqual(Decimal(r1['technician_share']), amount_excluding_gst('200.00'))
+        self.assertEqual(Decimal(r2['technician_share']), amount_excluding_gst('200.00'))
         self.assertIn('Tech One', r1['assigned_technicians'])
         self.assertIn('Tech Two', r1['assigned_technicians'])
 
@@ -295,7 +296,7 @@ class LedgerFixesMdCrossCheckTests(TestCase):
         self.assertEqual(job.visit_payout_amount, Decimal('1000.00'))
         self.assertNotEqual(job.visit_payout_amount, Decimal('2000.00'))
         row = serialize_ledger_row(job, tech)
-        self.assertEqual(Decimal(row['technician_share']), Decimal('1000.00'))
+        self.assertEqual(Decimal(row['technician_share']), amount_excluding_gst('1000.00'))
         self.assertEqual(row['service_number'], 'Service 1 of 2')
 
     # ── F1. Tech share ₹0 heal ───────────────────────────────────────────
@@ -328,7 +329,7 @@ class LedgerFixesMdCrossCheckTests(TestCase):
         job.refresh_from_db()
         self.assertGreater(job.visit_payout_amount, Decimal('0.00'))
         row = serialize_ledger_row(job, tech)
-        self.assertEqual(Decimal(row['technician_share']), Decimal('1000.00'))
+        self.assertEqual(Decimal(row['technician_share']), amount_excluding_gst('1000.00'))
 
     # ── C/E/F4. Settle selected → Settled, row stays, date set ───────────
 
@@ -581,7 +582,7 @@ class LedgerFixesMdCrossCheckTests(TestCase):
 
         r2 = serialize_ledger_row(job, t2)
         self.assertEqual(r2['settlement_status'], 'unsettled')
-        self.assertEqual(Decimal(r2['technician_share']), Decimal('200.00'))
+        self.assertEqual(Decimal(r2['technician_share']), amount_excluding_gst('200.00'))
 
         s2 = settle_jobs_for_technician(technician=t2, job_ids=[job.id], user=self.user)
         self.assertEqual(s2.net_amount, Decimal('200.00'))
@@ -662,8 +663,8 @@ class LedgerFixesMdCrossCheckTests(TestCase):
         row = next(r for r in res.data['results'] if r['job_id'] == old_job.id)
         self.assertEqual(row['settlement_status'], 'legacy')
         # Display-only 40/60 for reporting (not payable).
-        self.assertEqual(Decimal(row['visit_revenue']), Decimal('2500.00'))
-        self.assertEqual(Decimal(row['technician_share']), Decimal('1000.00'))
-        self.assertEqual(Decimal(row['company_share']), Decimal('1500.00'))
-        self.assertEqual(Decimal(row['pending_amount']), Decimal('0.00'))
-        self.assertEqual(Decimal(row['net_payable']), Decimal('0.00'))
+        self.assertEqual(Decimal(row['visit_revenue']), amount_excluding_gst('2500.00'))
+        self.assertEqual(Decimal(row['technician_share']), amount_excluding_gst('1000.00'))
+        self.assertEqual(Decimal(row['company_share']), amount_excluding_gst('1500.00'))
+        self.assertEqual(Decimal(row['pending_amount']), amount_excluding_gst('0.00'))
+        self.assertEqual(Decimal(row['net_payable']), amount_excluding_gst('0.00'))

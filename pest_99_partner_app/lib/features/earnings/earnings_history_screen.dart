@@ -137,7 +137,7 @@ class _EarningsTab extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text(
-            'Every amount below is your technician share (usually 40%). Job/customer totals are not shown here.',
+            'Every amount below is your technician share (usually 40% of the booking amount without GST). Job/customer totals are not shown here.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
                 ),
