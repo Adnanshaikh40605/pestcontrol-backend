@@ -94,3 +94,34 @@ class InvoiceCustomerGstApiTests(APITestCase):
         self.assertEqual(patch.data['subtotal'], '6500.00')
         self.assertEqual(patch.data['grand_total'], '6600.00')
         self.assertEqual(Decimal(patch.data['tax_amount']), Decimal('100.00'))
+
+    def test_create_stamps_created_by_and_exposes_name(self):
+        self.user.first_name = 'Local'
+        self.user.last_name = 'Admin'
+        self.user.save(update_fields=['first_name', 'last_name'])
+
+        response = self.api.post('/api/v1/invoices/', self._payload(), format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['created_by'], self.user.id)
+        self.assertEqual(response.data['created_by_name'], 'Local Admin')
+
+        invoice = Invoice.objects.get(pk=response.data['id'])
+        self.assertEqual(invoice.created_by_id, self.user.id)
+
+    def test_create_created_by_name_falls_back_to_username(self):
+        response = self.api.post('/api/v1/invoices/', self._payload(), format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['created_by'], self.user.id)
+        self.assertEqual(response.data['created_by_name'], self.user.username)
+
+    def test_list_includes_created_by_name(self):
+        create = self.api.post('/api/v1/invoices/', self._payload(), format='json')
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED, create.data)
+
+        listed = self.api.get('/api/v1/invoices/')
+        self.assertEqual(listed.status_code, status.HTTP_200_OK, listed.data)
+        results = listed.data.get('results', listed.data)
+        self.assertTrue(results)
+        row = next(r for r in results if r['id'] == create.data['id'])
+        self.assertEqual(row['created_by'], self.user.id)
+        self.assertEqual(row['created_by_name'], self.user.username)

@@ -5112,11 +5112,22 @@ class QuotationViewSet(BaseModelViewSet):
 class InvoiceViewSet(BaseModelViewSet):
     """CRM standalone invoices with customer GSTIN snapshot."""
 
-    queryset = Invoice.objects.prefetch_related('items').all()
+    queryset = Invoice.objects.select_related('created_by').prefetch_related('items').all()
     serializer_class = InvoiceSerializer
     pagination_class = StandardListPagination
-    search_fields = ['invoice_no', 'customer_name', 'customer_mobile', 'customer_gst_number', 'booking_code']
+    search_fields = [
+        'invoice_no',
+        'customer_name',
+        'customer_mobile',
+        'customer_gst_number',
+        'booking_code',
+        'created_by__username',
+        'created_by__first_name',
+        'created_by__last_name',
+    ]
     filterset_fields = ['invoice_date']
+    ordering_fields = ['invoice_date', 'created_at', 'grand_total', 'invoice_no']
+    ordering = ['-invoice_date', '-id']
     http_method_names = ['get', 'post', 'put', 'patch', 'head', 'options']
 
     def get_queryset(self):
@@ -5129,6 +5140,9 @@ class InvoiceViewSet(BaseModelViewSet):
                 | Q(customer_mobile__icontains=q)
                 | Q(customer_gst_number__icontains=q)
                 | Q(booking_code__icontains=q)
+                | Q(created_by__username__icontains=q)
+                | Q(created_by__first_name__icontains=q)
+                | Q(created_by__last_name__icontains=q)
             )
         return qs
 

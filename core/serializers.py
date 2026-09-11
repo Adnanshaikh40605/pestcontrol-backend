@@ -1755,7 +1755,7 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
 
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True)
-    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    created_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
@@ -1775,6 +1775,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'invoice_no': {'required': False, 'allow_blank': True},
         }
+
+    def get_created_by_name(self, obj):
+        user = obj.created_by
+        if not user:
+            return ''
+        return (user.get_full_name() or user.username or '').strip()
 
     def validate_customer_gst_number(self, value):
         if value is None:
