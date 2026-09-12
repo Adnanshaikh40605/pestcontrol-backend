@@ -18,6 +18,7 @@ class InvoiceCustomerGstApiTests(APITestCase):
             'invoice_date': '2026-09-10',
             'billed_by_name': 'Multi Pest Care LLP',
             'billed_by_address': 'Mumbai',
+            'billed_by_gst_number': '27ACEFM4002G1ZM',
             'customer_name': 'Safal Chhetri',
             'customer_mobile': '9594080841',
             'customer_address': 'Bandra East, Mumbai',
@@ -67,6 +68,60 @@ class InvoiceCustomerGstApiTests(APITestCase):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertEqual(response.data['customer_gst_number'], '')
+
+    def test_create_persists_billed_by_gst_number(self):
+        response = self.api.post('/api/v1/invoices/', self._payload(), format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['billed_by_gst_number'], '27ACEFM4002G1ZM')
+        invoice = Invoice.objects.get(pk=response.data['id'])
+        self.assertEqual(invoice.billed_by_gst_number, '27ACEFM4002G1ZM')
+
+    def test_remove_company_gst_persists_empty_on_create_and_edit(self):
+        create = self.api.post(
+            '/api/v1/invoices/',
+            self._payload(billed_by_gst_number=''),
+            format='json',
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED, create.data)
+        self.assertEqual(create.data['billed_by_gst_number'], '')
+        invoice_id = create.data['id']
+
+        restore = self.api.patch(
+            f'/api/v1/invoices/{invoice_id}/',
+            {
+                'billed_by_gst_number': 'GSTIN 27ACEFM4002G1ZM',
+                'items': [
+                    {
+                        'service': 'General Pest Control',
+                        'schedule': '2026-09-10',
+                        'technician': 'Ravi',
+                        'amount': '2500.00',
+                    }
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(restore.status_code, status.HTTP_200_OK, restore.data)
+        self.assertEqual(restore.data['billed_by_gst_number'], '27ACEFM4002G1ZM')
+
+        remove = self.api.patch(
+            f'/api/v1/invoices/{invoice_id}/',
+            {
+                'billed_by_gst_number': '',
+                'items': [
+                    {
+                        'service': 'General Pest Control',
+                        'schedule': '2026-09-10',
+                        'technician': 'Ravi',
+                        'amount': '2500.00',
+                    }
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(remove.status_code, status.HTTP_200_OK, remove.data)
+        self.assertEqual(remove.data['billed_by_gst_number'], '')
+        self.assertEqual(Invoice.objects.get(pk=invoice_id).billed_by_gst_number, '')
 
     def test_update_customer_gst_number(self):
         create = self.api.post('/api/v1/invoices/', self._payload(customer_gst_number=''), format='json')

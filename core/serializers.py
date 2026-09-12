@@ -1843,7 +1843,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         model = Invoice
         fields = [
             'id', 'invoice_no', 'invoice_date',
-            'billed_by_name', 'billed_by_address',
+            'billed_by_name', 'billed_by_address', 'billed_by_gst_number',
             'customer_name', 'customer_mobile', 'customer_address', 'customer_gst_number',
             'booking_code', 'booking_created_at', 'next_service_date', 'reference',
             'tax_amount', 'subtotal', 'grand_total', 'notes',
@@ -1864,7 +1864,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             return ''
         return (user.get_full_name() or user.username or '').strip()
 
-    def validate_customer_gst_number(self, value):
+    def _normalize_gstin(self, value):
         if value is None:
             return ''
         cleaned = str(value).strip().upper()
@@ -1872,6 +1872,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
         if cleaned.startswith('GSTIN'):
             cleaned = cleaned[5:].strip()
         return cleaned
+
+    def validate_billed_by_gst_number(self, value):
+        return self._normalize_gstin(value)
+
+    def validate_customer_gst_number(self, value):
+        return self._normalize_gstin(value)
 
     def _sync_totals(self, invoice, items_data):
         subtotal = sum(Decimal(str(item.get('amount') or 0)) for item in items_data)

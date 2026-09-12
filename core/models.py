@@ -2800,6 +2800,12 @@ class Invoice(BaseModel):
 
     billed_by_name = models.CharField(max_length=255, blank=True, default='')
     billed_by_address = models.TextField(blank=True, default='')
+    billed_by_gst_number = models.CharField(
+        max_length=30,
+        blank=True,
+        default='',
+        help_text='Seller/company GSTIN snapshot at invoice time (empty = omit from PDF)',
+    )
 
     customer_name = models.CharField(max_length=255, db_index=True)
     customer_mobile = models.CharField(max_length=20, blank=True, default='')
