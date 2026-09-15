@@ -18,7 +18,10 @@ class NotifyCustomerOtpTests(TestCase):
 
     @override_settings(CUSTOMER_OTP_WHATSAPP_TEMPLATE='login_otp', WHATSFLOW_API_KEY='wf_test')
     def test_sends_only_otp_as_body_param(self):
-        with patch('core.whatsflow_pc99.send_template_by_phone', return_value=True) as send:
+        with patch(
+            'core.whatsflow_pc99.send_template_by_phone',
+            return_value={'ok': True, 'message_id': 'msg_test', 'error': ''},
+        ) as send:
             ok = notify_customer_otp(
                 mobile='9876543210',
                 otp='4589',
