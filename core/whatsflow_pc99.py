@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_API_BASE = "https://api.driveronhire.ai"
 INQUIRY_TEMPLATE = "pc99_inquiry_received"
 STAFF_LEAD_TEMPLATE_DEFAULT = "pc99_staff_inquiry_notice"
+BOOKING_CONFIRMATION_TEMPLATE_DEFAULT = "pc99_booking_confirmation"
+BOOKING_CONFIRMATION_TERMS_DEFAULT = "Standard service terms apply."
 LANGUAGE = "en_US"
 
 # Meta rejected pc99_website_lead_alert (INVALID_FORMAT): 7 vars and no examples.
@@ -373,3 +375,252 @@ def notify_customer_otp(
         external_id=f"customer-otp:{normalize_whatsapp_phone(mobile)}:{purpose}",
     )
     return bool(result.get("ok"))
+
+
+def _booking_amount(job) -> "Decimal":
+    from decimal import Decimal
+
+    from core.payment_utils import parse_jobcard_price
+
+    price = parse_jobcard_price(getattr(job, "price", None))
+    total = Decimal(str(getattr(job, "total_amount", None) or 0))
+    return max(price, total)
+
+
+def _format_service_date(job) -> str:
+    """e.g. 05 Aug 2026 (IST calendar day)."""
+    from zoneinfo import ZoneInfo
+
+    from django.utils import timezone as dj_tz
+
+    dt = getattr(job, "schedule_datetime", None)
+    if not dt:
+        return "—"
+    if dj_tz.is_naive(dt):
+        dt = dj_tz.make_aware(dt, dj_tz.get_current_timezone())
+    local = dt.astimezone(ZoneInfo("Asia/Kolkata"))
+    # %-d is not portable on Windows; strip leading zero manually.
+    day = str(local.day)
+    return f"{day.zfill(2)} {local.strftime('%b')} {local.year}"
+
+
+def _format_service_time(job) -> str:
+    """Prefer time_slot text; else schedule clock in 12h form (e.g. 10:00 AM)."""
+    from zoneinfo import ZoneInfo
+
+    from django.utils import timezone as dj_tz
+
+    slot = (getattr(job, "time_slot", None) or "").strip()
+    if slot:
+        return _str(slot)
+
+    dt = getattr(job, "schedule_datetime", None)
+    if not dt:
+        return "—"
+    if dj_tz.is_naive(dt):
+        dt = dj_tz.make_aware(dt, dj_tz.get_current_timezone())
+    local = dt.astimezone(ZoneInfo("Asia/Kolkata"))
+    return local.strftime("%I:%M %p").lstrip("0")
+
+
+def _format_amount_inr(job) -> str:
+    """Plain INR number for template body that already says 'INR {{7}}'."""
+    amount = _booking_amount(job)
+    if amount <= 0:
+        return "0"
+    if amount == amount.to_integral_value():
+        return str(int(amount))
+    return f"{amount:.2f}".rstrip("0").rstrip(".")
+
+
+def _selected_area(job) -> str:
+    loc = getattr(job, "master_location", None)
+    if loc is not None and getattr(loc, "name", None):
+        return _str(loc.name)
+    for attr in ("city", "bhk_size", "client_address"):
+        val = (getattr(job, attr, None) or "").strip()
+        if val:
+            return _str(val)
+    return "—"
+
+
+def build_booking_confirmation_params(job) -> list[str]:
+    """
+    Body params for approved Meta template pc99_booking_confirmation:
+
+      {{1}} Customer name
+      {{2}} Booking ID
+      {{3}} Service Type
+      {{4}} Selected Area
+      {{5}} Service Date
+      {{6}} Service Time
+      {{7}} Amount (INR number)
+      {{8}} Terms & Conditions
+    """
+    client = getattr(job, "client", None)
+    name = getattr(client, "full_name", None) if client is not None else None
+    terms = (
+        getattr(settings, "BOOKING_CONFIRMATION_WHATSAPP_TERMS", "") or ""
+    ).strip() or BOOKING_CONFIRMATION_TERMS_DEFAULT
+    return [
+        _str(name, "Customer"),
+        _str(getattr(job, "code", None) or getattr(job, "pk", None), "—"),
+        _str(getattr(job, "service_type", None), "Pest Control"),
+        _selected_area(job),
+        _format_service_date(job),
+        _format_service_time(job),
+        _format_amount_inr(job),
+        _str(terms, BOOKING_CONFIRMATION_TERMS_DEFAULT),
+    ]
+
+
+def booking_confirmation_eligible(
+    job,
+    *,
+    previous_amount=None,
+    allow_estimated: bool = False,
+) -> bool:
+    """
+    True when this JobCard should receive pc99_booking_confirmation.
+
+    Skips drafts (no price), estimated pending quotes, follow-ups, complaints,
+    auto-generated visits, and cancelled jobs.
+    When previous_amount is provided (CRM edit), only fire on 0 → >0 transition.
+    """
+    from decimal import Decimal
+
+    if job is None or not getattr(job, "pk", None):
+        return False
+
+    from core.models import JobCard
+
+    if getattr(job, "status", None) == JobCard.JobStatus.CANCELLED:
+        return False
+    if getattr(job, "is_complaint_call", False):
+        return False
+    if getattr(job, "is_followup_visit", False):
+        return False
+    if getattr(job, "parent_job_id", None):
+        return False
+    if getattr(job, "is_auto_generated", False):
+        return False
+
+    source = getattr(job, "creation_source", None) or ""
+    if source in {
+        JobCard.CreationSource.AMC_AUTO,
+        JobCard.CreationSource.REMINDER_AUTO,
+        JobCard.CreationSource.COMPLAINT_AUTO,
+    }:
+        return False
+
+    amount = _booking_amount(job)
+    if amount <= 0:
+        return False
+
+    if previous_amount is not None:
+        try:
+            prev = Decimal(str(previous_amount))
+        except Exception:
+            prev = Decimal("0")
+        if prev > 0:
+            return False
+    elif not allow_estimated and getattr(job, "is_price_estimated", False):
+        return False
+
+    client = getattr(job, "client", None)
+    mobile = getattr(client, "mobile", None) if client is not None else None
+    if not mobile or not str(mobile).strip():
+        return False
+    return True
+
+
+def notify_booking_confirmation(job) -> dict[str, Any]:
+    """
+    Send pc99_booking_confirmation to the customer (soft-fail).
+
+    Returns WhatsFlow-style dict: {ok, message_id, error, skipped?}.
+    Never raises.
+    """
+    try:
+        enabled = getattr(settings, "BOOKING_CONFIRMATION_WHATSAPP_ENABLED", True)
+        if not enabled:
+            return {"ok": False, "message_id": "", "error": "disabled", "skipped": True}
+
+        if not booking_confirmation_eligible(job, allow_estimated=True):
+            return {"ok": False, "message_id": "", "error": "not_eligible", "skipped": True}
+
+        template = (
+            getattr(settings, "BOOKING_CONFIRMATION_WHATSAPP_TEMPLATE", "")
+            or BOOKING_CONFIRMATION_TEMPLATE_DEFAULT
+        ).strip()
+
+        client = job.client
+        params = build_booking_confirmation_params(job)
+        result = send_template_by_phone(
+            phone=client.mobile,
+            template_name=template,
+            body_params=params,
+            customer_name=getattr(client, "full_name", None) or "Customer",
+            external_id=f"booking-confirmation:{job.pk}",
+        )
+        result["skipped"] = False
+        if not result.get("ok"):
+            logger.warning(
+                "Booking confirmation WhatsApp failed for job #%s: %s",
+                job.pk,
+                result.get("error"),
+            )
+        return result
+    except Exception as exc:
+        logger.error(
+            "Booking confirmation WhatsApp error for job #%s: %s",
+            getattr(job, "pk", None),
+            exc,
+            exc_info=True,
+        )
+        return {"ok": False, "message_id": "", "error": str(exc)[:400], "skipped": False}
+
+
+def schedule_booking_confirmation_whatsapp(
+    job,
+    *,
+    previous_amount=None,
+) -> None:
+    """
+    Soft-fail send after the surrounding DB transaction commits.
+
+    Covers website / customer-app / CRM create via JobCardService.create_jobcard,
+    CRM price confirm on edit, and quotation convert.
+    """
+    from django.db import transaction
+
+    if job is None or not getattr(job, "pk", None):
+        return
+
+    job_id = job.pk
+    prev = previous_amount
+
+    def _run():
+        try:
+            from core.models import JobCard
+
+            latest = (
+                JobCard.objects.select_related("client", "master_location")
+                .filter(pk=job_id)
+                .first()
+            )
+            if not latest:
+                return
+            if not booking_confirmation_eligible(latest, previous_amount=prev):
+                return
+            notify_booking_confirmation(latest)
+        except Exception:
+            logger.exception(
+                "schedule_booking_confirmation_whatsapp failed for job #%s",
+                job_id,
+            )
+
+    if transaction.get_connection().in_atomic_block:
+        transaction.on_commit(_run)
+    else:
+        _run()

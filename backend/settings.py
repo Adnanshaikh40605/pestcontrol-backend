@@ -111,6 +111,21 @@ WEBSITE_LEAD_STAFF_WHATSAPP_ENABLED = config(
     cast=bool,
 )
 
+# Customer booking confirmation (pc99_booking_confirmation). Soft-fail.
+BOOKING_CONFIRMATION_WHATSAPP_ENABLED = config(
+    'BOOKING_CONFIRMATION_WHATSAPP_ENABLED',
+    default=True,
+    cast=bool,
+)
+BOOKING_CONFIRMATION_WHATSAPP_TEMPLATE = config(
+    'BOOKING_CONFIRMATION_WHATSAPP_TEMPLATE',
+    default='pc99_booking_confirmation',
+)
+BOOKING_CONFIRMATION_WHATSAPP_TERMS = config(
+    'BOOKING_CONFIRMATION_WHATSAPP_TERMS',
+    default='Standard service terms apply.',
+)
+
 # Partner app FCM (Firebase Admin SDK) — project: pest-99-partner-app
 PARTNER_FIREBASE_PROJECT_ID = config('PARTNER_FIREBASE_PROJECT_ID', default='pest-99-partner-app')
 FIREBASE_SERVICE_ACCOUNT_JSON = config('FIREBASE_SERVICE_ACCOUNT_JSON', default='')

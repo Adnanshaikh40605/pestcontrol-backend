@@ -1276,6 +1276,19 @@ class JobCardService:
 
             schedule_auto_send_new_booking_to_partner_app(jobcard, sent_by_user=user)
 
+            # Customer WhatsApp booking confirmation (website / app / CRM creates
+            # with a real price). Draft inquiry converts (empty price) skip until
+            # staff confirms price on Edit Booking.
+            try:
+                from core.whatsflow_pc99 import schedule_booking_confirmation_whatsapp
+
+                schedule_booking_confirmation_whatsapp(jobcard)
+            except Exception:
+                logger.exception(
+                    'Failed to schedule booking-confirmation WhatsApp for #%s',
+                    jobcard.id,
+                )
+
             return jobcard
             
         except ValidationError:

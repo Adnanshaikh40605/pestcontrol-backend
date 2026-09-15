@@ -3215,6 +3215,12 @@ class JobCardViewSet(BaseModelViewSet):
         original_next_service_date = instance.next_service_date
         original_contract_duration = instance.contract_duration
         original_job_type = instance.job_type
+        from core.payment_utils import parse_jobcard_price
+
+        original_amount = max(
+            parse_jobcard_price(instance.price),
+            instance.total_amount or 0,
+        )
         
         # Handle client updates if client_data is provided
         if 'client_data' in request.data and request.data['client_data']:
@@ -3347,6 +3353,20 @@ class JobCardViewSet(BaseModelViewSet):
                     RenewalService.generate_renewals_for_jobcard(instance, user=request.user)
                 except Exception as e:
                     logger.warning(f"Failed to generate renewals: {e}")
+
+            # Inquiry/CRM draft → staff sets final price: send booking confirmation once.
+            try:
+                from core.whatsflow_pc99 import schedule_booking_confirmation_whatsapp
+
+                schedule_booking_confirmation_whatsapp(
+                    instance,
+                    previous_amount=original_amount,
+                )
+            except Exception:
+                logger.exception(
+                    'Failed to schedule booking-confirmation WhatsApp after update #%s',
+                    instance.id,
+                )
             
             return response_obj
             
@@ -5128,6 +5148,16 @@ class QuotationViewSet(BaseModelViewSet):
             from partner.services import schedule_auto_send_new_booking_to_partner_app
 
             schedule_auto_send_new_booking_to_partner_app(main_job, sent_by_user=request.user)
+
+            try:
+                from core.whatsflow_pc99 import schedule_booking_confirmation_whatsapp
+
+                schedule_booking_confirmation_whatsapp(main_job)
+            except Exception:
+                logger.exception(
+                    'Failed to schedule booking-confirmation WhatsApp for quotation convert #%s',
+                    main_job.id,
+                )
 
             return response.Response(
                 {
