@@ -659,6 +659,44 @@ class CustomerApiTests(TestCase):
         self.assertEqual(reused.status_code, 400)
         self.assertEqual(reused.data.get('code'), 'otp_verification_used')
 
+    def test_website_booking_verification_token_is_db_backed(self):
+        """
+        Proof tokens must survive across processes/workers.
+        Previously LocMemCache caused false "already used or expired" with gunicorn --workers 2.
+        """
+        import jwt
+
+        from customer.models import WebsiteBookingVerificationJti
+        from customer.utils import (
+            SECRET_KEY,
+            WEBSITE_BOOKING_TOKEN_AUD,
+            WebsiteBookingVerificationError,
+            consume_website_booking_verification_token,
+            issue_website_booking_verification_token,
+        )
+
+        mobile = '9111223010'
+        token, ttl = issue_website_booking_verification_token(mobile)
+        self.assertGreater(ttl, 0)
+
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=['HS256'],
+            audience=WEBSITE_BOOKING_TOKEN_AUD,
+        )
+        row = WebsiteBookingVerificationJti.objects.get(jti=payload['jti'])
+        self.assertEqual(row.mobile, mobile)
+        self.assertIsNone(row.consumed_at)
+
+        consume_website_booking_verification_token(token, mobile)
+        row.refresh_from_db()
+        self.assertIsNotNone(row.consumed_at)
+
+        with self.assertRaises(WebsiteBookingVerificationError) as ctx:
+            consume_website_booking_verification_token(token, mobile)
+        self.assertEqual(ctx.exception.code, 'otp_verification_used')
+
     @override_settings(
         DEBUG=True,
         CUSTOMER_OTP_FIXED='1234',

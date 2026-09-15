@@ -6,9 +6,10 @@ import uuid
 
 import jwt
 from django.conf import settings
-from django.core.cache import cache
+from django.db import transaction
+from django.utils import timezone
 
-from .models import CustomerAccount, CustomerRevokedJti
+from .models import CustomerAccount, CustomerRevokedJti, WebsiteBookingVerificationJti
 
 SECRET_KEY = getattr(settings, 'SECRET_KEY', 'customer-app-secret')
 
@@ -16,7 +17,6 @@ CUSTOMER_ACCESS_LIFETIME = datetime.timedelta(days=7)
 CUSTOMER_REFRESH_LIFETIME = datetime.timedelta(days=60)
 
 WEBSITE_BOOKING_TOKEN_AUD = 'website_booking_otp'
-_WEBSITE_BOOKING_CACHE_PREFIX = 'website_booking_verified:'
 
 
 class CustomerTokenError(Exception):
@@ -128,9 +128,13 @@ def issue_website_booking_verification_token(mobile: str) -> tuple[str, int]:
     """
     Issue a short-lived, one-time JWT proving mobile OTP was verified for website booking.
     Returns (token, expires_in_seconds).
+
+    One-time use is enforced via WebsiteBookingVerificationJti in the DB so it
+    works across multiple Gunicorn workers (LocMemCache does not).
     """
     ttl = _website_booking_verification_ttl()
     now = datetime.datetime.utcnow()
+    expires_at = timezone.now() + datetime.timedelta(seconds=ttl)
     jti = str(uuid.uuid4())
     payload = {
         'mobile': mobile,
@@ -140,7 +144,11 @@ def issue_website_booking_verification_token(mobile: str) -> tuple[str, int]:
         'exp': now + datetime.timedelta(seconds=ttl),
         'aud': WEBSITE_BOOKING_TOKEN_AUD,
     }
-    cache.set(f'{_WEBSITE_BOOKING_CACHE_PREFIX}{jti}', mobile, timeout=ttl)
+    WebsiteBookingVerificationJti.objects.create(
+        jti=jti,
+        mobile=mobile,
+        expires_at=expires_at,
+    )
     token = jwt.encode(payload, SECRET_KEY, algorithm='HS256')
     return token, ttl
 
@@ -190,16 +198,32 @@ def consume_website_booking_verification_token(token: str, mobile: str) -> None:
             'Invalid OTP verification. Please verify again.',
             code='otp_verification_invalid',
         )
-    cache_key = f'{_WEBSITE_BOOKING_CACHE_PREFIX}{jti}'
-    cached_mobile = cache.get(cache_key)
-    if cached_mobile is None:
-        raise WebsiteBookingVerificationError(
-            'OTP verification already used or expired. Please verify again.',
-            code='otp_verification_used',
+
+    with transaction.atomic():
+        row = (
+            WebsiteBookingVerificationJti.objects.select_for_update()
+            .filter(jti=jti)
+            .first()
         )
-    if str(cached_mobile) != mobile:
-        raise WebsiteBookingVerificationError(
-            'Invalid OTP verification. Please verify again.',
-            code='otp_verification_invalid',
-        )
-    cache.delete(cache_key)
+        if row is None:
+            raise WebsiteBookingVerificationError(
+                'OTP verification already used or expired. Please verify again.',
+                code='otp_verification_used',
+            )
+        if str(row.mobile) != mobile:
+            raise WebsiteBookingVerificationError(
+                'Invalid OTP verification. Please verify again.',
+                code='otp_verification_invalid',
+            )
+        if row.consumed_at is not None:
+            raise WebsiteBookingVerificationError(
+                'OTP verification already used or expired. Please verify again.',
+                code='otp_verification_used',
+            )
+        if timezone.now() >= row.expires_at:
+            raise WebsiteBookingVerificationError(
+                'OTP verification expired. Please verify again.',
+                code='otp_verification_expired',
+            )
+        row.consumed_at = timezone.now()
+        row.save(update_fields=['consumed_at'])

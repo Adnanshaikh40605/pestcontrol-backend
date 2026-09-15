@@ -104,3 +104,27 @@ class CustomerRevokedJti(models.Model):
 
     def __str__(self):
         return self.jti
+
+
+class WebsiteBookingVerificationJti(models.Model):
+    """
+    One-time website-booking OTP proof tokens.
+
+    Stored in Postgres (not LocMemCache) so verify + create-booking work across
+    multiple Gunicorn workers. LocMem is process-local — with --workers 2 the
+    create request often hit a different worker and falsely reported
+    "already used or expired".
+    """
+
+    jti = models.CharField(max_length=64, unique=True, db_index=True)
+    mobile = models.CharField(max_length=10, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Website Booking Verification JTI'
+        verbose_name_plural = 'Website Booking Verification JTIs'
+
+    def __str__(self):
+        return f'{self.mobile} · {self.jti}'

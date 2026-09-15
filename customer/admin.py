@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CustomerAccount, CustomerRevokedJti
+from .models import CustomerAccount, CustomerRevokedJti, WebsiteBookingVerificationJti
 
 
 @admin.register(CustomerAccount)
@@ -16,3 +16,11 @@ class CustomerAccountAdmin(admin.ModelAdmin):
 class CustomerRevokedJtiAdmin(admin.ModelAdmin):
     list_display = ['jti', 'expires_at', 'created_at']
     search_fields = ['jti']
+
+
+@admin.register(WebsiteBookingVerificationJti)
+class WebsiteBookingVerificationJtiAdmin(admin.ModelAdmin):
+    list_display = ['jti', 'mobile', 'expires_at', 'consumed_at', 'created_at']
+    list_filter = ['consumed_at']
+    search_fields = ['jti', 'mobile']
+    readonly_fields = ['created_at']
