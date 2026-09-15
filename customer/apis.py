@@ -40,6 +40,7 @@ from .serializers import (
     CustomerRateSerializer,
     CustomerRefreshSerializer,
     CustomerRegisterSerializer,
+    WebsiteBookSerializer,
 )
 from .services import (
     CustomerAppError,
@@ -48,9 +49,17 @@ from .services import (
     create_customer_booking,
     create_customer_complaint,
     customer_amc_schedule,
+    ensure_customer_account_for_booking,
     rate_customer_booking,
 )
-from .utils import CustomerTokenError, generate_customer_tokens, refresh_customer_tokens
+from .utils import (
+    CustomerTokenError,
+    WebsiteBookingVerificationError,
+    consume_website_booking_verification_token,
+    generate_customer_tokens,
+    issue_website_booking_verification_token,
+    refresh_customer_tokens,
+)
 from .places import PlacesProxyError, places_autocomplete, places_details, places_reverse_geocode
 from .views_base import CustomerAPIView, CustomerPublicAPIView
 
@@ -147,7 +156,7 @@ class MobileLookupAPIView(CustomerPublicAPIView):
 class SendOTPAPIView(CustomerPublicAPIView):
     permission_classes = [AllowAny]
 
-    @extend_schema(tags=['Customer Auth'], summary='Send 4-digit OTP (login / register)')
+    @extend_schema(tags=['Customer Auth'], summary='Send 4-digit OTP (login / register / website booking)')
     def post(self, request):
         serializer = CustomerOTPSendSerializer(data=request.data)
         if not serializer.is_valid():
@@ -181,12 +190,78 @@ class SendOTPAPIView(CustomerPublicAPIView):
                 status=404,
             )
 
+        is_website_booking = purpose == CustomerOTPChallenge.PURPOSE_WEBSITE_BOOKING
+        # Website booking uses a rolling hourly cap instead of a short per-send cooldown.
+        cooldown = (
+            0
+            if is_website_booking
+            else int(getattr(settings, 'CUSTOMER_OTP_RESEND_COOLDOWN_SECONDS', 45))
+        )
+        if cooldown > 0:
+            latest = (
+                CustomerOTPChallenge.objects.filter(mobile=mobile, purpose=purpose)
+                .order_by('-created_at')
+                .first()
+            )
+            if latest is not None:
+                elapsed = (timezone.now() - latest.created_at).total_seconds()
+                if elapsed < cooldown:
+                    retry_after = max(1, int(cooldown - elapsed))
+                    return Response(
+                        {
+                            'error': f'Please wait {retry_after}s before requesting another OTP.',
+                            'code': 'otp_cooldown',
+                            'retry_after': retry_after,
+                        },
+                        status=429,
+                    )
+
+        if is_website_booking:
+            max_per_hour = int(getattr(settings, 'WEBSITE_BOOKING_OTP_MAX_PER_HOUR', 5))
+            window_seconds = int(getattr(settings, 'WEBSITE_BOOKING_OTP_WINDOW_SECONDS', 3600))
+            if max_per_hour > 0 and window_seconds > 0:
+                since = timezone.now() - timedelta(seconds=window_seconds)
+                recent_qs = CustomerOTPChallenge.objects.filter(
+                    mobile=mobile,
+                    purpose=purpose,
+                    created_at__gte=since,
+                )
+                recent_count = recent_qs.count()
+                if recent_count >= max_per_hour:
+                    oldest = recent_qs.order_by('created_at').first()
+                    retry_after = window_seconds
+                    if oldest is not None:
+                        retry_after = max(
+                            1,
+                            int(
+                                window_seconds
+                                - (timezone.now() - oldest.created_at).total_seconds()
+                            ),
+                        )
+                    return Response(
+                        {
+                            'error': (
+                                f'You can request up to {max_per_hour} OTPs per hour. '
+                                'Please try again later.'
+                            ),
+                            'code': 'otp_hourly_limit',
+                            'retry_after': retry_after,
+                        },
+                        status=429,
+                    )
+
         otp = _generate_customer_otp(mobile)
         is_reviewer = mobile in _reviewer_mobiles()
         ttl = int(getattr(settings, 'CUSTOMER_OTP_TTL_SECONDS', 300))
         # Reviewer OTP stays valid longer for Play Console testing.
         if is_reviewer:
             ttl = max(ttl, 7 * 24 * 3600)
+        # Invalidate prior open challenges so only the latest OTP is valid.
+        CustomerOTPChallenge.objects.filter(
+            mobile=mobile,
+            purpose=purpose,
+            consumed_at__isnull=True,
+        ).update(consumed_at=timezone.now())
         challenge = CustomerOTPChallenge(
             mobile=mobile,
             purpose=purpose,
@@ -225,6 +300,8 @@ class SendOTPAPIView(CustomerPublicAPIView):
             except Exception:
                 logger.exception('Customer OTP WhatsApp delivery failed mobile=%s', mobile)
                 delivery = 'pending_channel'
+        else:
+            delivery = 'debug_fixed'
 
         payload = {
             'message': 'OTP sent successfully.' if delivery != 'pending_channel' else (
@@ -234,6 +311,7 @@ class SendOTPAPIView(CustomerPublicAPIView):
             'purpose': purpose,
             'expires_in': ttl,
             'delivery': delivery,
+            'resend_after': cooldown,
         }
         # Expose OTP only in local DEBUG builds — never in production responses.
         if settings.DEBUG:
@@ -279,6 +357,21 @@ class VerifyOTPAPIView(CustomerPublicAPIView):
             challenge.attempts += 1
             challenge.save(update_fields=['attempts'])
             return Response({'error': 'Invalid OTP. Please try again.', 'code': 'otp_invalid'}, status=400)
+
+        # Website booking: prove phone ownership without creating an app session.
+        if purpose == CustomerOTPChallenge.PURPOSE_WEBSITE_BOOKING:
+            challenge.consumed_at = timezone.now()
+            challenge.save(update_fields=['consumed_at'])
+            booking_token, token_ttl = issue_website_booking_verification_token(mobile)
+            return Response(
+                {
+                    'message': 'Mobile verified. You can confirm your booking.',
+                    'mobile': mobile,
+                    'purpose': purpose,
+                    'otp_verification_token': booking_token,
+                    'expires_in': token_ttl,
+                }
+            )
 
         # Resolve account BEFORE consuming OTP so failures can retry the same code.
         if purpose == CustomerOTPChallenge.PURPOSE_REGISTER:
@@ -442,7 +535,10 @@ class CatalogAPIView(CustomerPublicAPIView):
             default = PricingRegion.objects.filter(is_default=True, is_active=True).first()
             if default:
                 qs = qs.filter(region=default)
-        qs = qs.order_by('service_package', 'plan_type', 'area_key')[:200]
+        # Full Mumbai chart is ~300 rows; the old [:200] cut off Regular Rodent
+        # and most Kill-Rodent one-time BHK rates, so home booking matched wrong
+        # packages (Integrated IPM via substring "rat", society General Pest, etc.).
+        qs = qs.order_by('service_package', 'plan_type', 'area_key')[:500]
         regions = PricingRegion.objects.filter(is_active=True).values('id', 'slug', 'name', 'is_default')
         return Response(
             {
@@ -555,6 +651,62 @@ class BookingListCreateAPIView(CustomerAPIView):
             job = create_customer_booking(request.customer, serializer.validated_data)
         except CustomerAppError as exc:
             return Response({'error': exc.message, 'code': exc.code}, status=400)
+        return Response(
+            {
+                'message': 'Booking created. Our team will confirm shortly.',
+                'booking': CustomerBookingSerializer(job, context={'request': request}).data,
+            },
+            status=201,
+        )
+
+
+class WebsiteBookingCreateAPIView(CustomerPublicAPIView):
+    """Public website booking — creates a real JobCard after OTP verification."""
+
+    permission_classes = [AllowAny]
+
+    @extend_schema(tags=['Customer Bookings'], summary='Create booking from website (guest, OTP-gated)')
+    def post(self, request):
+        serializer = WebsiteBookSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'errors': serializer.errors}, status=400)
+
+        data = dict(serializer.validated_data)
+        full_name = data.pop('full_name')
+        mobile = data.pop('mobile')
+        otp_token = data.pop('otp_verification_token')
+        booking_session_id = (data.pop('booking_session_id', None) or '').strip()
+        inquiry_id = data.pop('inquiry_id', None)
+        data['reference'] = 'Website'
+        data['creation_source'] = JobCard.CreationSource.API
+
+        try:
+            consume_website_booking_verification_token(otp_token, mobile)
+        except WebsiteBookingVerificationError as exc:
+            return Response({'error': exc.message, 'code': exc.code}, status=400)
+
+        try:
+            account = ensure_customer_account_for_booking(mobile=mobile, full_name=full_name)
+            job = create_customer_booking(account, data)
+        except CustomerAppError as exc:
+            return Response({'error': exc.message, 'code': exc.code}, status=400)
+
+        # Link prior silent Website Lead for this session (never blocks booking).
+        try:
+            from core.services import InquiryService
+
+            InquiryService.link_booking_to_session_inquiry(
+                job,
+                booking_session_id=booking_session_id or None,
+                inquiry_id=inquiry_id,
+            )
+        except Exception:
+            logger.exception(
+                'Failed to link website inquiry to booking #%s (session=%s)',
+                job.id,
+                booking_session_id,
+            )
+
         return Response(
             {
                 'message': 'Booking created. Our team will confirm shortly.',

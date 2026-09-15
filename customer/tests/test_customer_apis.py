@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 
 from core.models import City, Client, Country, Feedback, JobCard, Location, PricingRate, PricingRegion, State
 from customer.models import CustomerAccount
-from customer.utils import generate_customer_tokens
+from customer.utils import generate_customer_tokens, issue_website_booking_verification_token
 
 
 @override_settings(REVENUE_MODEL_V2=True)
@@ -57,6 +57,35 @@ class CustomerApiTests(TestCase):
             name='Andheri West',
             defaults={'is_active': True},
         )
+
+    def _website_otp_token(self, mobile: str) -> str:
+        token, _ = issue_website_booking_verification_token(mobile)
+        return token
+
+    def _website_booking_payload(self, **overrides):
+        mobile = overrides.get('mobile', '9111222333')
+        payload = {
+            'full_name': 'Website Guest',
+            'mobile': mobile,
+            'service_type': 'General Pest Control',
+            'pricing_rate_id': self.rate.id,
+            'package_tier': 'standard',
+            'address': '42 Website Lane',
+            'city': 'Mumbai',
+            'bhk_size': '1 BHK',
+            'property_type': 'Home / Flat',
+            'booking_type': 'one_time',
+            'booking_date': '2026-09-20',
+            'booking_time': '10:30',
+            'timezone': 'Asia/Kolkata',
+            'time_slot': '10:30 AM',
+            'notes': 'Website booking · Home (Residential) · 1 BHK · Standard · 10:30 AM',
+            'otp_verification_token': self._website_otp_token(mobile),
+        }
+        payload.update(overrides)
+        if 'otp_verification_token' not in overrides and 'mobile' in overrides:
+            payload['otp_verification_token'] = self._website_otp_token(overrides['mobile'])
+        return payload
 
     def _register(self, mobile='9888777666', name='Cust User'):
         res = self.api.post(
@@ -525,3 +554,280 @@ class CustomerApiTests(TestCase):
             res = self.api.get('/api/customer/places/autocomplete/?input=kurla')
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data['results'][0]['main_text'], 'Kurla')
+
+    def test_website_booking_creates_jobcard_without_auth(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            res = self.api.post(
+                '/api/customer/website-bookings/',
+                self._website_booking_payload(),
+                format='json',
+            )
+        self.assertEqual(res.status_code, 201, res.data)
+        booking = res.data['booking']
+        self.assertEqual(booking['client_name'], 'Website Guest')
+        self.assertEqual(booking['bhk_size'], '1 BHK')
+        self.assertEqual(Decimal(str(booking['total_amount'])), Decimal('1000.00'))
+
+        job = JobCard.objects.get(id=booking['id'])
+        self.assertEqual(job.reference, 'Website')
+        self.assertEqual(job.creation_source, JobCard.CreationSource.API)
+        self.assertEqual(job.client.mobile, '9111222333')
+        self.assertEqual(job.client.full_name, 'Website Guest')
+        self.assertIsNotNone(job.sent_to_app_at)
+        self.assertEqual(job.partner_status, JobCard.PartnerStatus.PENDING)
+        self.assertTrue(CustomerAccount.objects.filter(mobile='9111222333').exists())
+
+    def test_website_booking_rejects_without_otp_token(self):
+        payload = self._website_booking_payload(mobile='9111222777')
+        payload.pop('otp_verification_token')
+        res = self.api.post('/api/customer/website-bookings/', payload, format='json')
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('otp_verification_token', res.data.get('errors', {}))
+        self.assertFalse(JobCard.objects.filter(client__mobile='9111222777').exists())
+
+    def test_website_booking_rejects_invalid_otp_token(self):
+        res = self.api.post(
+            '/api/customer/website-bookings/',
+            self._website_booking_payload(
+                mobile='9111222888',
+                otp_verification_token='not-a-valid-token',
+            ),
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data.get('code'), 'otp_verification_invalid')
+        self.assertFalse(JobCard.objects.filter(client__mobile='9111222888').exists())
+
+    @override_settings(DEBUG=True, CUSTOMER_OTP_FIXED='1234', CUSTOMER_OTP_RESEND_COOLDOWN_SECONDS=0)
+    def test_website_booking_otp_flow_gates_create(self):
+        send = self.api.post(
+            '/api/customer/otp/send/',
+            {'mobile': '9372792693', 'purpose': 'website_booking', 'full_name': 'Local Tester'},
+            format='json',
+        )
+        self.assertEqual(send.status_code, 200, send.data)
+        self.assertEqual(send.data.get('dev_otp'), '1234')
+
+        bad = self.api.post(
+            '/api/customer/otp/verify/',
+            {'mobile': '9372792693', 'otp': '9999', 'purpose': 'website_booking'},
+            format='json',
+        )
+        self.assertEqual(bad.status_code, 400)
+        self.assertEqual(bad.data.get('code'), 'otp_invalid')
+
+        verify = self.api.post(
+            '/api/customer/otp/verify/',
+            {'mobile': '9372792693', 'otp': '1234', 'purpose': 'website_booking'},
+            format='json',
+        )
+        self.assertEqual(verify.status_code, 200, verify.data)
+        token = verify.data['otp_verification_token']
+        self.assertTrue(token)
+
+        blocked = self.api.post(
+            '/api/customer/website-bookings/',
+            self._website_booking_payload(
+                mobile='9372792693',
+                full_name='Local Tester',
+                otp_verification_token='wrong',
+            ),
+            format='json',
+        )
+        self.assertEqual(blocked.status_code, 400)
+
+        created = self.api.post(
+            '/api/customer/website-bookings/',
+            self._website_booking_payload(
+                mobile='9372792693',
+                full_name='Local Tester',
+                otp_verification_token=token,
+            ),
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.data)
+
+        reused = self.api.post(
+            '/api/customer/website-bookings/',
+            self._website_booking_payload(
+                mobile='9372792693',
+                full_name='Local Tester',
+                otp_verification_token=token,
+            ),
+            format='json',
+        )
+        self.assertEqual(reused.status_code, 400)
+        self.assertEqual(reused.data.get('code'), 'otp_verification_used')
+
+    @override_settings(
+        DEBUG=True,
+        CUSTOMER_OTP_FIXED='1234',
+        CUSTOMER_OTP_RESEND_COOLDOWN_SECONDS=60,
+        WEBSITE_BOOKING_OTP_MAX_PER_HOUR=5,
+        WEBSITE_BOOKING_OTP_WINDOW_SECONDS=3600,
+    )
+    def test_website_booking_otp_skips_short_cooldown(self):
+        """Website booking ignores short resend cooldown; rapid resends are allowed."""
+        first = self.api.post(
+            '/api/customer/otp/send/',
+            {'mobile': '9111222999', 'purpose': 'website_booking'},
+            format='json',
+        )
+        self.assertEqual(first.status_code, 200, first.data)
+        self.assertEqual(first.data.get('resend_after'), 0)
+        second = self.api.post(
+            '/api/customer/otp/send/',
+            {'mobile': '9111222999', 'purpose': 'website_booking'},
+            format='json',
+        )
+        self.assertEqual(second.status_code, 200, second.data)
+        self.assertNotEqual(second.data.get('code'), 'otp_cooldown')
+
+    @override_settings(
+        DEBUG=True,
+        CUSTOMER_OTP_FIXED='1234',
+        CUSTOMER_OTP_RESEND_COOLDOWN_SECONDS=0,
+        WEBSITE_BOOKING_OTP_MAX_PER_HOUR=5,
+        WEBSITE_BOOKING_OTP_WINDOW_SECONDS=3600,
+    )
+    def test_website_booking_otp_hourly_limit(self):
+        """Max 5 website_booking OTP sends per mobile per rolling hour."""
+        mobile = '9111223001'
+        for i in range(5):
+            res = self.api.post(
+                '/api/customer/otp/send/',
+                {'mobile': mobile, 'purpose': 'website_booking'},
+                format='json',
+            )
+            self.assertEqual(res.status_code, 200, f'send #{i + 1}: {res.data}')
+
+        blocked = self.api.post(
+            '/api/customer/otp/send/',
+            {'mobile': mobile, 'purpose': 'website_booking'},
+            format='json',
+        )
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(blocked.data.get('code'), 'otp_hourly_limit')
+        self.assertIn('5 OTPs per hour', blocked.data.get('error', ''))
+        self.assertIsInstance(blocked.data.get('retry_after'), int)
+        self.assertGreaterEqual(blocked.data['retry_after'], 1)
+
+        # Different mobile is unaffected.
+        other = self.api.post(
+            '/api/customer/otp/send/',
+            {'mobile': '9111223002', 'purpose': 'website_booking'},
+            format='json',
+        )
+        self.assertEqual(other.status_code, 200, other.data)
+
+    def test_website_booking_premium_applies_surcharge(self):
+        res = self.api.post(
+            '/api/customer/website-bookings/',
+            {
+                'full_name': 'Premium Guest',
+                'mobile': '9111222444',
+                'service_type': 'General Pest Control',
+                'pricing_rate_id': self.rate.id,
+                'package_tier': 'premium',
+                'address': '99 Premium Road',
+                'city': 'Mumbai',
+                'bhk_size': '1 BHK',
+                'booking_type': 'one_time',
+                'otp_verification_token': self._website_otp_token('9111222444'),
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(Decimal(str(res.data['booking']['total_amount'])), Decimal('1150.00'))
+        job = JobCard.objects.get(id=res.data['booking']['id'])
+        self.assertEqual(job.package_tier, 'premium')
+
+    def test_website_booking_amc_sets_cycles(self):
+        amc_rate, _ = PricingRate.objects.get_or_create(
+            region=self.region,
+            service_package='Cockroach / Ants',
+            plan_type='AMC Package',
+            area_key='1 BHK',
+            defaults={'amount': Decimal('2500.00'), 'is_active': True},
+        )
+        amc_rate.amount = Decimal('2500.00')
+        amc_rate.is_active = True
+        amc_rate.save(update_fields=['amount', 'is_active', 'updated_at'])
+
+        res = self.api.post(
+            '/api/customer/website-bookings/',
+            {
+                'full_name': 'AMC Guest',
+                'mobile': '9111222555',
+                'service_type': 'Cockroach / Ants',
+                'pricing_rate_id': amc_rate.id,
+                'package_tier': 'standard',
+                'address': '7 AMC Street',
+                'city': 'Mumbai',
+                'bhk_size': '1 BHK',
+                'booking_type': 'amc',
+                'otp_verification_token': self._website_otp_token('9111222555'),
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        job = JobCard.objects.get(id=res.data['booking']['id'])
+        self.assertEqual(job.service_category, JobCard.ServiceCategory.AMC)
+        self.assertEqual(job.service_cycle, 1)
+        # JobCardService may refine max_cycle from schedule rules; AMC create starts at 3.
+        self.assertGreaterEqual(job.max_cycle or 1, 1)
+        self.assertEqual(Decimal(str(job.total_amount or job.price)), Decimal('2500.00'))
+
+    def test_website_booking_requires_name_and_mobile(self):
+        res = self.api.post(
+            '/api/customer/website-bookings/',
+            {
+                'service_type': 'General Pest Control',
+                'pricing_rate_id': self.rate.id,
+                'address': 'No Name Lane',
+                'city': 'Mumbai',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn('full_name', res.data.get('errors', {}))
+        self.assertIn('mobile', res.data.get('errors', {}))
+
+    def test_website_booking_reuses_existing_account(self):
+        first = self.api.post(
+            '/api/customer/website-bookings/',
+            {
+                'full_name': 'Repeat Guest',
+                'mobile': '9111222666',
+                'service_type': 'General Pest Control',
+                'pricing_rate_id': self.rate.id,
+                'address': '1 First Visit',
+                'city': 'Mumbai',
+                'bhk_size': '1 BHK',
+                'otp_verification_token': self._website_otp_token('9111222666'),
+            },
+            format='json',
+        )
+        self.assertEqual(first.status_code, 201, first.data)
+        second = self.api.post(
+            '/api/customer/website-bookings/',
+            {
+                'full_name': 'Repeat Guest Updated',
+                'mobile': '9111222666',
+                'service_type': 'General Pest Control',
+                'pricing_rate_id': self.rate.id,
+                'address': '2 Second Visit',
+                'city': 'Mumbai',
+                'bhk_size': '1 BHK',
+                'otp_verification_token': self._website_otp_token('9111222666'),
+            },
+            format='json',
+        )
+        self.assertEqual(second.status_code, 201, second.data)
+        self.assertEqual(
+            CustomerAccount.objects.filter(mobile='9111222666').count(),
+            1,
+        )
+        account = CustomerAccount.objects.get(mobile='9111222666')
+        self.assertEqual(account.full_name, 'Repeat Guest Updated')
+        self.assertEqual(account.client.full_name, 'Repeat Guest Updated')

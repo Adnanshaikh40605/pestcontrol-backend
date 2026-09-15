@@ -1733,19 +1733,19 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
         self.queryset = qs
         return super().get_queryset()
 
-    def get_permissions(self):
-        """Allow unauthenticated public creation of inquiries."""
-        action = getattr(self, 'action', None)
-        if action == 'create':
-            return [permissions.AllowAny()]
-        return super().get_permissions()
-
     def get_authenticators(self):
         """Do not enforce Session/JWT auth on public create endpoint (avoids CSRF)."""
         action = getattr(self, 'action', None)
-        if action == 'create':
+        if action in ('create', 'upsert'):
             return []
         return super().get_authenticators()
+
+    def get_permissions(self):
+        """Allow unauthenticated public creation / upsert of inquiries."""
+        action = getattr(self, 'action', None)
+        if action in ('create', 'upsert'):
+            return [permissions.AllowAny()]
+        return super().get_permissions()
     
     def create(self, request, *args, **kwargs):
         """Create a new inquiry using service layer."""
@@ -1759,6 +1759,45 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
             return response.Response(
                 {'error': 'Validation failed', 'details': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @extend_schema(
+        summary="Upsert Website Booking Inquiry",
+        description=(
+            "Public silent capture from the home booking form. "
+            "Creates or updates one Website Lead per booking_session_id + mobile."
+        ),
+        tags=['Inquiries'],
+    )
+    @decorators.action(
+        detail=False,
+        methods=['post'],
+        url_path='upsert',
+        throttle_classes=[AnonRateThrottle],
+    )
+    def upsert(self, request):
+        """Create or update inquiry by booking_session_id (website booking form)."""
+        try:
+            user = request.user if getattr(request.user, 'is_authenticated', False) else None
+            inquiry, created = InquiryService.upsert_website_booking_inquiry(
+                request.data,
+                user=user,
+            )
+            serializer = self.get_serializer(inquiry)
+            return response.Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+            )
+        except ValidationError as e:
+            return response.Response(
+                {'error': 'Validation failed', 'details': str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error('Website inquiry upsert failed: %s', e, exc_info=True)
+            return response.Response(
+                {'error': 'Failed to save inquiry'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     @extend_schema(

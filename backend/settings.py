@@ -30,6 +30,30 @@ DEBUG = config('DJANGO_DEBUG', default=False, cast=bool)
 CUSTOMER_OTP_TTL_SECONDS = config('CUSTOMER_OTP_TTL_SECONDS', default=300, cast=int)
 # Empty in production. Local DEBUG defaults to 1234 for easy testing.
 CUSTOMER_OTP_FIXED = config('CUSTOMER_OTP_FIXED', default='1234' if DEBUG else '')
+# Minimum seconds between OTP sends for the same mobile + purpose.
+# Does not apply to website_booking (uses hourly cap below instead).
+CUSTOMER_OTP_RESEND_COOLDOWN_SECONDS = config(
+    'CUSTOMER_OTP_RESEND_COOLDOWN_SECONDS',
+    default=45,
+    cast=int,
+)
+# Website booking OTP: max sends per mobile in a rolling window (no short cooldown).
+WEBSITE_BOOKING_OTP_MAX_PER_HOUR = config(
+    'WEBSITE_BOOKING_OTP_MAX_PER_HOUR',
+    default=5,
+    cast=int,
+)
+WEBSITE_BOOKING_OTP_WINDOW_SECONDS = config(
+    'WEBSITE_BOOKING_OTP_WINDOW_SECONDS',
+    default=3600,
+    cast=int,
+)
+# Short-lived token after OTP verify — required to create a website booking.
+WEBSITE_BOOKING_VERIFICATION_TTL_SECONDS = config(
+    'WEBSITE_BOOKING_VERIFICATION_TTL_SECONDS',
+    default=600,
+    cast=int,
+)
 # Play Console reviewers: fixed OTP only for these mobiles (comma-separated 10-digit).
 CUSTOMER_OTP_REVIEWER_MOBILES = config('CUSTOMER_OTP_REVIEWER_MOBILES', default='')
 CUSTOMER_OTP_REVIEWER_CODE = config('CUSTOMER_OTP_REVIEWER_CODE', default='2468')

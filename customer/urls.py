@@ -21,6 +21,7 @@ urlpatterns = [
     path('places/details/', apis.PlacesDetailsAPIView.as_view(), name='places-details'),
     path('places/reverse/', apis.PlacesReverseGeocodeAPIView.as_view(), name='places-reverse'),
     path('bookings/', apis.BookingListCreateAPIView.as_view(), name='bookings'),
+    path('website-bookings/', apis.WebsiteBookingCreateAPIView.as_view(), name='website-bookings'),
     path('bookings/<int:id>/', apis.BookingDetailAPIView.as_view(), name='booking-detail'),
     path('bookings/<int:id>/cancel/', apis.CancelBookingAPIView.as_view(), name='booking-cancel'),
     path('bookings/<int:id>/pay/', apis.ConfirmPaymentAPIView.as_view(), name='booking-pay'),

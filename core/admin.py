@@ -91,6 +91,10 @@ class InquiryAdmin(admin.ModelAdmin):
         ('Quote Details', {
             'fields': ('premise_type', 'premise_size', 'pest_problems', 'estimated_price', 'is_inspection_required', 'service_frequency', 'service_interest')
         }),
+        ('Website Capture', {
+            'fields': ('booking_session_id', 'page_url', 'utm_source', 'utm_medium', 'utm_campaign', 'linked_jobcard'),
+            'classes': ('collapse',),
+        }),
         ('Status & Management', {
             'fields': ('status', 'is_read', 'message', 'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done')
         }),

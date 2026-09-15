@@ -23,6 +23,7 @@ from .models import (
     CRMInquiry,
     InquiryRemark,
     RemarkType,
+    WebsiteLeadRemark,
 )
 from .payment_utils import (
     derive_payment_status,
@@ -557,9 +558,24 @@ class InquiryService:
     @staticmethod
     def create_inquiry(data: Dict[str, Any], user=None) -> Inquiry:
         """Create a new inquiry with validation."""
-        inquiry = Inquiry(created_by=user, **data)
+        payload = dict(data)
+        remark_text = payload.get('remark')
+        if remark_text is not None:
+            remark_text = str(remark_text).strip() or None
+            payload['remark'] = remark_text
+
+        inquiry = Inquiry(created_by=user, **payload)
         inquiry.full_clean()  # Run model validation
         inquiry.save()
+
+        # Keep append-only remark history in sync (CRM remark panel reads WebsiteLeadRemark).
+        if remark_text:
+            WebsiteLeadRemark.objects.create(
+                lead=inquiry,
+                remark=remark_text,
+                created_by=user,
+                remark_type=RemarkType.NOTE,
+            )
 
         try:
             notify_new_inquiry(
@@ -594,6 +610,168 @@ class InquiryService:
                 exc_info=True,
             )
 
+        return inquiry
+
+    @staticmethod
+    def _normalize_inquiry_mobile(raw) -> str:
+        import re
+        digits = re.sub(r'\D', '', str(raw or ''))
+        if len(digits) == 12 and digits.startswith('91'):
+            digits = digits[2:]
+        if len(digits) == 11 and digits.startswith('0'):
+            digits = digits[1:]
+        return digits
+
+    @staticmethod
+    def _inquiry_field_defaults(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Allowlisted fields + defaults for silent website booking capture."""
+        import re
+
+        mobile = InquiryService._normalize_inquiry_mobile(data.get('mobile'))
+        name = (data.get('name') or '').strip() or 'Website Lead'
+        city = (data.get('city') or '').strip() or 'Mumbai'
+        state = (data.get('state') or '').strip() or None
+        service_interest = (data.get('service_interest') or '').strip() or 'General Pest Control'
+        message = (data.get('message') or '').strip()
+        if len(message) < 10:
+            message = 'Auto-captured from Website Booking Form.'
+
+        premise_type = (data.get('premise_type') or '').strip() or None
+        premise_size = (data.get('premise_size') or '').strip() or None
+        pest_problems = (data.get('pest_problems') or '').strip() or None
+        service_frequency = (data.get('service_frequency') or '').strip() or None
+        email = (data.get('email') or '').strip() or None
+        page_url = (data.get('page_url') or '').strip() or None
+        utm_source = (data.get('utm_source') or '').strip() or None
+        utm_medium = (data.get('utm_medium') or '').strip() or None
+        utm_campaign = (data.get('utm_campaign') or '').strip() or None
+
+        estimated_price = data.get('estimated_price')
+        if estimated_price in ('', None):
+            estimated_price = None
+        is_inspection = data.get('is_inspection_required')
+        if is_inspection is None:
+            is_inspection = bool(
+                (premise_type or '').lower() == 'commercial' or not estimated_price
+            )
+
+        remark = data.get('remark')
+        if remark is not None:
+            remark = str(remark).strip() or None
+        if not remark:
+            remark = 'Lead source: Website Booking Form'
+
+        session_id = (data.get('booking_session_id') or '').strip()
+        if not re.match(r'^[A-Za-z0-9_-]{8,64}$', session_id):
+            raise ValidationError('booking_session_id must be an 8–64 character session token.')
+        if len(mobile) != 10:
+            raise ValidationError('Mobile must be a valid 10-digit number.')
+
+        return {
+            'booking_session_id': session_id,
+            'mobile': mobile,
+            'name': name,
+            'city': city,
+            'state': state,
+            'service_interest': service_interest,
+            'message': message,
+            'premise_type': premise_type,
+            'premise_size': premise_size,
+            'pest_problems': pest_problems,
+            'service_frequency': service_frequency,
+            'email': email,
+            'page_url': page_url,
+            'utm_source': utm_source,
+            'utm_medium': utm_medium,
+            'utm_campaign': utm_campaign,
+            'estimated_price': estimated_price,
+            'is_inspection_required': bool(is_inspection),
+            'remark': remark,
+            'status': Inquiry.InquiryStatus.NEW,
+        }
+
+    @staticmethod
+    def upsert_website_booking_inquiry(data: Dict[str, Any], user=None) -> tuple:
+        """
+        Create or update a Website Lead by booking_session_id.
+        Same browser session always updates one inquiry (no duplicates on edit/refresh).
+        Returns (inquiry, created: bool).
+        """
+        fields = InquiryService._inquiry_field_defaults(data)
+        session_id = fields['booking_session_id']
+        remark_text = fields.pop('remark', None)
+
+        # Never invent a second lead for an already-converted session.
+        existing = (
+            Inquiry.objects.filter(booking_session_id=session_id)
+            .order_by('-created_at')
+            .first()
+        )
+        if existing is not None:
+            # Already booked for this session — do not mutate further from the form.
+            if existing.status in (
+                Inquiry.InquiryStatus.CONVERTED,
+                Inquiry.InquiryStatus.CLOSED,
+            ):
+                return existing, False
+
+            # Keep Contacted/New status; refresh captured details only.
+            update_fields = []
+            for key, value in fields.items():
+                if key in ('status', 'booking_session_id'):
+                    continue
+                if value in (None, '') and key not in ('mobile', 'name', 'city', 'message', 'service_interest'):
+                    # Don't wipe previously captured optionals with empty payloads.
+                    continue
+                if getattr(existing, key) != value:
+                    setattr(existing, key, value)
+                    update_fields.append(key)
+            if update_fields:
+                existing.full_clean()
+                update_fields.append('updated_at')
+                existing.save(update_fields=update_fields)
+            return existing, False
+
+        create_payload = dict(fields)
+        if remark_text:
+            create_payload['remark'] = remark_text
+        inquiry = InquiryService.create_inquiry(create_payload, user=user)
+        return inquiry, True
+
+    @staticmethod
+    def link_booking_to_session_inquiry(
+        job: 'JobCard',
+        *,
+        booking_session_id: str | None = None,
+        inquiry_id: int | None = None,
+    ) -> 'Inquiry | None':
+        """
+        After a successful website booking, attach the session inquiry and mark Converted.
+        No-op if no matching inquiry. Never creates an inquiry.
+        """
+        inquiry = None
+        session_id = (booking_session_id or '').strip()
+        if inquiry_id:
+            inquiry = Inquiry.objects.filter(id=inquiry_id).first()
+        if inquiry is None and session_id:
+            inquiry = (
+                Inquiry.objects.filter(booking_session_id=session_id)
+                .order_by('-created_at')
+                .first()
+            )
+        if inquiry is None:
+            return None
+
+        updates = []
+        if inquiry.linked_jobcard_id != job.id:
+            inquiry.linked_jobcard = job
+            updates.append('linked_jobcard')
+        if inquiry.status != Inquiry.InquiryStatus.CONVERTED:
+            inquiry.status = Inquiry.InquiryStatus.CONVERTED
+            updates.append('status')
+        if updates:
+            updates.append('updated_at')
+            inquiry.save(update_fields=updates)
         return inquiry
 
     @staticmethod
@@ -646,7 +824,7 @@ class InquiryService:
             staff_whatsapp_status=Inquiry.StaffWhatsAppStatus.FAILED,
             staff_whatsapp_error=str(result.get("error") or "send_failed")[:1000],
         )
-    
+
     @staticmethod
     @transaction.atomic
     def convert_to_jobcard(inquiry_id: int, conversion_data: Dict[str, Any], user=None) -> JobCard:

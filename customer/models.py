@@ -45,13 +45,15 @@ class CustomerAccount(models.Model):
 
 
 class CustomerOTPChallenge(models.Model):
-    """Short-lived 4-digit OTP for passwordless login / register."""
+    """Short-lived 4-digit OTP for passwordless login / register / website booking."""
 
     PURPOSE_LOGIN = 'login'
     PURPOSE_REGISTER = 'register'
+    PURPOSE_WEBSITE_BOOKING = 'website_booking'
     PURPOSE_CHOICES = (
         (PURPOSE_LOGIN, 'Login'),
         (PURPOSE_REGISTER, 'Register'),
+        (PURPOSE_WEBSITE_BOOKING, 'Website booking'),
     )
 
     mobile = models.CharField(max_length=10, db_index=True)

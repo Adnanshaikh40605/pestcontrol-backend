@@ -64,7 +64,9 @@ class CustomerLoginSerializer(serializers.Serializer):
 
 class CustomerOTPSendSerializer(serializers.Serializer):
     mobile = serializers.CharField(max_length=15)
-    purpose = serializers.ChoiceField(choices=['login', 'register'])
+    purpose = serializers.ChoiceField(
+        choices=['login', 'register', 'website_booking'],
+    )
     full_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
 
     def validate(self, attrs):
@@ -87,7 +89,9 @@ class CustomerMobileLookupSerializer(serializers.Serializer):
 class CustomerOTPVerifySerializer(serializers.Serializer):
     mobile = serializers.CharField(max_length=15)
     otp = serializers.CharField(min_length=4, max_length=4)
-    purpose = serializers.ChoiceField(choices=['login', 'register'])
+    purpose = serializers.ChoiceField(
+        choices=['login', 'register', 'website_booking'],
+    )
     full_name = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
 
     def validate_otp(self, value):
@@ -286,6 +290,52 @@ class CustomerBookSerializer(serializers.Serializer):
                 minute,
                 tzinfo=tz,
             )
+        return attrs
+
+
+class WebsiteBookSerializer(CustomerBookSerializer):
+    """Public website booking — same booking fields plus guest name/mobile + OTP proof."""
+
+    full_name = serializers.CharField(max_length=255)
+    mobile = serializers.CharField(max_length=15)
+    otp_verification_token = serializers.CharField(write_only=True)
+    booking_session_id = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        write_only=True,
+    )
+    inquiry_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+
+    def validate_full_name(self, value):
+        name = (value or '').strip()
+        if len(name) < 2:
+            raise serializers.ValidationError('Name must be at least 2 characters.')
+        return name
+
+    def validate_mobile(self, value):
+        return normalize_mobile(value)
+
+    def validate_otp_verification_token(self, value):
+        token = (value or '').strip()
+        if not token:
+            raise serializers.ValidationError('OTP verification is required.')
+        return token
+
+    def validate_booking_session_id(self, value):
+        session_id = (value or '').strip()
+        if not session_id:
+            return ''
+        import re
+        if not re.match(r'^[A-Za-z0-9_-]{8,64}$', session_id):
+            raise serializers.ValidationError('Invalid booking session id.')
+        return session_id
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        mobile = attrs.get('mobile') or ''
+        if len(mobile) != 10:
+            raise serializers.ValidationError({'mobile': 'Mobile must be a 10-digit number.'})
         return attrs
 
 

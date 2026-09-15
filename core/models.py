@@ -557,6 +557,35 @@ class Inquiry(BaseModel):
     )
     remark = models.TextField(blank=True, null=True, verbose_name="Remark")
 
+    # Website booking form silent capture — links form session ↔ inquiry ↔ booking.
+    booking_session_id = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        db_index=True,
+        verbose_name="Booking Session ID",
+        help_text="Browser session UUID from the website booking form (upsert key)",
+    )
+    page_url = models.URLField(
+        max_length=500,
+        blank=True,
+        null=True,
+        verbose_name="Page URL",
+        help_text="Website page URL where the lead was captured",
+    )
+    utm_source = models.CharField(max_length=100, blank=True, null=True, verbose_name="UTM Source")
+    utm_medium = models.CharField(max_length=100, blank=True, null=True, verbose_name="UTM Medium")
+    utm_campaign = models.CharField(max_length=150, blank=True, null=True, verbose_name="UTM Campaign")
+    linked_jobcard = models.ForeignKey(
+        'JobCard',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='source_website_inquiries',
+        verbose_name="Linked Booking",
+        help_text="JobCard created from Confirm Booking for this website inquiry session",
+    )
+
     # Staff WhatsApp alert (company notify on website submit) — soft-fail status only.
     class StaffWhatsAppStatus(models.TextChoices):
         PENDING = 'pending', 'Pending'
@@ -603,6 +632,7 @@ class Inquiry(BaseModel):
             models.Index(fields=['status', 'city', 'state']),
             models.Index(fields=['mobile', 'email']),
             models.Index(fields=['is_read', 'status']),
+            models.Index(fields=['booking_session_id', 'mobile']),
         ]
         verbose_name = 'Inquiry'
         verbose_name_plural = 'Inquiries'
@@ -615,21 +645,28 @@ class Inquiry(BaseModel):
         super().clean()
         if self.mobile:
             validate_mobile_number(self.mobile)
-        
-        # Business rule: Name must be at least 2 characters
+
+        is_session_lead = bool((self.booking_session_id or '').strip())
+
+        # Business rule: Name must be at least 2 characters when provided
         if self.name and len(self.name.strip()) < 2:
             raise ValidationError({'name': 'Name must be at least 2 characters long.'})
-        
-        # Business rule: Message must be provided and meaningful
-        if not self.message or len(self.message.strip()) < 10:
-            raise ValidationError({'message': 'Message must be at least 10 characters long.'})
-        
-        # Business rule: Service interest must be provided
-        if not self.service_interest or not self.service_interest.strip():
-            raise ValidationError({'service_interest': 'Service interest is required.'})
-        
-        # Business rule: City requirement removed
-        pass
+
+        # Session auto-capture may have defaults filled by the service layer.
+        if not is_session_lead:
+            if not self.message or len(self.message.strip()) < 10:
+                raise ValidationError({'message': 'Message must be at least 10 characters long.'})
+            if not self.service_interest or not self.service_interest.strip():
+                raise ValidationError({'service_interest': 'Service interest is required.'})
+        else:
+            if not self.service_interest or not self.service_interest.strip():
+                self.service_interest = 'General Pest Control'
+            if not self.message or len(self.message.strip()) < 10:
+                self.message = 'Auto-captured from Website Booking Form.'
+            if not self.name or not self.name.strip():
+                self.name = 'Website Lead'
+            if not self.city or not self.city.strip():
+                self.city = 'Mumbai'
 
 
 class JobCard(BaseModel):

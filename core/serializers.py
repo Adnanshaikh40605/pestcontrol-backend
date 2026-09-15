@@ -448,6 +448,8 @@ class InquirySerializer(serializers.ModelSerializer):
             'service_interest', 'state', 'city', 'status', 'is_read', 
             'premise_type', 'premise_size', 'pest_problems', 
             'estimated_price', 'is_inspection_required', 'service_frequency',
+            'booking_session_id', 'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
+            'linked_jobcard',
             'remark', 'latest_remark', 'remark_count', 'service_rate_info',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_by', 'created_by_name', 'converted_by', 'converted_by_name',
@@ -456,6 +458,7 @@ class InquirySerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'created_by', 'converted_by', 'created_at', 'updated_at',
             'remark', 'latest_remark', 'remark_count', 'service_rate_info',
+            'linked_jobcard',
         ]
 
     def get_created_by_name(self, obj):
@@ -470,7 +473,9 @@ class InquirySerializer(serializers.ModelSerializer):
 
     def get_remark(self, obj):
         latest = _resolve_latest_remark(obj)
-        return latest.remark if latest else None
+        if latest:
+            return latest.remark
+        return obj.remark or None
 
     def get_latest_remark(self, obj):
         return _serialize_latest_remark(_resolve_latest_remark(obj))
@@ -502,6 +507,9 @@ class InquirySerializer(serializers.ModelSerializer):
         if remark_text:
             request = self.context.get('request')
             user = request.user if request and getattr(request.user, 'is_authenticated', False) else None
+            if not instance.remark:
+                instance.remark = remark_text
+                instance.save(update_fields=['remark', 'updated_at'])
             WebsiteLeadRemark.objects.create(
                 lead=instance,
                 remark=remark_text,

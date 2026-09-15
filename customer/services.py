@@ -25,6 +25,8 @@ class CustomerAppError(Exception):
 
 @transaction.atomic
 def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
+    from customer.catalog_match import sanitize_home_booking_rate
+
     amount = data.get('amount')
     rate = None
     rate_id = data.get('pricing_rate_id')
@@ -33,6 +35,26 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
             rate = PricingRate.objects.select_related('region').get(id=rate_id, is_active=True)
         except PricingRate.DoesNotExist as exc:
             raise CustomerAppError('Pricing rate not found.', code='invalid_rate') from exc
+
+    # Home / website bookings must never bill addon, society, hospital, or
+    # Integrated IPM rates that substring-matched (e.g. rat ⊂ integrated).
+    property_type = data.get('property_type') or JobCard.PropertyType.HOME_FLAT
+    rate, force_pending = sanitize_home_booking_rate(
+        rate,
+        service_type=(data.get('service_type') or ''),
+        bhk_size=(data.get('bhk_size') or ''),
+        booking_type=(data.get('booking_type') or 'one_time'),
+        package_tier=(data.get('package_tier') or JobCard.PackageTier.STANDARD),
+        property_type=property_type,
+        region_id=rate.region_id if rate else None,
+    )
+    if force_pending:
+        rate_id = None
+        amount = Decimal('0.00')
+        data = {**data, 'pricing_rate_id': None, 'price_confirmation_pending': True}
+    elif rate is not None:
+        rate_id = rate.id
+        data = {**data, 'pricing_rate_id': rate.id}
         # Bill what the catalog quoted the customer. Reading rate.amount charged the
         # base on any GST-exclusive rate, losing the tax on every such booking.
         amount = Decimal(str(gst_breakdown(
@@ -133,6 +155,11 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         property_type = data.get('property_type') or JobCard.PropertyType.HOME_FLAT
         contract_duration = data.get('contract_duration') or ''
 
+    reference = (data.get('reference') or 'Customer App').strip() or 'Customer App'
+    creation_source = (
+        data.get('creation_source') or JobCard.CreationSource.CUSTOMER_APP
+    )
+
     payload = {
         'client': account.client_id,
         'service_type': data.get('service_type') or (rate.service_package if rate else 'General Pest'),
@@ -154,7 +181,7 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         ),
         'is_price_estimated': price_confirmation_pending,
         'package_tier': package_tier,
-        'reference': 'Customer App',
+        'reference': reference,
         'job_type': job_type,
         'commercial_type': commercial_type,
     }
@@ -209,7 +236,7 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         logger.exception('Customer booking create failed: %s', exc)
         raise CustomerAppError(str(exc), code='create_failed') from exc
 
-    job.creation_source = JobCard.CreationSource.CUSTOMER_APP
+    job.creation_source = creation_source
     job.package_tier = package_tier
     if price_confirmation_pending:
         job.is_price_estimated = True
@@ -249,6 +276,59 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
             client.save(update_fields=updates)
 
     return job
+
+
+@transaction.atomic
+def ensure_customer_account_for_booking(*, mobile: str, full_name: str) -> CustomerAccount:
+    """Get or create CRM Client + CustomerAccount for public website bookings."""
+    from core.models import Client
+    from core.staff_partner_sync import normalize_mobile
+
+    clean_mobile = normalize_mobile(mobile)
+    name = (full_name or '').strip()
+    if len(name) < 2:
+        raise CustomerAppError('Name is required.', code='name_required')
+    if len(clean_mobile) != 10:
+        raise CustomerAppError('Mobile must be a 10-digit number.', code='invalid_mobile')
+
+    account = (
+        CustomerAccount.objects.select_related('client').filter(mobile=clean_mobile).first()
+    )
+    if account is not None:
+        if not account.is_active:
+            raise CustomerAppError('Account deactivated.', code='inactive')
+        updates = []
+        if name and account.full_name != name:
+            account.full_name = name
+            updates.append('full_name')
+        if updates:
+            account.save(update_fields=updates)
+        client = account.client
+        if client and name and client.full_name != name:
+            client.full_name = name
+            client.save(update_fields=['full_name', 'updated_at'])
+        return account
+
+    client, _ = Client.objects.get_or_create(
+        mobile=clean_mobile,
+        defaults={
+            'full_name': name,
+            'is_active': True,
+        },
+    )
+    if client.full_name != name:
+        client.full_name = name
+        client.save(update_fields=['full_name', 'updated_at'])
+
+    account = CustomerAccount(
+        client=client,
+        mobile=clean_mobile,
+        full_name=name,
+        is_active=True,
+    )
+    account.set_password(None)
+    account.save()
+    return account
 
 
 @transaction.atomic
