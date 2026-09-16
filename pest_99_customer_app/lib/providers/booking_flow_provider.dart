@@ -430,11 +430,13 @@ class BookingFlowProvider extends ChangeNotifier {
       errors['premiseType'] = 'Please select Residential or Commercial';
     }
     if (pestTypes.isEmpty) {
-      errors['pestTypes'] = 'Please select at least one service';
+      errors['pestTypes'] = 'Please select at least one pest type';
     }
     if (!isInspectionQuote) {
       if (premiseSize.isEmpty) {
         errors['premiseSize'] = 'Please select a premise size';
+      } else if (premiseSize == 'other') {
+        errors['premiseSize'] = 'Please call or WhatsApp us for a custom quote';
       }
       if (treatmentQuality != 'standard' && treatmentQuality != 'premium') {
         errors['treatmentQuality'] = 'Please select treatment quality';
@@ -452,11 +454,17 @@ class BookingFlowProvider extends ChangeNotifier {
     if (bookingTime24 == null) {
       errors['preferredTime'] = 'Please select a preferred time';
     }
-    if (fullName.trim().length < 2) {
+    if (fullName.trim().isEmpty) {
+      errors['name'] = 'Name is required';
+    } else if (fullName.trim().length < 2) {
+      // Backend WebsiteBookSerializer requires ≥2 chars.
       errors['name'] = 'Name must be at least 2 characters long';
     }
-    if (mobile.replaceAll(RegExp(r'\D'), '').length != 10) {
-      errors['phone'] = 'Phone number must be exactly 10 digits';
+    final digits = mobile.replaceAll(RegExp(r'\D'), '');
+    if (digits.isEmpty) {
+      errors['phone'] = 'Phone number is required';
+    } else if (digits.length != 10) {
+      errors['phone'] = 'Please enter a valid 10-digit phone number';
     }
     return errors;
   }

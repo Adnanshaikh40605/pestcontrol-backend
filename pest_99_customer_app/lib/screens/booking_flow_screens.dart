@@ -159,25 +159,43 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Custom premise size',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: _navy),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Need a custom quote?',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: _navy),
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Close',
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             const Text(
-              'For “Other” premise sizes we prepare a custom quote. Call or WhatsApp our team.',
+              'For premise sizes outside our standard 1 RK–6 BHK list, talk to an agent for pricing. '
+              'Online booking stays on hold until you get a quote.',
               style: TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.35),
             ),
             const SizedBox(height: 16),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: _green),
-              onPressed: () => launchUrl(tel),
-              child: const Text('Call now'),
+              style: FilledButton.styleFrom(backgroundColor: const Color(0xFF25D366)),
+              onPressed: () => launchUrl(wa, mode: LaunchMode.externalApplication),
+              child: const Text('WhatsApp'),
             ),
             const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: () => launchUrl(wa, mode: LaunchMode.externalApplication),
-              child: const Text('WhatsApp for quote'),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: _navy),
+              onPressed: () => launchUrl(tel),
+              child: const Text('Call +91 80807 48282'),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Keep browsing'),
             ),
           ],
         ),
@@ -242,6 +260,13 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
   Future<void> _onConfirm() async {
     final flow = context.read<BookingFlowProvider>();
     if (flow.isOtherPremiseSize) {
+      setState(() {
+        _errors = {
+          ..._errors,
+          'premiseSize': 'Please call or WhatsApp us for a custom quote',
+        };
+        _submitMessage = null;
+      });
       await _openOtherPremiseHelp();
       return;
     }
@@ -1285,6 +1310,18 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: 8),
               decoration: _inputDeco('OTP').copyWith(counterText: ''),
               enabled: !_otpVerifying,
+              onChanged: (_) {
+                if (_otpError.isNotEmpty) {
+                  setState(() => _otpError = '');
+                } else {
+                  setState(() {});
+                }
+              },
+              onSubmitted: (_) {
+                if (_otpCtrl.text.replaceAll(RegExp(r'\D'), '').length == 4) {
+                  _verifyAndCreate();
+                }
+              },
             ),
             if (_otpError.isNotEmpty) _fieldError(_otpError),
             const SizedBox(height: 10),
@@ -1303,7 +1340,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
               child: Text(
                 _otpSending
                     ? 'Sending…'
-                    : _resendCooldown > 0
+                    : _resendCooldown > 3
                         ? 'Resend OTP in ${_resendCooldown}s'
                         : 'Resend OTP',
               ),

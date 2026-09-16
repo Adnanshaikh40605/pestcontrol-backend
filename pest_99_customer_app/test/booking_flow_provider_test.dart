@@ -54,11 +54,25 @@ void main() {
       expect(errors.containsKey('streetAddress'), isTrue);
       expect(errors.containsKey('name'), isTrue);
       expect(errors.containsKey('phone'), isTrue);
+      expect(errors['phone'], 'Phone number is required');
+      expect(errors['name'], 'Name is required');
 
       flow.setStreetAddress('Baner Road, Pune');
       flow.setFullName('Adnan Shaikh');
       flow.setMobile('9876543210');
       expect(flow.validate(), isEmpty);
+    });
+
+    test('validate blocks Other premise size like website', () {
+      final flow = BookingFlowProvider();
+      flow.setPremiseSize('other');
+      flow.setTreatmentQuality('standard');
+      flow.setServiceType('one-time');
+      flow.setStreetAddress('Baner Road, Pune');
+      flow.setFullName('Adnan Shaikh');
+      flow.setMobile('9876543210');
+      final errors = flow.validate();
+      expect(errors['premiseSize'], contains('call or WhatsApp'));
     });
 
     test('catalog quote prices excl-GST base with promo list', () {
