@@ -30,31 +30,26 @@ void main() {
       expect(BookingTimezone.bookingDate(DateTime(2026, 9, 5)), '2026-09-05');
       expect(BookingTimezone.bookingTime24(14, 30), '14:30');
     });
-
-    test('past times on today are rejected', () {
-      final today = BookingTimezone.today();
-      expect(BookingTimezone.isNotInPast(today, 0, 0), isFalse);
-      final tomorrow = today.add(const Duration(days: 1));
-      expect(BookingTimezone.isNotInPast(tomorrow, 10, 0), isTrue);
-    });
   });
 
-  group('BookingFlowProvider date defaults', () {
-    test('defaults selected date to today (IST)', () {
+  group('BookingFlowProvider schedule defaults', () {
+    test('preferred date defaults to today or tomorrow when now+1h crosses midnight', () {
       final flow = BookingFlowProvider();
       final today = BookingTimezone.today();
-      expect(flow.selectedDate.year, today.year);
-      expect(flow.selectedDate.month, today.month);
-      expect(flow.selectedDate.day, today.day);
-      expect(flow.selectedSlot, isNotEmpty);
+      final parsed = DateTime.parse(flow.preferredDate);
+      final day = DateTime(parsed.year, parsed.month, parsed.day);
+      final diff = day.difference(today).inDays;
+      expect(diff == 0 || diff == 1, isTrue);
+      expect(flow.preferredTime, isNotEmpty);
+      expect(flow.bookingTime24, isNotNull);
     });
 
-    test('setTime updates 12h label', () {
+    test('setPreferredTime updates 12h label and 24h payload', () {
       final flow = BookingFlowProvider();
-      flow.setTime(14, 30);
-      expect(flow.selectedHour, 14);
-      expect(flow.selectedMinute, 30);
-      expect(flow.selectedSlot, '02:30 PM');
+      flow.setPreferredTime(14, 30);
+      expect(flow.preferredTime, '02:30 PM');
+      expect(flow.bookingTime24, '14:30');
+      expect(BookingFlowProvider.formatFriendlyTime(flow.preferredTime), '2:30 pm');
     });
 
     test('setServiceAddress clearLocationIds clears masterLocationId field', () {

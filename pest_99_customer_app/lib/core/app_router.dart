@@ -28,9 +28,11 @@ class AppRouter {
         if (!_auth.ready) return '/splash';
         final onAuth = loc == '/login' || loc == '/register' || loc == '/otp';
 
-        // Guests may browse Home; any other feature requires login.
+        // Guests may browse Home + website-style booking; other features need login.
         if (!_auth.loggedIn) {
-          if (kGuestAllowedRoutes.contains(loc)) return null;
+          if (kGuestAllowedRoutes.contains(loc) || loc.startsWith('/book')) {
+            return null;
+          }
           return '/login';
         }
 
@@ -114,13 +116,23 @@ class AppRouter {
         GoRoute(path: '/amc', builder: (_, _) => const AmcDashboardScreen()),
         GoRoute(path: '/payments', builder: (_, _) => const PaymentsScreen()),
         GoRoute(
-          path: '/book/property',
-          builder: (_, state) => PropertySelectionScreen(
+          path: '/book',
+          builder: (_, state) => WebsiteBookingScreen(
             initialServiceId: state.uri.queryParameters['service'],
           ),
         ),
-        GoRoute(path: '/book/datetime', builder: (_, _) => const DateTimeSelectionScreen()),
-        GoRoute(path: '/book/summary', builder: (_, _) => const BookingSummaryScreen()),
+        // Legacy multi-step paths → single website-matched form.
+        GoRoute(
+          path: '/book/property',
+          redirect: (context, state) {
+            final service = state.uri.queryParameters['service'];
+            return service == null || service.isEmpty
+                ? '/book'
+                : '/book?service=$service';
+          },
+        ),
+        GoRoute(path: '/book/datetime', redirect: (_, _) => '/book'),
+        GoRoute(path: '/book/summary', redirect: (_, _) => '/book'),
         GoRoute(path: '/book/confirmed', builder: (_, _) => const BookingConfirmedScreen()),
         GoRoute(path: '/complaint', builder: (_, _) => const ComplaintScreen()),
         GoRoute(path: '/report', builder: (_, _) => const ServiceReportScreen()),

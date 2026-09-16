@@ -88,7 +88,7 @@ class _AmcDashboardScreenState extends State<AmcDashboardScreen> {
                           title: 'No AMC plans yet',
                           subtitle: 'You don’t have an active AMC. Book a service and choose the AMC package to protect your property year-round.',
                           buttonLabel: 'Book AMC Service',
-                          onBook: () => pushAuthed(context, '/book/property'),
+                          onBook: () => context.push('/book'),
                         )
                       : RefreshIndicator(
                           color: AppColors.primary,
@@ -406,7 +406,7 @@ class ServiceReportScreen extends StatelessWidget {
           Pc99EmptyBookPrompt(
             title: 'No reports yet',
             subtitle: 'After your first completed service, the report will appear here.',
-            onBook: () => pushAuthed(context, '/book/property'),
+            onBook: () => context.push('/book'),
           ),
         ],
       ),
@@ -520,7 +520,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
               Pc99EmptyBookPrompt(
                 title: 'No invoices yet',
                 subtitle: 'After you book a service, invoices and payments will show up here.',
-                onBook: () => pushAuthed(context, '/book/property'),
+                onBook: () => context.push('/book'),
               )
             else
               ...rows.map((b) {
@@ -663,7 +663,7 @@ class AccountScreen extends StatelessWidget {
             padding: EdgeInsets.zero,
             child: Column(
               children: [
-                _Menu(Icons.home_work_outlined, 'Book a Service', () => pushAuthed(context, '/book/property')),
+                _Menu(Icons.home_work_outlined, 'Book a Service', () => context.push('/book')),
                 _Menu(Icons.workspace_premium_outlined, 'My AMC', () => context.push('/amc')),
                 _Menu(Icons.receipt_long_outlined, 'Payments & Invoices', () => context.push('/payments')),
                 _Menu(Icons.support_agent_rounded, 'Complaint / Re-Service', () => context.push('/complaint')),
@@ -837,7 +837,7 @@ class _AmcDetailsScreenState extends State<AmcDetailsScreen> {
         children: [
           Expanded(child: Pc99OutlineButton(label: 'Raise Complaint', onPressed: () => context.push('/complaint'))),
           const SizedBox(width: 10),
-          Expanded(child: Pc99PrimaryButton(label: 'Book Service', onPressed: () => pushAuthed(context, '/book/property'))),
+          Expanded(child: Pc99PrimaryButton(label: 'Book Service', onPressed: () => context.push('/book'))),
         ],
       ),
       child: _loading

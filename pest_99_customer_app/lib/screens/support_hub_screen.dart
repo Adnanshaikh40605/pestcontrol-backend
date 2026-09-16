@@ -83,7 +83,7 @@ class SupportHubScreen extends StatelessWidget {
                   child: const Text('My bookings'),
                 ),
                 TextButton(
-                  onPressed: () => pushAuthed(context, '/book/property'),
+                  onPressed: () => context.push('/book'),
                   child: const Text('Book a service'),
                 ),
                 TextButton(

@@ -39,6 +39,10 @@ class CatalogRate {
     required this.premiumAmount,
     this.regionName,
     this.propertyCategory,
+    this.baseAmount,
+    this.totalWithGst,
+    this.gstPercent,
+    this.priceIncludesGst,
   });
 
   final int id;
@@ -50,13 +54,18 @@ class CatalogRate {
   final String premiumAmount;
   final String? regionName;
   final String? propertyCategory;
+  final String? baseAmount;
+  final String? totalWithGst;
+  final String? gstPercent;
+  final bool? priceIncludesGst;
 
   factory CatalogRate.fromJson(Map<String, dynamic> json) {
     final tiers = json['package_tiers'];
     final standard = tiers is Map ? '${tiers['standard'] ?? json['amount']}' : '${json['amount']}';
     final premium = tiers is Map ? '${tiers['premium'] ?? json['amount']}' : '${json['amount']}';
+    final idRaw = json['id'];
     return CatalogRate(
-      id: json['id'] as int,
+      id: idRaw is int ? idRaw : int.tryParse('$idRaw') ?? 0,
       servicePackage: (json['service_package'] as String?) ?? '',
       planType: (json['plan_type'] as String?) ?? '',
       areaKey: (json['area_key'] as String?) ?? '',
@@ -65,6 +74,12 @@ class CatalogRate {
       premiumAmount: premium,
       regionName: json['region_name'] as String?,
       propertyCategory: json['property_category'] as String?,
+      baseAmount: json['base_amount']?.toString(),
+      totalWithGst: json['total_with_gst']?.toString(),
+      gstPercent: json['gst_percent']?.toString(),
+      priceIncludesGst: json['price_includes_gst'] is bool
+          ? json['price_includes_gst'] as bool
+          : null,
     );
   }
 
@@ -77,6 +92,10 @@ class CatalogRate {
         'plan_type': planType,
         'region_name': regionName,
         'property_category': propertyCategory,
+        'base_amount': baseAmount,
+        'total_with_gst': totalWithGst,
+        'gst_percent': gstPercent,
+        'price_includes_gst': priceIncludesGst,
       };
 }
 

@@ -21,6 +21,8 @@ class ApiConfig {
   static String get placesDetails => '$prefix/places/details/';
   static String get placesReverse => '$prefix/places/reverse/';
   static String get bookings => '$prefix/bookings/';
+  /// Public OTP-gated booking create (same as website home form).
+  static String get websiteBookings => '$prefix/website-bookings/';
   static String bookingDetail(int id) => '$prefix/bookings/$id/';
   static String bookingPay(int id) => '$prefix/bookings/$id/pay/';
   static String bookingCancel(int id) => '$prefix/bookings/$id/cancel/';

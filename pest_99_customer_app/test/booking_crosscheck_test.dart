@@ -22,7 +22,7 @@ void main() {
       longitude: 72.8437936,
       locality: 'Mumbai',
       sublocality: 'Dadar',
-      cityHint: 'Konkan Division', // production bug until deploy
+      cityHint: 'Konkan Division',
     );
     expect(resolveCityIdFromPlace(place, cities), 1);
     expect(matchMasterCityId('Konkan Division', cities), isNull);
@@ -47,10 +47,13 @@ void main() {
     expect(BookingTimezone.format12h(14, 30), '02:30 PM');
   });
 
-  test('provider no longer defaults to tomorrow', () {
+  test('provider preferred date is today or next day', () {
     final flow = BookingFlowProvider();
     final today = BookingTimezone.today();
-    expect(flow.selectedDate.difference(today).inDays, 0);
+    final parsed = DateTime.parse(flow.preferredDate);
+    final day = DateTime(parsed.year, parsed.month, parsed.day);
+    final diff = day.difference(today).inDays;
+    expect(diff == 0 || diff == 1, isTrue);
   });
 
   test('clearLocationIds clears both city and location ids', () {
@@ -60,10 +63,10 @@ void main() {
     expect(flow.masterCityId, isNull);
     expect(flow.masterLocationId, isNull);
     expect(flow.serviceArea, '');
+    expect(flow.streetAddress, 'new');
   });
 
   test('formatSchedule displays IST not shifted local wrongly for +05:30 input', () {
-    // Stored as UTC equivalent of 14:30 IST
     final shown = BookingTimezone.formatSchedule('2026-09-05T09:00:00Z', pattern: 'd MMM yyyy, h:mm a');
     expect(shown, '5 Sep 2026, 2:30 PM');
   });

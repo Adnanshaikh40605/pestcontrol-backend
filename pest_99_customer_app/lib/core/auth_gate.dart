@@ -7,6 +7,8 @@ import '../providers/auth_provider.dart';
 /// Routes guests can open without logging in.
 const Set<String> kGuestAllowedRoutes = {
   '/home',
+  '/book',
+  '/book/confirmed',
   '/login',
   '/register',
   '/otp',

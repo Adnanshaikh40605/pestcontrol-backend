@@ -1,97 +1,132 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pest_99_customer_app/models/customer_models.dart';
 import 'package:pest_99_customer_app/providers/booking_flow_provider.dart';
+import 'package:pest_99_customer_app/utils/catalog_pricing.dart';
 
 void main() {
-  group('BookingFlowProvider service lock', () {
-    test('beginWithService locks and shows only that service', () {
+  group('BookingFlowProvider website form', () {
+    test('defaults to residential + cockroach-ants', () {
+      final flow = BookingFlowProvider();
+      expect(flow.premiseType, 'residential');
+      expect(flow.pestTypes, ['cockroach-ants']);
+      expect(flow.preferredDate, isNotEmpty);
+      expect(flow.preferredTime, isNotEmpty);
+    });
+
+    test('beginWithService maps legacy ids to website pest slugs', () {
       final flow = BookingFlowProvider();
       flow.beginWithService('rodent');
-
-      expect(flow.isServiceLocked, isTrue);
-      expect(flow.lockedServiceId, 'rodent');
-      expect(flow.selectedServiceIds, {'rodent'});
-      expect(flow.visibleCatalog.length, 1);
-      expect(flow.visibleCatalog.first.id, 'rodent');
-      expect(flow.visibleCatalog.first.name, contains('Rodent'));
+      expect(flow.pestTypes, ['rodent']);
+      flow.beginWithService('cockroach');
+      expect(flow.pestTypes, ['cockroach-ants']);
+      flow.beginWithService('bedbug');
+      expect(flow.pestTypes, ['bedbugs']);
     });
 
-    test('unlockServiceSelection clears lock and selection', () {
+    test('amc only for cockroach-ants', () {
       final flow = BookingFlowProvider();
-      flow.beginWithService('termite');
-      flow.unlockServiceSelection();
-
-      expect(flow.isServiceLocked, isFalse);
-      expect(flow.selectedServiceIds, isEmpty);
-      expect(flow.visibleCatalog.length, BookingFlowProvider.catalog.length);
+      expect(flow.amcAvailable, isTrue);
+      flow.setServiceType('amc');
+      expect(flow.serviceType, 'amc');
+      flow.setPestTypes(['termite']);
+      expect(flow.amcAvailable, isFalse);
+      expect(flow.serviceType, isEmpty);
     });
 
-    test('resetFlow clears service lock', () {
+    test('commercial clears residential-only fields', () {
       final flow = BookingFlowProvider();
-      flow.beginWithService('mosquito');
-      flow.resetFlow();
-
-      expect(flow.lockedServiceId, isNull);
-      expect(flow.selectedServiceIds, isEmpty);
+      flow.setPremiseSize('2bhk');
+      flow.setTreatmentQuality('premium');
+      flow.setServiceType('one-time');
+      flow.setPremiseType('commercial');
+      expect(flow.premiseSize, isEmpty);
+      expect(flow.treatmentQuality, isEmpty);
+      expect(flow.serviceType, isEmpty);
+      expect(flow.isInspectionQuote, isTrue);
     });
 
-    test('visibleCatalog filters by backend rates when unlocked', () {
+    test('validate requires name, mobile, address, schedule', () {
       final flow = BookingFlowProvider();
+      flow.setPremiseSize('1bhk');
+      flow.setTreatmentQuality('standard');
+      flow.setServiceType('one-time');
+      final errors = flow.validate();
+      expect(errors.containsKey('streetAddress'), isTrue);
+      expect(errors.containsKey('name'), isTrue);
+      expect(errors.containsKey('phone'), isTrue);
+
+      flow.setStreetAddress('Baner Road, Pune');
+      flow.setFullName('Adnan Shaikh');
+      flow.setMobile('9876543210');
+      expect(flow.validate(), isEmpty);
+    });
+
+    test('catalog quote prices excl-GST base with promo list', () {
+      final flow = BookingFlowProvider();
+      flow.setPremiseSize('1bhk');
+      flow.setTreatmentQuality('standard');
+      flow.setServiceType('one-time');
       flow.setRates([
         CatalogRate(
-          id: 1,
-          servicePackage: 'Rodent',
+          id: 5,
+          servicePackage: 'Cockroach Standard',
           planType: 'One Time Service',
-          areaKey: '2 BHK',
-          amount: '1500',
-          standardAmount: '1500',
-          premiumAmount: '1725',
-        ),
-        CatalogRate(
-          id: 2,
-          servicePackage: 'Cockroach / Ants',
-          planType: 'One Time Service',
-          areaKey: '2 BHK',
-          amount: '1500',
-          standardAmount: '1500',
-          premiumAmount: '1725',
+          areaKey: '1 BHK',
+          amount: '1250',
+          baseAmount: '1250',
+          standardAmount: '1475',
+          premiumAmount: '1696',
+          propertyCategory: 'residential',
+          priceIncludesGst: false,
         ),
       ]);
-
-      expect(flow.visibleCatalog.map((s) => s.id), containsAll(['rodent', 'cockroach']));
-      expect(flow.visibleCatalog.map((s) => s.id), isNot(contains('bee')));
+      final q = flow.quote;
+      expect(q.pricePending, isFalse);
+      expect(q.offerPrice, 1250);
+      expect(q.listPrice, greaterThan(q.offerPrice));
+      expect(q.discountPercent, 30);
+      expect(q.pricingRateId, 5);
     });
 
-    test('matchRateForService uses selected service and property size', () {
+    test('other premise size flags custom quote path', () {
       final flow = BookingFlowProvider();
-      flow.beginWithService('rodent');
-      flow.selectHomeBhk('2 BHK');
-      flow.setRates([
-        CatalogRate(
-          id: 10,
-          servicePackage: 'Rodent',
-          planType: 'One Time Service',
-          areaKey: '2 BHK',
-          amount: '2000',
-          standardAmount: '2000',
-          premiumAmount: '2300',
-          propertyCategory: 'residential',
-        ),
-        CatalogRate(
-          id: 11,
-          servicePackage: 'Cockroach / Ants',
-          planType: 'One Time Service',
-          areaKey: '2 BHK',
-          amount: '1500',
-          standardAmount: '1500',
-          premiumAmount: '1725',
-          propertyCategory: 'residential',
-        ),
-      ]);
+      flow.setPremiseSize('other');
+      flow.setTreatmentQuality('standard');
+      flow.setServiceType('one-time');
+      expect(flow.isOtherPremiseSize, isTrue);
+      expect(flow.selectionsComplete, isTrue);
+      expect(flow.priceSummaryLabel, contains('Custom quote'));
+    });
+  });
 
-      final rate = flow.matchRateForService('rodent', isAmc: false);
-      expect(rate?.id, 10);
-      expect(flow.priceLabelForService('rodent'), '₹2,000');
+  group('catalog_pricing matchers', () {
+    test('packageTokenMatches uses word boundaries', () {
+      expect(packageTokenMatches(['rat'], 'Integrated IPM'), isFalse);
+      expect(packageTokenMatches(['rat'], 'Regular Rodent / Rat'), isTrue);
+      expect(packageTokenMatches(['fly'], 'Butterfly'), isFalse);
+    });
+
+    test('excludes hospital/addon from home pricing', () {
+      final hospital = CatalogRate(
+        id: 1,
+        servicePackage: 'Integrated IPM',
+        planType: 'One Time Service',
+        areaKey: 'Large',
+        amount: '24000',
+        standardAmount: '24000',
+        premiumAmount: '27600',
+        propertyCategory: 'hospital',
+      );
+      expect(isHomeExcludedRate(hospital), isTrue);
+    });
+
+    test('premise size options include 1 RK through 6 BHK + Other', () {
+      expect(
+        BookingFlowProvider.premiseSizeOptions.map((e) => e.value).toList(),
+        ['1rk', '1bhk', '2bhk', '3bhk', '4bhk', '5bhk', '6bhk', 'other'],
+      );
+      expect(areaKeyForForm('residential', '1rk'), '1 RK');
+      expect(areaKeyForForm('commercial', null), 'Commercial');
     });
   });
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../core/auth_gate.dart';
 import '../core/theme/app_colors.dart';
 import '../providers/auth_provider.dart';
 import '../providers/booking_flow_provider.dart';
@@ -45,10 +45,9 @@ class HomeDashboardScreen extends StatelessWidget {
     if (serviceId != null) {
       flow.beginWithService(serviceId);
     }
-    final route = serviceId == null
-        ? '/book/property'
-        : '/book/property?service=$serviceId';
-    pushAuthed(context, route);
+    final route = serviceId == null ? '/book' : '/book?service=$serviceId';
+    // Website-style OTP booking — guests allowed (no login wall).
+    context.push(route);
   }
 
   @override

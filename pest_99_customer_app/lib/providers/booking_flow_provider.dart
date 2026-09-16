@@ -1,295 +1,346 @@
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 
 import '../core/booking_timezone.dart';
 import '../models/customer_models.dart';
+import '../utils/catalog_pricing.dart';
 
-class ServiceOption {
-  const ServiceOption({
-    required this.id,
-    required this.name,
-    required this.icon,
-    required this.matchKeys,
-  });
-
-  final String id;
-  final String name;
-  final String icon;
-  /// Keywords used to match CRM `service_package` names.
-  final List<String> matchKeys;
+class PestOption {
+  const PestOption({required this.value, required this.label});
+  final String value;
+  final String label;
 }
 
+class PremiseSizeOption {
+  const PremiseSizeOption({required this.value, required this.label});
+  final String value;
+  final String label;
+}
+
+/// Website-aligned booking form state (single-screen Confirm Your Booking).
 class BookingFlowProvider extends ChangeNotifier {
-  /// Home tab — BHK / property size options (plus Custom).
-  static const homeBhkOptions = <String>[
-    '1 RK',
-    '1 BHK',
-    '2 BHK',
-    '3 BHK',
-    '4 BHK',
-    '5 BHK',
-    'Bungalow / Villa',
-    'Custom',
+  static const pestOptions = <PestOption>[
+    PestOption(value: 'cockroach-ants', label: 'Cockroach / Ants'),
+    PestOption(value: 'termite', label: 'Termite'),
+    PestOption(value: 'bedbugs', label: 'Bed Bugs'),
+    PestOption(value: 'rodent', label: 'Rodent'),
+    PestOption(value: 'mosquito', label: 'Mosquito'),
   ];
 
-  /// Commercial tab — property type options (plus Other).
-  static const commercialOptions = <String>[
-    'Office',
-    'Shop',
-    'Restaurant',
-    'Hotel',
-    'Society',
-    'School',
-    'Hospital',
-    'Warehouse',
-    'Factory',
-    'Other',
+  static const premiseSizeOptions = <PremiseSizeOption>[
+    PremiseSizeOption(value: '1rk', label: '1 RK'),
+    PremiseSizeOption(value: '1bhk', label: '1 BHK'),
+    PremiseSizeOption(value: '2bhk', label: '2 BHK'),
+    PremiseSizeOption(value: '3bhk', label: '3 BHK'),
+    PremiseSizeOption(value: '4bhk', label: '4 BHK'),
+    PremiseSizeOption(value: '5bhk', label: '5 BHK'),
+    PremiseSizeOption(value: '6bhk', label: '6 BHK'),
+    PremiseSizeOption(value: 'other', label: 'Other'),
   ];
 
-  static const catalog = <ServiceOption>[
-    ServiceOption(id: 'cockroach', name: 'Cockroach Control', icon: 'cockroach', matchKeys: ['cockroach']),
-    ServiceOption(id: 'ant', name: 'Ant Control', icon: 'ant', matchKeys: ['ant']),
-    ServiceOption(id: 'mosquito', name: 'Mosquito Control', icon: 'mosquito', matchKeys: ['mosquito']),
-    ServiceOption(id: 'termite', name: 'Termite Control', icon: 'termite', matchKeys: ['termite']),
-    ServiceOption(id: 'bedbug', name: 'Bed Bug Control', icon: 'bedbug', matchKeys: ['bed bug', 'bedbug', 'bed bugs']),
-    ServiceOption(id: 'rodent', name: 'Rodent / Rat Control', icon: 'rodent', matchKeys: ['rodent', 'rat']),
-    ServiceOption(id: 'fly', name: 'Fly Control', icon: 'fly', matchKeys: ['fly', 'flies']),
-    ServiceOption(id: 'lizard', name: 'Lizard Control', icon: 'lizard', matchKeys: ['lizard']),
-    ServiceOption(id: 'spider', name: 'Spider Control', icon: 'spider', matchKeys: ['spider']),
-    ServiceOption(id: 'woodborer', name: 'Wood Borer Control', icon: 'woodborer', matchKeys: ['wood borer', 'woodborer', 'borer']),
-    ServiceOption(id: 'bee', name: 'Honey Bee / Wasp Removal', icon: 'bee', matchKeys: ['bee', 'wasp']),
-    ServiceOption(id: 'general', name: 'General Pest Control', icon: 'general', matchKeys: ['general']),
-  ];
+  /// Maps legacy home-tile / deep-link ids → website pest slugs.
+  static const legacyServiceToPest = <String, String>{
+    'cockroach': 'cockroach-ants',
+    'ant': 'cockroach-ants',
+    'cockroach-ants': 'cockroach-ants',
+    'termite': 'termite',
+    'bedbug': 'bedbugs',
+    'bedbugs': 'bedbugs',
+    'rodent': 'rodent',
+    'mosquito': 'mosquito',
+  };
 
-  /// Plan options allowed per service catalog id.
-  static List<String> planOptionsFor(String serviceId) {
-    switch (serviceId) {
-      case 'bedbug':
-        return const ['2_service'];
-      case 'termite':
-        return const ['one_time'];
-      case 'general':
-      case 'cockroach':
-      case 'ant':
-      case 'rodent':
-      case 'mosquito':
-        return const ['one_time', 'amc'];
-      default:
-        return const ['one_time'];
-    }
+  static const treatmentDetails = <String, ({String title, List<String> bullets, String? whyTitle, String? whyBody})>{
+    'standard': (
+      title: 'Standard Treatment',
+      bullets: [
+        'Strong chemical spray with standard gel treatment.',
+        'Kitchen utensils and food items must be removed before treatment.',
+        'Our technician can assist with utensil removal for an additional charge of ₹300.',
+        'Keep children and pets away from the treated area.',
+        'Do not use the treated area for at least 3 hours after treatment.',
+      ],
+      whyTitle: null,
+      whyBody: null,
+    ),
+    'premium': (
+      title: 'Premium Treatment — Recommended',
+      bullets: [
+        'Advanced premium gel treatment for complete-home cockroach control.',
+        'Premium gel remains active and continuously targets hidden cockroaches.',
+        'No need to remove kitchen utensils for gel-only treatment.',
+        'Odourless spray with no unpleasant smell with premium gel is also available if spray treatment is required.',
+        'Cockroach monitoring pads/traps will be provided wherever necessary.',
+        'Tried-and-tested treatment method for effective and long-lasting control.',
+        'Ideal for families looking for minimum preparation, less inconvenience and better protection.',
+      ],
+      whyTitle: 'Why Choose Premium?',
+      whyBody:
+          'Choose Premium Treatment for hassle-free service, no utensil removal and long-lasting cockroach control.',
+    ),
+  };
+
+  static const otherPremiseWhatsAppMessage =
+      'Hi Pest Control 99, I selected Other for premise size on the app booking form and need a custom quote.';
+  static const supportPhoneTel = '+918080748282';
+  static const supportWhatsApp = '918080748282';
+
+  /// 'residential' | 'commercial'
+  String premiseType = 'residential';
+  final List<String> pestTypes = ['cockroach-ants'];
+  String premiseSize = '';
+  String treatmentQuality = '';
+  String serviceType = ''; // 'one-time' | 'amc'
+  String streetAddress = '';
+  String fullName = '';
+  String mobile = '';
+  String preferredDate = '';
+  String preferredTime = ''; // 12h display e.g. "02:30 PM"
+  CustomerBooking? confirmedBooking;
+  String? confirmedMobile;
+
+  List<CatalogRate> rates = [];
+  bool ratesLoading = false;
+  String? ratesError;
+
+  BookingFlowProvider() {
+    _applyDefaultSchedule();
   }
 
-  /// 'home' | 'commercial'
-  String propertyCategory = 'home';
-  String? homeBhk;
-  String? commercialType;
-  String customConfig = '';
+  void _applyDefaultSchedule() {
+    final now = BookingTimezone.now();
+    var target = now.add(const Duration(hours: 1));
+    // Round minute up to 5-min step (website ClockTimePicker).
+    final rem = target.minute % 5;
+    if (rem != 0) {
+      target = target.add(Duration(minutes: 5 - rem));
+    }
+    target = DateTime(target.year, target.month, target.day, target.hour, target.minute);
+    preferredDate = DateFormat('yyyy-MM-dd').format(target);
+    preferredTime = _format12h(target.hour, target.minute);
+  }
 
-  final Set<String> selectedServiceIds = {};
-  final Map<String, bool> planIsAmc = {};
+  static String _format12h(int hour24, int minute) {
+    final period = hour24 >= 12 ? 'PM' : 'AM';
+    var h = hour24 % 12;
+    if (h == 0) h = 12;
+    return '${h.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')} $period';
+  }
 
-  /// When set (from Home `?service=` or popular tap), only this service is shown.
-  String? lockedServiceId;
+  static String formatFriendlyTime(String value) {
+    final m = RegExp(r'(\d{1,2}):(\d{2})\s*(AM|PM)', caseSensitive: false).firstMatch(value.trim());
+    if (m == null) return value;
+    final hour = int.tryParse(m.group(1)!) ?? 0;
+    return '$hour:${m.group(2)} ${m.group(3)!.toLowerCase()}';
+  }
 
-  DateTime selectedDate = BookingTimezone.today();
-  int selectedHour = 10;
-  int selectedMinute = 0;
-  CustomerBooking? confirmedBooking;
+  String get friendlyPreferredDate {
+    if (preferredDate.isEmpty) return '';
+    DateTime? date;
+    try {
+      date = DateTime.parse(preferredDate);
+    } catch (_) {
+      return '';
+    }
+    final today = BookingTimezone.today();
+    final tomorrow = today.add(const Duration(days: 1));
+    final day = DateTime(date.year, date.month, date.day);
+    final mon = DateFormat('MMM').format(day);
+    if (BookingTimezone.isSameDay(day, today)) {
+      return 'Today • ${day.day} $mon';
+    }
+    if (BookingTimezone.isSameDay(day, tomorrow)) {
+      return 'Tomorrow • ${day.day} $mon';
+    }
+    return DateFormat('d MMM yyyy').format(day);
+  }
 
-  String serviceAddress = '';
+  bool get isResidential => premiseType == 'residential';
+  bool get isCommercial => premiseType == 'commercial';
+  bool get isInspectionQuote =>
+      isCommercial || pestTypes.contains('hotel-commercial');
+  bool get isOtherPremiseSize => premiseSize == 'other';
+  bool get amcAvailable =>
+      pestTypes.isNotEmpty && pestTypes.every((p) => p == 'cockroach-ants');
+
+  bool get selectionsComplete {
+    if (premiseType.isEmpty || pestTypes.isEmpty) return false;
+    if (isInspectionQuote) return true;
+    return premiseSize.isNotEmpty &&
+        treatmentQuality.isNotEmpty &&
+        serviceType.isNotEmpty;
+  }
+
+  QuotePriceResult get quote => calculateCatalogQuotePrice(
+        rates: rates,
+        pestTypes: List.unmodifiable(pestTypes),
+        premiseType: premiseType,
+        premiseSize: premiseSize,
+        serviceType: serviceType,
+        treatmentQuality: treatmentQuality,
+      );
+
+  String get priceSummaryLabel {
+    if (!selectionsComplete) return 'Select options for price';
+    if (isOtherPremiseSize) return 'Custom quote — call / WhatsApp';
+    if (isInspectionQuote) return 'Site inspection';
+    final quality = treatmentQuality == 'premium' ? 'Premium' : 'Standard';
+    if (serviceType == 'amc') return '$quality AMC • 3 visits';
+    if (serviceType == 'one-time') return '$quality • One-Time';
+    return 'Select options for price';
+  }
+
+  String get serviceTypeLabel => quote.serviceTypeLabel;
+
+  String get propertyTypeForApi =>
+      isCommercial ? 'Commercial Space' : 'Home / Flat';
+
+  String get bhkSizeForApi {
+    if (isCommercial) return 'Commercial';
+    return areaKeyForForm(premiseType, premiseSize);
+  }
+
+  String get bookingTypeForApi {
+    if (isInspectionQuote) return 'one_time';
+    return serviceType == 'amc' ? 'amc' : 'one_time';
+  }
+
+  (int hour, int minute)? get preferredTimeParts {
+    final m = RegExp(r'(\d{1,2}):(\d{2})\s*(AM|PM)', caseSensitive: false)
+        .firstMatch(preferredTime.trim());
+    if (m == null) return null;
+    var hour = int.tryParse(m.group(1)!) ?? 0;
+    final minute = int.tryParse(m.group(2)!) ?? 0;
+    final meridiem = (m.group(3) ?? 'AM').toUpperCase();
+    if (meridiem == 'PM' && hour < 12) hour += 12;
+    if (meridiem == 'AM' && hour == 12) hour = 0;
+    return (hour, minute);
+  }
+
+  String? get bookingTime24 {
+    final parts = preferredTimeParts;
+    if (parts == null) return null;
+    return '${parts.$1.toString().padLeft(2, '0')}:${parts.$2.toString().padLeft(2, '0')}';
+  }
+
+  String get timeSlotLabel => formatFriendlyTime(preferredTime);
+
+  void setPremiseType(String value) {
+    if (premiseType == value) return;
+    premiseType = value;
+    if (value == 'commercial') {
+      treatmentQuality = '';
+      serviceType = '';
+      premiseSize = '';
+    }
+    notifyListeners();
+  }
+
+  void setPestTypes(List<String> values) {
+    pestTypes
+      ..clear()
+      ..addAll(values.where((v) => v != 'hotel-commercial'));
+    if (!amcAvailable && serviceType == 'amc') {
+      serviceType = '';
+    }
+    notifyListeners();
+  }
+
+  void togglePest(String value) {
+    if (pestTypes.contains(value)) {
+      pestTypes.remove(value);
+    } else {
+      pestTypes.add(value);
+    }
+    pestTypes.remove('hotel-commercial');
+    if (!amcAvailable && serviceType == 'amc') {
+      serviceType = '';
+    }
+    notifyListeners();
+  }
+
+  void setPremiseSize(String value) {
+    premiseSize = value;
+    notifyListeners();
+  }
+
+  void setTreatmentQuality(String value) {
+    treatmentQuality = value;
+    notifyListeners();
+  }
+
+  void setServiceType(String value) {
+    if (value == 'amc' && !amcAvailable) return;
+    serviceType = value;
+    notifyListeners();
+  }
+
+  void setStreetAddress(String value) {
+    streetAddress = value;
+    notifyListeners();
+  }
+
+  void setFullName(String value) {
+    fullName = value;
+    notifyListeners();
+  }
+
+  void setMobile(String value) {
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    mobile = digits.length > 10 ? digits.substring(0, 10) : digits;
+    notifyListeners();
+  }
+
+  void setPreferredDate(DateTime date) {
+    preferredDate = DateFormat('yyyy-MM-dd').format(
+      DateTime(date.year, date.month, date.day),
+    );
+    notifyListeners();
+  }
+
+  void setPreferredTime(int hour24, int minute) {
+    preferredTime = _format12h(hour24.clamp(0, 23), minute.clamp(0, 59));
+    notifyListeners();
+  }
+
+  /// Prefill from home popular tile / deep link.
+  void beginWithService(String id) {
+    final slug = legacyServiceToPest[id] ?? id;
+    pestTypes
+      ..clear()
+      ..add(slug);
+    if (!amcAvailable && serviceType == 'amc') serviceType = '';
+    notifyListeners();
+  }
+
+  void setConfirmed(CustomerBooking booking, {String? mobileOverride}) {
+    confirmedBooking = booking;
+    confirmedMobile = mobileOverride ?? mobile;
+    notifyListeners();
+  }
+
+  // Optional place/geo fields (website payload supports lat/lng).
+  double? serviceLatitude;
+  double? serviceLongitude;
   String serviceCity = '';
   String serviceArea = '';
   String serviceFullAddress = '';
   String servicePlaceId = '';
   int? masterCityId;
   int? masterLocationId;
-  double? serviceLatitude;
-  double? serviceLongitude;
 
-  BookingFlowProvider() {
-    final t = BookingTimezone.defaultTimeFor(selectedDate);
-    selectedHour = t.$1;
-    selectedMinute = t.$2;
+  /// Compatibility for legacy ServiceAddressSection widget (unused by new form).
+  String get serviceAddress => streetAddress;
+  DateTime get selectedDate {
+    final parsed = DateTime.tryParse(preferredDate);
+    return parsed ?? BookingTimezone.today();
   }
 
-  /// 12h display label for the selected time (e.g. "02:30 PM").
-  String get selectedSlot => BookingTimezone.format12h(selectedHour, selectedMinute);
+  String get selectedSlot => timeSlotLabel;
+  int get selectedHour => preferredTimeParts?.$1 ?? 10;
+  int get selectedMinute => preferredTimeParts?.$2 ?? 0;
 
-  bool get hasValidSelectedTime =>
-      BookingTimezone.isWithinServiceWindow(selectedHour, selectedMinute) &&
-      BookingTimezone.isNotInPast(selectedDate, selectedHour, selectedMinute);
-
-  List<CatalogRate> rates = [];
-  bool ratesLoading = false;
-  String? ratesError;
-
-  bool get isHome => propertyCategory == 'home';
-
-  bool get _needsCustomText =>
-      (isHome && homeBhk == 'Custom') || (!isHome && commercialType == 'Other');
-
-  /// Effective property size / type label for the current selection.
-  String? get propertyConfig {
-    final base = isHome ? homeBhk : commercialType;
-    if (base == null) return null;
-    if (_needsCustomText) {
-      final txt = customConfig.trim();
-      if (txt.isEmpty) return null;
-      return isHome ? '$txt BHK' : txt;
-    }
-    return base;
-  }
-
-  bool get propertySelected => propertyConfig != null;
-
-  String get propertyLabel =>
-      isHome ? 'Home (Residential)' : 'Commercial Property';
-
-  String get propertyTypeForApi => isHome ? 'Home / Flat' : (propertyConfig ?? 'Commercial');
-
-  String get bhkSizeForApi => isHome ? (propertyConfig ?? '') : 'Commercial';
-
-  List<ServiceOption> get selectedServices =>
-      catalog.where((s) => selectedServiceIds.contains(s.id)).toList();
-
-  bool get isServiceLocked => lockedServiceId != null;
-
-  ServiceOption? get lockedService =>
-      lockedServiceId != null ? serviceById(lockedServiceId!) : null;
-
-  /// Services shown on the booking page — filtered by lock and backend catalog rates.
-  List<ServiceOption> get visibleCatalog {
-    if (lockedServiceId != null) {
-      final locked = serviceById(lockedServiceId!);
-      if (locked != null) return [locked];
-    }
-    return catalogFromRates;
-  }
-
-  /// Catalog entries that have at least one matching CRM rate (when rates are loaded).
-  List<ServiceOption> get catalogFromRates {
-    if (rates.isEmpty) return catalog;
-    final matched = catalog
-        .where((s) => rates.any((r) => _packageMatches(s, r.servicePackage)))
-        .toList();
-    return matched.isNotEmpty ? matched : catalog;
-  }
-
-  void setCategory(String category) {
-    if (propertyCategory == category) return;
-    propertyCategory = category;
-    notifyListeners();
-  }
-
-  void selectHomeBhk(String value) {
-    homeBhk = value;
-    notifyListeners();
-  }
-
-  void selectCommercialType(String value) {
-    commercialType = value;
-    notifyListeners();
-  }
-
-  void setCustomConfig(String value) {
-    customConfig = value;
-    notifyListeners();
-  }
-
-  void toggleService(String id) {
-    if (selectedServiceIds.contains(id)) {
-      selectedServiceIds.remove(id);
-      planIsAmc.remove(id);
-    } else {
-      selectedServiceIds.add(id);
-      final options = planOptionsFor(id);
-      planIsAmc[id] = options.contains('amc') && options.first == 'amc';
-      if (options.contains('2_service')) {
-        planIsAmc[id] = false; // Bed Bugs uses one-time package path with 2 visits
-      }
-    }
-    notifyListeners();
-  }
-
-  /// Start booking from Home with one service locked for the whole flow.
-  void beginWithService(String id) {
-    lockedServiceId = id;
-    selectOnlyService(id);
-  }
-
-  /// Start booking flow with a single popular service pre-selected.
-  void selectOnlyService(String id) {
-    selectedServiceIds
-      ..clear()
-      ..add(id);
-    planIsAmc.clear();
-    final options = planOptionsFor(id);
-    planIsAmc[id] = options.contains('amc') && options.first == 'amc';
-    if (options.contains('2_service')) {
-      planIsAmc[id] = false;
-    }
-    notifyListeners();
-  }
-
-  /// Allow picking a different service (clears Home lock + selection).
-  void unlockServiceSelection() {
-    lockedServiceId = null;
-    selectedServiceIds.clear();
-    planIsAmc.clear();
-    notifyListeners();
-  }
-
-  void setPlan(String serviceId, {required bool isAmc}) {
-    final options = planOptionsFor(serviceId);
-    if (isAmc && !options.contains('amc')) return;
-    if (!isAmc && !options.contains('one_time') && !options.contains('2_service')) return;
-    planIsAmc[serviceId] = isAmc;
-    notifyListeners();
-  }
-
-  String planLabel(String serviceId) {
-    final options = planOptionsFor(serviceId);
-    if (options.length == 1 && options.first == '2_service') {
-      return '2-Service Package';
-    }
-    if (options.length == 1 && options.first == 'one_time') {
-      return 'One-Time Service';
-    }
-    final isAmc = planIsAmc[serviceId] ?? false;
-    final rate = matchRateForService(serviceId, isAmc: isAmc);
-    if (rate != null && rate.planType.trim().isNotEmpty) {
-      return rate.planType;
-    }
-    return isAmc ? 'AMC Package' : 'One-Time Service';
-  }
-
-  void setDate(DateTime date) {
-    selectedDate = DateTime(date.year, date.month, date.day);
-    // Keep time if still valid; otherwise bump to a sensible default for the day.
-    if (!hasValidSelectedTime) {
-      final t = BookingTimezone.defaultTimeFor(selectedDate);
-      selectedHour = t.$1;
-      selectedMinute = t.$2;
-    }
-    notifyListeners();
-  }
-
-  void setTime(int hour24, int minute) {
-    selectedHour = hour24.clamp(0, 23);
-    selectedMinute = minute.clamp(0, 59);
-    notifyListeners();
-  }
-
-  /// Legacy alias — parses a 12h label if needed.
-  void setSlot(String slot) {
-    final match = RegExp(r'(\d{1,2}):(\d{2})\s*(AM|PM)', caseSensitive: false).firstMatch(slot);
-    if (match == null) return;
-    var hour = int.tryParse(match.group(1)!) ?? 10;
-    final minute = int.tryParse(match.group(2)!) ?? 0;
-    final meridiem = (match.group(3) ?? 'AM').toUpperCase();
-    if (meridiem == 'PM' && hour < 12) hour += 12;
-    if (meridiem == 'AM' && hour == 12) hour = 0;
-    setTime(hour, minute);
-  }
+  void setTime(int hour24, int minute) => setPreferredTime(hour24, minute);
 
   void setServiceAddress({
     String? address,
@@ -304,7 +355,7 @@ class BookingFlowProvider extends ChangeNotifier {
     bool clearLocationIds = false,
     bool clearPlaceId = false,
   }) {
-    if (address != null) serviceAddress = address;
+    if (address != null) streetAddress = address;
     if (city != null) serviceCity = city;
     if (area != null) serviceArea = area;
     if (fullAddress != null) serviceFullAddress = fullAddress;
@@ -328,16 +379,6 @@ class BookingFlowProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool get hasServiceAddress =>
-      serviceAddress.trim().length >= 5 &&
-      masterCityId != null &&
-      masterLocationId != null;
-
-  void setConfirmed(CustomerBooking booking) {
-    confirmedBooking = booking;
-    notifyListeners();
-  }
-
   void setRates(List<CatalogRate> value) {
     rates = value;
     ratesLoading = false;
@@ -358,122 +399,66 @@ class BookingFlowProvider extends ChangeNotifier {
   }
 
   void resetFlow() {
-    propertyCategory = 'home';
-    homeBhk = null;
-    commercialType = null;
-    customConfig = '';
-    lockedServiceId = null;
-    selectedServiceIds.clear();
-    planIsAmc.clear();
-    selectedDate = BookingTimezone.today();
-    final t = BookingTimezone.defaultTimeFor(selectedDate);
-    selectedHour = t.$1;
-    selectedMinute = t.$2;
+    premiseType = 'residential';
+    pestTypes
+      ..clear()
+      ..add('cockroach-ants');
+    premiseSize = '';
+    treatmentQuality = '';
+    serviceType = '';
+    streetAddress = '';
+    fullName = '';
+    mobile = '';
     confirmedBooking = null;
-    serviceAddress = '';
+    confirmedMobile = null;
+    serviceLatitude = null;
+    serviceLongitude = null;
     serviceCity = '';
     serviceArea = '';
     serviceFullAddress = '';
     servicePlaceId = '';
     masterCityId = null;
     masterLocationId = null;
-    serviceLatitude = null;
-    serviceLongitude = null;
+    _applyDefaultSchedule();
     notifyListeners();
   }
 
-  ServiceOption? serviceById(String id) {
-    for (final s in catalog) {
-      if (s.id == id) return s;
+  /// Client-side validation matching website home form.
+  Map<String, String> validate() {
+    final errors = <String, String>{};
+    if (premiseType != 'residential' && premiseType != 'commercial') {
+      errors['premiseType'] = 'Please select Residential or Commercial';
     }
-    return null;
-  }
-
-  bool _packageMatches(ServiceOption service, String package) {
-    final p = package.toLowerCase();
-    for (final key in service.matchKeys) {
-      if (p.contains(key.toLowerCase())) return true;
+    if (pestTypes.isEmpty) {
+      errors['pestTypes'] = 'Please select at least one service';
     }
-    return false;
-  }
-
-  bool _planMatches(CatalogRate rate, {required bool isAmc}) {
-    final plan = rate.planType.toLowerCase();
-    final amc = plan.contains('amc');
-    return isAmc ? amc : !amc;
-  }
-
-  String get _areaLookup {
-    if (!isHome) return 'Commercial';
-    return propertyConfig ?? '';
-  }
-
-  /// Best CRM rate for one selected service + plan + property size.
-  CatalogRate? matchRateForService(String serviceId, {bool? isAmc}) {
-    final service = serviceById(serviceId);
-    if (service == null || rates.isEmpty) return null;
-    final wantAmc = isAmc ?? (planIsAmc[serviceId] ?? false);
-    final area = _areaLookup.toLowerCase();
-
-    final byService = rates.where((r) => _packageMatches(service, r.servicePackage)).toList();
-    if (byService.isEmpty) return null;
-
-    final byPlan = byService.where((r) => _planMatches(r, isAmc: wantAmc)).toList();
-    final pool = byPlan.isNotEmpty ? byPlan : byService;
-
-    if (area.isNotEmpty) {
-      final exact = pool.where((r) => r.areaKey.toLowerCase() == area).toList();
-      if (exact.isNotEmpty) return exact.first;
-      final soft = pool.where((r) => r.areaKey.toLowerCase().contains(area) || area.contains(r.areaKey.toLowerCase())).toList();
-      if (soft.isNotEmpty) return soft.first;
-    }
-
-    // Prefer residential rates for home; commercial key for commercial.
-    if (isHome) {
-      final residential = pool.where((r) {
-        final cat = (r.propertyCategory ?? '').toLowerCase();
-        final key = r.areaKey.toLowerCase();
-        return cat.contains('residential') || key.contains('bhk') || key.contains('rk');
-      }).toList();
-      if (residential.isNotEmpty) return residential.first;
-    } else {
-      final commercial = pool.where((r) {
-        final cat = (r.propertyCategory ?? '').toLowerCase();
-        final key = r.areaKey.toLowerCase();
-        return cat.contains('commercial') || key == 'commercial';
-      }).toList();
-      if (commercial.isNotEmpty) return commercial.first;
-    }
-
-    return pool.first;
-  }
-
-  /// Primary rate used when confirming (first selected service).
-  CatalogRate? matchRate([List<CatalogRate>? override]) {
-    if (override != null && override.isNotEmpty) {
-      rates = override;
-    }
-    if (selectedServiceIds.isEmpty) return null;
-    return matchRateForService(selectedServiceIds.first);
-  }
-
-  double? amountForService(String serviceId, {bool? isAmc}) {
-    final rate = matchRateForService(serviceId, isAmc: isAmc);
-    if (rate == null) return null;
-    return double.tryParse(rate.amount);
-  }
-
-  double get estimatedTotal {
-    var total = 0.0;
-    var any = false;
-    for (final id in selectedServiceIds) {
-      final amount = amountForService(id);
-      if (amount != null && amount > 0) {
-        total += amount;
-        any = true;
+    if (!isInspectionQuote) {
+      if (premiseSize.isEmpty) {
+        errors['premiseSize'] = 'Please select a premise size';
+      }
+      if (treatmentQuality != 'standard' && treatmentQuality != 'premium') {
+        errors['treatmentQuality'] = 'Please select treatment quality';
+      }
+      if (serviceType != 'amc' && serviceType != 'one-time') {
+        errors['serviceType'] = 'Please select a service plan';
       }
     }
-    return any ? total : 0;
+    if (streetAddress.trim().length < 5) {
+      errors['streetAddress'] = 'Please enter your service address';
+    }
+    if (preferredDate.trim().isEmpty) {
+      errors['preferredDate'] = 'Please select a preferred date';
+    }
+    if (bookingTime24 == null) {
+      errors['preferredTime'] = 'Please select a preferred time';
+    }
+    if (fullName.trim().length < 2) {
+      errors['name'] = 'Name must be at least 2 characters long';
+    }
+    if (mobile.replaceAll(RegExp(r'\D'), '').length != 10) {
+      errors['phone'] = 'Phone number must be exactly 10 digits';
+    }
+    return errors;
   }
 
   static String formatInr(num? value) {
@@ -492,10 +477,16 @@ class BookingFlowProvider extends ChangeNotifier {
     return '₹${parts.join(',')},$last3';
   }
 
-  String priceLabelForService(String serviceId, {bool? isAmc}) {
-    final amount = amountForService(serviceId, isAmc: isAmc);
-    if (amount == null) return 'Price on request';
-    if (amount <= 0) return 'After inspection';
-    return formatInr(amount);
-  }
+  // ── Legacy aliases used by older screens / tests (kept for compile safety) ──
+  @Deprecated('Use pestTypes')
+  Set<String> get selectedServiceIds => pestTypes.toSet();
+
+  @Deprecated('Use isResidential')
+  bool get isHome => isResidential;
+
+  @Deprecated('Removed multi-step lock')
+  String? get lockedServiceId => null;
+
+  @Deprecated('Removed multi-step lock')
+  bool get isServiceLocked => false;
 }

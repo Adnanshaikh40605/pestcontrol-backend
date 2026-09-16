@@ -215,6 +215,57 @@ class BookingService {
     return CustomerBooking.fromJson(data['booking'] as Map<String, dynamic>);
   }
 
+  /// Website-style public booking (OTP verification token required).
+  Future<CustomerBooking> createWebsiteBooking({
+    required String fullName,
+    required String mobile,
+    required String serviceType,
+    required String packageTier,
+    required String propertyType,
+    required String bhkSize,
+    required String address,
+    required String city,
+    required String bookingType,
+    required String otpVerificationToken,
+    String fullAddress = '',
+    String area = '',
+    int? pricingRateId,
+    bool priceConfirmationPending = false,
+    String notes = '',
+    String? bookingDate,
+    String? bookingTime,
+    String? timezone,
+    String? timeSlot,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final body = <String, dynamic>{
+      'full_name': fullName,
+      'mobile': mobile,
+      'service_type': serviceType,
+      'package_tier': packageTier,
+      'property_type': propertyType,
+      'bhk_size': bhkSize,
+      'address': address,
+      'full_address': fullAddress.isNotEmpty ? fullAddress : address,
+      'city': city,
+      'booking_type': bookingType,
+      'otp_verification_token': otpVerificationToken,
+      'price_confirmation_pending': priceConfirmationPending,
+      if (pricingRateId != null && pricingRateId > 0) 'pricing_rate_id': pricingRateId,
+      if (area.isNotEmpty) 'area': area,
+      if (notes.isNotEmpty) 'notes': notes,
+      if (bookingDate != null && bookingDate.isNotEmpty) 'booking_date': bookingDate,
+      if (bookingTime != null && bookingTime.isNotEmpty) 'booking_time': bookingTime,
+      if (timezone != null && timezone.isNotEmpty) 'timezone': timezone,
+      if (timeSlot != null && timeSlot.isNotEmpty) 'time_slot': timeSlot,
+      if (latitude != null) 'latitude': latitude.toStringAsFixed(6),
+      if (longitude != null) 'longitude': longitude.toStringAsFixed(6),
+    };
+    final data = await _api.post(ApiConfig.websiteBookings, auth: false, body: body);
+    return CustomerBooking.fromJson(data['booking'] as Map<String, dynamic>);
+  }
+
   Future<CustomerBooking> cancel(int id, {required String reason}) async {
     final data = await _api.post(
       ApiConfig.bookingCancel(id),

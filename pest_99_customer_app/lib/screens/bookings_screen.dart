@@ -182,7 +182,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                   ? Pc99EmptyBookPrompt(
                       title: widget.historyOnly ? 'No completed services yet' : 'No bookings yet',
                       subtitle: 'You haven’t booked any service yet. Tap Book to schedule pest control for your property.',
-                      onBook: () => pushAuthed(context, '/book/property'),
+                      onBook: () => context.push('/book'),
                     )
                   : RefreshIndicator(
                       color: AppColors.primary,
@@ -244,7 +244,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                             Pc99EmptyBookPrompt(
                               title: 'No bookings yet',
                               subtitle: 'Book a service to see it listed here.',
-                              onBook: () => pushAuthed(context, '/book/property'),
+                              onBook: () => context.push('/book'),
                             )
                           else
                             ..._items.map(
