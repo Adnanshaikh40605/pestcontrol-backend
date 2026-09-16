@@ -299,9 +299,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
         _otpMobile = '${res['mobile'] ?? flow.mobile}';
         _otpCtrl.clear();
         _otpError = '';
-        _otpHint = res['dev_otp'] != null
-            ? 'Local DEBUG OTP: ${res['dev_otp']}'
-            : 'OTP sent on WhatsApp to +91 ${res['mobile'] ?? flow.mobile}';
+        _otpHint = res['dev_otp'] != null ? 'Local DEBUG OTP: ${res['dev_otp']}' : '';
         _resendCooldown = (res['resend_after'] is num) ? (res['resend_after'] as num).toInt() : 2;
       });
       _tickResend();
@@ -344,9 +342,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
       if (!mounted) return;
       setState(() {
         _otpMobile = '${res['mobile'] ?? flow.mobile}';
-        _otpHint = res['dev_otp'] != null
-            ? 'Local DEBUG OTP: ${res['dev_otp']}'
-            : 'OTP resent on WhatsApp to +91 ${res['mobile'] ?? flow.mobile}';
+        _otpHint = res['dev_otp'] != null ? 'Local DEBUG OTP: ${res['dev_otp']}' : '';
         _resendCooldown = (res['resend_after'] is num) ? (res['resend_after'] as num).toInt() : 2;
       });
       _tickResend();
@@ -1339,13 +1335,13 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
               ],
             ),
             Text(
-              'Enter the 4-digit OTP sent to +91 ${_otpMobile.isNotEmpty ? _otpMobile : context.read<BookingFlowProvider>().mobile} to confirm your booking.',
+              'OTP sent to +91 ${_otpMobile.isNotEmpty ? _otpMobile : context.read<BookingFlowProvider>().mobile} to confirm your booking.',
               style: const TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.35),
             ),
             const SizedBox(height: 6),
             const Text(
-              "You'll receive the OTP on WhatsApp.",
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF365244)),
+              'OTP will be sent to your WhatsApp number. Please check WhatsApp only.',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFC62828)),
             ),
             if (_otpHint.isNotEmpty) ...[
               const SizedBox(height: 6),
