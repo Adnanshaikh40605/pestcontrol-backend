@@ -503,29 +503,29 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         const Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'Confirm Your Booking',
-                                                style: TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.w800,
-                                                  color: _navy,
-                                                  height: 1.15,
+                                          child: Text.rich(
+                                            TextSpan(
+                                              children: [
+                                                TextSpan(
+                                                  text: 'Confirm Your Booking',
+                                                  style: TextStyle(
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w800,
+                                                    color: _navy,
+                                                    height: 1.15,
+                                                  ),
                                                 ),
-                                              ),
-                                              SizedBox(height: 2),
-                                              Text(
-                                                '100% Service Warranty',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: _navy,
-                                                  height: 1.2,
+                                                TextSpan(
+                                                  text: ' 100% Service Warranty',
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w700,
+                                                    color: _navy,
+                                                    height: 1.15,
+                                                  ),
                                                 ),
-                                              ),
-                                            ],
+                                              ],
+                                            ),
                                           ),
                                         ),
                                         Padding(
