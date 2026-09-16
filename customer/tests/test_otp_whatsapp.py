@@ -84,6 +84,36 @@ class CustomerOtpWhatsAppDeliveryTests(TestCase):
         self.assertEqual(res.data['delivery'], 'pending_channel')
         mock_notify.assert_called_once()
 
+    @override_settings(DEBUG=False, CUSTOMER_OTP_WHATSAPP_TEMPLATE='login_otp')
+    @patch('core.whatsflow_pc99.notify_customer_otp')
+    def test_login_otp_send_queues_when_whatsapp_slow(self, mock_notify):
+        """HTTP must return quickly even if WhatsApp delivery hangs."""
+        self._ensure_account()
+
+        class _NeverFinishesThread:
+            def __init__(self, target=None, daemon=None, name=None):
+                self._target = target
+
+            def start(self):
+                # Do not run target — simulates a hung WhatsApp call still in flight.
+                return None
+
+            def join(self, timeout=None):
+                return None
+
+            def is_alive(self):
+                return True
+
+        with patch('threading.Thread', _NeverFinishesThread):
+            res = self.api.post(
+                '/api/customer/otp/send/',
+                {'mobile': '9000111333', 'purpose': 'login'},
+                format='json',
+            )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['delivery'], 'queued')
+        mock_notify.assert_not_called()
+
     @override_settings(DEBUG=True, CUSTOMER_OTP_FIXED='1234')
     def test_debug_skips_whatsapp_and_returns_dev_otp(self):
         with patch('core.whatsflow_pc99.notify_customer_otp') as mock_notify:

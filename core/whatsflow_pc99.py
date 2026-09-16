@@ -72,7 +72,7 @@ def _str(value: Any, fallback: str = "—") -> str:
     return text or fallback
 
 
-def _sso_access_token() -> str | None:
+def _sso_access_token(*, timeout: float = 15) -> str | None:
     key = _api_key()
     if not key:
         return None
@@ -81,7 +81,7 @@ def _sso_access_token() -> str | None:
             f"{_api_base()}/api/auth/sso-login/",
             json={"api_key": key},
             headers={"Content-Type": "application/json"},
-            timeout=15,
+            timeout=timeout,
         )
         if not res.ok:
             logger.warning(
@@ -107,6 +107,8 @@ def send_template_by_phone(
     body_params: Sequence[str],
     customer_name: str | None = None,
     external_id: str | None = None,
+    timeout: float = 20,
+    sso_timeout: float | None = None,
 ) -> dict[str, Any]:
     """
     Send a WhatsFlow template message.
@@ -121,7 +123,7 @@ def send_template_by_phone(
     if len(digits) < 12:
         return {"ok": False, "message_id": "", "error": "invalid_phone"}
 
-    token = _sso_access_token()
+    token = _sso_access_token(timeout=sso_timeout if sso_timeout is not None else min(15.0, timeout))
     if not token:
         return {"ok": False, "message_id": "", "error": "whatsflow_sso_failed"}
 
@@ -144,7 +146,7 @@ def send_template_by_phone(
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {token}",
             },
-            timeout=20,
+            timeout=timeout,
         )
         payload = res.json() if res.content else {}
         if res.ok:
@@ -355,24 +357,33 @@ def notify_customer_otp(
     otp: str,
     purpose: str = "login",
     customer_name: str | None = None,
+    request_timeout: float = 8,
 ) -> bool:
     """
     Deliver customer-app OTP via WhatsFlow AUTH template (soft-fail).
 
     Configure Meta/WhatsFlow template name with settings.CUSTOMER_OTP_WHATSAPP_TEMPLATE
     (e.g. login_otp). AUTH templates accept a single body param — the OTP code.
+
+    request_timeout caps SSO+send so OTP APIs never hang on Meta/WhatsFlow.
     """
     template = (getattr(settings, "CUSTOMER_OTP_WHATSAPP_TEMPLATE", "") or "").strip()
     if not template:
         logger.warning("Customer OTP WhatsApp skipped (CUSTOMER_OTP_WHATSAPP_TEMPLATE unset).")
         return False
     # AUTH / login_otp templates only have {{1}} = OTP. Do not send purpose as {{2}}.
+    # Split budget roughly half for SSO, half for template send.
+    budget = max(2.0, float(request_timeout))
+    sso_budget = max(1.5, min(5.0, budget * 0.4))
+    send_budget = max(1.5, budget - sso_budget)
     result = send_template_by_phone(
         phone=mobile,
         template_name=template,
         body_params=[str(otp)],
         customer_name=customer_name or "Customer",
         external_id=f"customer-otp:{normalize_whatsapp_phone(mobile)}:{purpose}",
+        timeout=send_budget,
+        sso_timeout=sso_budget,
     )
     return bool(result.get("ok"))
 

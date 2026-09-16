@@ -59,6 +59,12 @@ CUSTOMER_OTP_REVIEWER_MOBILES = config('CUSTOMER_OTP_REVIEWER_MOBILES', default=
 CUSTOMER_OTP_REVIEWER_CODE = config('CUSTOMER_OTP_REVIEWER_CODE', default='2468')
 # WhatsFlow / Meta template name whose first body param is the OTP code.
 CUSTOMER_OTP_WHATSAPP_TEMPLATE = config('CUSTOMER_OTP_WHATSAPP_TEMPLATE', default='')
+# Max seconds the OTP HTTP handler waits for WhatsApp before returning delivery=queued.
+CUSTOMER_OTP_WHATSAPP_WAIT_SECONDS = config(
+    'CUSTOMER_OTP_WHATSAPP_WAIT_SECONDS',
+    default=6,
+    cast=float,
+)
 # Fake "mark paid" endpoint — keep OFF in production until Razorpay (etc.) is wired.
 CUSTOMER_ONLINE_PAYMENT_ENABLED = config(
     'CUSTOMER_ONLINE_PAYMENT_ENABLED',

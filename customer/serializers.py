@@ -144,8 +144,13 @@ class CatalogRateSerializer(serializers.ModelSerializer):
         ]
 
     def _breakdown(self, obj):
-        from core.pricing.gst import rate_gst_payload
-        return rate_gst_payload(obj)
+        cached = getattr(obj, '_catalog_gst_payload', None)
+        if cached is None:
+            from core.pricing.gst import rate_gst_payload
+
+            cached = rate_gst_payload(obj)
+            obj._catalog_gst_payload = cached
+        return cached
 
     def get_base_amount(self, obj):
         return self._breakdown(obj)['base_amount']
@@ -160,17 +165,10 @@ class CatalogRateSerializer(serializers.ModelSerializer):
         # Standard/Premium are booking tiers; catalog exposes both with same base rate for MVP.
         # Premium can be marked +15% display hint for UI (CRM can refine later).
         # Use customer-facing total (with GST) as the catalog amount.
-        from core.pricing.gst import gst_breakdown
-
-        breakdown = gst_breakdown(
-            obj.amount,
-            gst_percent=obj.gst_percent,
-            price_includes_gst=obj.price_includes_gst,
-        )
-        base = breakdown['total_with_gst']
+        base = self._breakdown(obj)['total_with_gst']
         try:
-            premium = (base * Decimal('1.15')).quantize(Decimal('0.01'))
-        except (InvalidOperation, TypeError):
+            premium = (Decimal(str(base)) * Decimal('1.15')).quantize(Decimal('0.01'))
+        except (InvalidOperation, TypeError, ValueError):
             premium = base
         return {
             'standard': str(base),

@@ -281,22 +281,64 @@ class SendOTPAPIView(CustomerPublicAPIView):
         if is_reviewer:
             delivery = 'reviewer_fixed'
         elif not settings.DEBUG:
+            # Never let WhatsApp/Meta hang the OTP HTTP response — wait briefly, then
+            # soft-fail to "queued" while the daemon thread may still finish delivery.
             try:
+                import threading
+
                 from core.whatsflow_pc99 import notify_customer_otp
 
-                sent = notify_customer_otp(
-                    mobile=mobile,
-                    otp=otp,
-                    purpose=purpose,
-                    customer_name=full_name or None,
+                wait_seconds = float(
+                    getattr(settings, 'CUSTOMER_OTP_WHATSAPP_WAIT_SECONDS', 6)
                 )
-                delivery = 'whatsapp' if sent else 'pending_channel'
-                if not sent:
-                    logger.error(
-                        'Customer OTP could not be delivered via WhatsApp mobile=%s — '
-                        'set CUSTOMER_OTP_WHATSAPP_TEMPLATE and WHATSFLOW_API_KEY',
+                box: dict = {'sent': None, 'error': None}
+
+                def _deliver() -> None:
+                    try:
+                        box['sent'] = notify_customer_otp(
+                            mobile=mobile,
+                            otp=otp,
+                            purpose=purpose,
+                            customer_name=full_name or None,
+                            request_timeout=min(5.0, max(2.0, wait_seconds)),
+                        )
+                    except Exception as exc:  # pragma: no cover - logged below
+                        box['error'] = exc
+                        box['sent'] = False
+
+                worker = threading.Thread(
+                    target=_deliver,
+                    daemon=True,
+                    name=f'customer-otp-wa-{mobile[-4:]}',
+                )
+                worker.start()
+                worker.join(timeout=max(1.0, wait_seconds))
+                if worker.is_alive():
+                    delivery = 'queued'
+                    logger.warning(
+                        'Customer OTP WhatsApp still in progress after %.1fs; '
+                        'returning queued mobile=%s purpose=%s',
+                        wait_seconds,
                         mobile,
+                        purpose,
                     )
+                elif box['error'] is not None:
+                    logger.error(
+                        'Customer OTP WhatsApp delivery failed mobile=%s: %s',
+                        mobile,
+                        box['error'],
+                        exc_info=box['error'] if isinstance(box['error'], BaseException) else False,
+                    )
+                    delivery = 'pending_channel'
+                else:
+                    sent = bool(box['sent'])
+                    delivery = 'whatsapp' if sent else 'pending_channel'
+                    if not sent:
+                        logger.error(
+                            'Customer OTP could not be delivered via WhatsApp mobile=%s — '
+                            'set CUSTOMER_OTP_WHATSAPP_TEMPLATE and WHATSFLOW_API_KEY',
+                            mobile,
+                        )
             except Exception:
                 logger.exception('Customer OTP WhatsApp delivery failed mobile=%s', mobile)
                 delivery = 'pending_channel'
@@ -540,7 +582,7 @@ class CatalogAPIView(CustomerPublicAPIView):
         # packages (Integrated IPM via substring "rat", society General Pest, etc.).
         qs = qs.order_by('service_package', 'plan_type', 'area_key')[:500]
         regions = PricingRegion.objects.filter(is_active=True).values('id', 'slug', 'name', 'is_default')
-        return Response(
+        response = Response(
             {
                 'regions': list(regions),
                 'package_tier_options': [
@@ -550,6 +592,9 @@ class CatalogAPIView(CustomerPublicAPIView):
                 'results': CatalogRateSerializer(qs, many=True).data,
             }
         )
+        # Short public cache — website reloads often; helps flaky mobile networks.
+        response['Cache-Control'] = 'public, max-age=60, stale-while-revalidate=300'
+        return response
 
 
 class CitiesAPIView(CustomerPublicAPIView):
