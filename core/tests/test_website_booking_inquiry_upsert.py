@@ -42,7 +42,7 @@ class WebsiteBookingInquiryUpsertTests(TestCase):
         self.assertIn('Website Booking Form', lead.remark or '')
 
     @patch('core.services.notify_new_inquiry', return_value=True)
-    def test_2_mobile_only_no_other_fields(self, _tg):
+    def test_2_mobile_only_no_other_fields(self, tg_mock):
         res = self._upsert(
             mobile='9876501111',
             name='',
@@ -58,6 +58,8 @@ class WebsiteBookingInquiryUpsertTests(TestCase):
         self.assertTrue(lead.name)
         self.assertTrue(lead.message)
         self.assertTrue(lead.service_interest)
+        tg_mock.assert_called_once()
+        self.assertEqual(tg_mock.call_args.kwargs['mobile'], '9876501111')
 
     @patch('core.services.notify_new_inquiry', return_value=True)
     def test_4_change_number_updates_same_session_no_duplicate(self, _tg):
@@ -91,20 +93,22 @@ class WebsiteBookingInquiryUpsertTests(TestCase):
 
     @patch('core.services.notify_new_inquiry', return_value=True)
     def test_upsert_without_name_then_with_name_updates(self, tg_mock):
-        """Early mobile-only capture must upgrade off the Website Lead placeholder."""
+        """Mobile-only create notifies immediately; later name upgrades same lead once."""
         first = self._upsert(mobile='9876508888', name='')
         self.assertEqual(first.status_code, 201, first.data)
         lead = Inquiry.objects.get(pk=first.data['id'])
         self.assertEqual(lead.name, 'Website Lead')
-        # Telegram deferred until a real name arrives.
-        tg_mock.assert_not_called()
+        # Staff get the inquiry as soon as a valid mobile is captured.
+        tg_mock.assert_called_once()
+        self.assertEqual(tg_mock.call_args.kwargs['name'], 'Website Lead')
+        self.assertEqual(tg_mock.call_args.kwargs['mobile'], '9876508888')
 
         second = self._upsert(mobile='9876508888', name='Priya Sharma')
         self.assertEqual(second.status_code, 200, second.data)
         lead.refresh_from_db()
         self.assertEqual(lead.name, 'Priya Sharma')
+        # Same session — no duplicate Telegram spam on name fill.
         tg_mock.assert_called_once()
-        self.assertEqual(tg_mock.call_args.kwargs['name'], 'Priya Sharma')
 
     @patch('core.services.notify_new_inquiry', return_value=True)
     def test_create_with_name_uses_real_name_and_notifies(self, tg_mock):
@@ -135,18 +139,33 @@ class WebsiteBookingInquiryUpsertTests(TestCase):
         first = self._upsert(mobile='9876506660', name='Website Lead')
         self.assertEqual(first.status_code, 201, first.data)
         self.assertEqual(Inquiry.objects.get(pk=first.data['id']).name, 'Website Lead')
-        tg_mock.assert_not_called()
+        tg_mock.assert_called_once()
 
         second = self._upsert(mobile='9876506660', name='Website Lead')
         self.assertEqual(second.status_code, 200)
-        tg_mock.assert_not_called()
+        # Repeat placeholder upsert must not re-notify.
+        tg_mock.assert_called_once()
 
         third = self._upsert(mobile='9876506660', name='Karan Mehta')
         self.assertEqual(third.status_code, 200, third.data)
         lead = Inquiry.objects.get(pk=first.data['id'])
         self.assertEqual(lead.name, 'Karan Mehta')
+        # Name upgrade updates CRM only — still a single create-time alert.
         tg_mock.assert_called_once()
-        self.assertEqual(tg_mock.call_args.kwargs['name'], 'Karan Mehta')
+
+    @patch('core.services.notify_new_inquiry', return_value=True)
+    def test_mobile_only_create_notifies_once_per_session(self, tg_mock):
+        """Debounced re-upserts with the same mobile must not spam Telegram."""
+        first = self._upsert(mobile='9876501010', name='')
+        self.assertEqual(first.status_code, 201, first.data)
+        tg_mock.assert_called_once()
+
+        # Same fingerprint-ish payload (mobile only) — update path, no new notify.
+        second = self._upsert(mobile='9876501010', name='')
+        self.assertEqual(second.status_code, 200, second.data)
+        self.assertEqual(first.data['id'], second.data['id'])
+        tg_mock.assert_called_once()
+        self.assertEqual(Inquiry.objects.filter(booking_session_id=self.session_id).count(), 1)
 
 
 @override_settings(

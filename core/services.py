@@ -623,18 +623,11 @@ class InquiryService:
                 remark_type=RemarkType.NOTE,
             )
 
-        # Silent website capture often creates on mobile blur before the customer
-        # types their name. Defer Telegram/WhatsApp for session leads still on the
-        # placeholder so alerts use the real name once upserted. Contact/quote
-        # forms (no booking_session_id) notify immediately as before.
-        is_session_lead = bool((inquiry.booking_session_id or '').strip())
-        if is_session_lead and InquiryService._is_placeholder_name(inquiry.name):
-            logger.info(
-                "Deferring lead notifications for inquiry %s until real name is captured",
-                inquiry.id,
-            )
-        else:
-            InquiryService._notify_inquiry_channels(inquiry)
+        # Notify immediately — including mobile-only silent captures that still
+        # use the "Website Lead" placeholder. Staff expect Telegram/CRM alerts
+        # as soon as a valid number is entered; later name upserts update the
+        # same lead without a second alert.
+        InquiryService._notify_inquiry_channels(inquiry)
 
         return inquiry
 
@@ -742,7 +735,6 @@ class InquiryService:
                 return existing, False
 
             # Keep Contacted/New status; refresh captured details only.
-            prior_name = existing.name
             update_fields = []
             for key, value in fields.items():
                 if key in ('status', 'booking_session_id'):
@@ -767,14 +759,7 @@ class InquiryService:
                 update_fields.append('updated_at')
                 existing.save(update_fields=update_fields)
 
-            # Name arrived after an early mobile-only create — fire deferred alerts now.
-            name_upgraded = (
-                InquiryService._is_placeholder_name(prior_name)
-                and not InquiryService._is_placeholder_name(existing.name)
-            )
-            if name_upgraded:
-                InquiryService._notify_inquiry_channels(existing)
-
+            # Name may later upgrade off "Website Lead"; create already notified once.
             return existing, False
 
         create_payload = dict(fields)
