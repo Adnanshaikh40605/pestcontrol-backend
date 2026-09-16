@@ -123,15 +123,10 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
 
   Future<void> _pickTime() async {
     final flow = context.read<BookingFlowProvider>();
-    final parts = flow.preferredTimeParts ??
-        (BookingTimezone.earliestBookableHour, 0);
-    final initial = TimeOfDay(
-      hour: BookingTimezone.coerceBookableTime(parts.$1, parts.$2).$1,
-      minute: BookingTimezone.coerceBookableTime(parts.$1, parts.$2).$2,
-    );
+    final parts = flow.preferredTimeParts ?? (10, 0);
     final picked = await showTimePicker(
       context: context,
-      initialTime: initial,
+      initialTime: TimeOfDay(hour: parts.$1, minute: parts.$2),
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
           colorScheme: Theme.of(context).colorScheme.copyWith(primary: _green),
@@ -141,7 +136,6 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     );
     if (picked != null) {
       // Snap to 5-minute steps like website ClockTimePicker.
-      // Night slots (12:00–7:59 AM) coerce to 8:00 AM inside setPreferredTime.
       final snapped = ((picked.minute / 5).round() * 5).clamp(0, 55);
       flow.setPreferredTime(picked.hour, snapped);
     }
