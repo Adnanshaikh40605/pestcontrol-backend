@@ -11,11 +11,17 @@ class BookingTimezone {
   static const String id = 'Asia/Kolkata';
   static const Duration offset = Duration(hours: 5, minutes: 30);
 
-  /// Earliest / latest bookable service start (inclusive), IST.
-  static const int minHour = 10;
-  static const int minMinute = 0;
+  /// Earliest bookable preferred start (inclusive). 12:00 AM–7:59 AM are blocked.
+  static const int earliestBookableHour = 8;
+  static const int earliestBookableMinute = 0;
+
+  /// Latest bookable service start (inclusive), IST — daytime technician window.
   static const int maxHour = 19;
   static const int maxMinute = 30;
+
+  /// Back-compat aliases for the earliest bookable hour.
+  static const int minHour = earliestBookableHour;
+  static const int minMinute = earliestBookableMinute;
 
   /// Current IST wall-clock as a naive local DateTime (isUtc=false values).
   static DateTime now() {
@@ -39,39 +45,68 @@ class BookingTimezone {
     return a.isBefore(b);
   }
 
-  /// Default start time: next 30-min slot at/after now within service window,
-  /// or 10:00 when booking a future day / before window opens.
-  static (int hour, int minute) defaultTimeFor(DateTime date) {
+  static bool isBeforeEarliestBookable(DateTime wallClock) {
+    final mins = wallClock.hour * 60 + wallClock.minute;
+    return mins < earliestBookableHour * 60 + earliestBookableMinute;
+  }
+
+  static bool isBookableTime(int hour, int minute) {
+    final mins = hour * 60 + minute;
+    return mins >= earliestBookableHour * 60 + earliestBookableMinute;
+  }
+
+  /// Coerce night times (00:00–07:59) up to 08:00; leave daytime unchanged.
+  static (int hour, int minute) coerceBookableTime(int hour, int minute) {
+    if (isBookableTime(hour, minute)) return (hour, minute);
+    return (earliestBookableHour, earliestBookableMinute);
+  }
+
+  /// Preferred schedule defaults (IST), matching website `getDefaultPreferredSchedule`:
+  /// - 12:00 AM–7:59 AM → 8:00 AM same day
+  /// - 8:00 AM onward → now + 1 hour, rounded up to 5-minute step
+  /// If now+1h lands before 08:00 (late evening), bump to 8:00 AM on that date.
+  static DateTime defaultPreferredDateTime([DateTime? nowOverride]) {
+    final now = nowOverride ?? BookingTimezone.now();
+    if (isBeforeEarliestBookable(now)) {
+      return DateTime(now.year, now.month, now.day, earliestBookableHour, earliestBookableMinute);
+    }
+    var target = now.add(const Duration(hours: 1));
+    final rem = target.minute % 5;
+    if (rem != 0) {
+      target = target.add(Duration(minutes: 5 - rem));
+    }
+    target = DateTime(target.year, target.month, target.day, target.hour, target.minute);
+    if (isBeforeEarliestBookable(target)) {
+      return DateTime(
+        target.year,
+        target.month,
+        target.day,
+        earliestBookableHour,
+        earliestBookableMinute,
+      );
+    }
+    return target;
+  }
+
+  /// Default start time for a calendar day (legacy helper).
+  /// Future days → 08:00; today uses [defaultPreferredDateTime] rules.
+  static (int hour, int minute) defaultTimeFor(DateTime date, {DateTime? nowOverride}) {
     final day = DateTime(date.year, date.month, date.day);
-    final todayDay = today();
+    final n = nowOverride ?? now();
+    final todayDay = DateTime(n.year, n.month, n.day);
     if (day.isAfter(todayDay)) {
-      return (minHour, minMinute);
+      return (earliestBookableHour, earliestBookableMinute);
     }
-    final n = now();
-    var hour = n.hour;
-    var minute = n.minute;
-    // Round up to next 30-minute mark.
-    if (minute == 0) {
-      // keep
-    } else if (minute <= 30) {
-      minute = 30;
-    } else {
-      hour += 1;
-      minute = 0;
+    if (day.isBefore(todayDay)) {
+      return (earliestBookableHour, earliestBookableMinute);
     }
-    if (hour < minHour || (hour == minHour && minute < minMinute)) {
-      return (minHour, minMinute);
-    }
-    if (hour > maxHour || (hour == maxHour && minute > maxMinute)) {
-      // Past last slot today — still default to window start; UI will block Continue.
-      return (minHour, minMinute);
-    }
-    return (hour, minute);
+    final preferred = defaultPreferredDateTime(n);
+    return (preferred.hour, preferred.minute);
   }
 
   static bool isWithinServiceWindow(int hour, int minute) {
     final mins = hour * 60 + minute;
-    final minBound = minHour * 60 + minMinute;
+    final minBound = earliestBookableHour * 60 + earliestBookableMinute;
     final maxBound = maxHour * 60 + maxMinute;
     return mins >= minBound && mins <= maxBound;
   }

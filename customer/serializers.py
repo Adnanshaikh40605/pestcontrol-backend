@@ -10,6 +10,29 @@ from core.staff_partner_sync import normalize_mobile
 
 from .models import CustomerAccount
 
+# Preferred booking window (customer local / booking timezone wall clock).
+# Matches website + customer app: do not accept 00:00–07:59; coerce to 08:00.
+EARLIEST_BOOKABLE_HOUR = 8
+EARLIEST_BOOKABLE_MINUTE = 0
+
+
+def _format_time_slot_12h(hour: int, minute: int) -> str:
+    period = 'AM' if hour < 12 else 'PM'
+    hour12 = hour % 12 or 12
+    return f'{hour12}:{minute:02d} {period}'
+
+
+def coerce_bookable_wall_time(hour: int, minute: int) -> tuple[int, int, bool]:
+    """
+    Normalize preferred booking wall-clock time.
+
+    Times from 00:00 through 07:59 are coerced to 08:00 (same calendar date).
+    Returns (hour, minute, was_coerced).
+    """
+    if hour < EARLIEST_BOOKABLE_HOUR:
+        return EARLIEST_BOOKABLE_HOUR, EARLIEST_BOOKABLE_MINUTE, True
+    return hour, minute, False
+
 
 class CustomerRegisterSerializer(serializers.Serializer):
     full_name = serializers.CharField(max_length=255)
@@ -260,6 +283,10 @@ class CustomerBookSerializer(serializers.Serializer):
 
         # Prefer explicit booking_date + booking_time in the booking timezone.
         # This avoids device UTC conversion mistakes on the client.
+        #
+        # Night window (00:00–07:59 local): coerce to 08:00. Frontends hide those
+        # slots and default early-morning visitors to 8:00 AM; the API mirrors that
+        # so crafted payloads cannot schedule overnight starts.
         booking_date = attrs.get('booking_date')
         booking_time = (attrs.get('booking_time') or '').strip()
         if booking_date and booking_time:
@@ -277,6 +304,10 @@ class CustomerBookSerializer(serializers.Serializer):
                 raise serializers.ValidationError({
                     'booking_time': 'Use HH:MM in 24-hour format (e.g. 14:30).',
                 })
+            hour, minute, coerced = coerce_bookable_wall_time(hour, minute)
+            if coerced:
+                attrs['booking_time'] = f'{hour:02d}:{minute:02d}'
+                attrs['time_slot'] = _format_time_slot_12h(hour, minute)
             tz_name = (attrs.get('timezone') or 'Asia/Kolkata').strip() or 'Asia/Kolkata'
             try:
                 tz = ZoneInfo(tz_name)

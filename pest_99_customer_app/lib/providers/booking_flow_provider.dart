@@ -108,14 +108,7 @@ class BookingFlowProvider extends ChangeNotifier {
   }
 
   void _applyDefaultSchedule() {
-    final now = BookingTimezone.now();
-    var target = now.add(const Duration(hours: 1));
-    // Round minute up to 5-min step (website ClockTimePicker).
-    final rem = target.minute % 5;
-    if (rem != 0) {
-      target = target.add(Duration(minutes: 5 - rem));
-    }
-    target = DateTime(target.year, target.month, target.day, target.hour, target.minute);
+    final target = BookingTimezone.defaultPreferredDateTime();
     preferredDate = DateFormat('yyyy-MM-dd').format(target);
     preferredTime = _format12h(target.hour, target.minute);
   }
@@ -342,7 +335,11 @@ class BookingFlowProvider extends ChangeNotifier {
   }
 
   void setPreferredTime(int hour24, int minute) {
-    preferredTime = _format12h(hour24.clamp(0, 23), minute.clamp(0, 59));
+    final coerced = BookingTimezone.coerceBookableTime(
+      hour24.clamp(0, 23),
+      minute.clamp(0, 59),
+    );
+    preferredTime = _format12h(coerced.$1, coerced.$2);
     notifyListeners();
   }
 
@@ -382,7 +379,7 @@ class BookingFlowProvider extends ChangeNotifier {
   }
 
   String get selectedSlot => timeSlotLabel;
-  int get selectedHour => preferredTimeParts?.$1 ?? 10;
+  int get selectedHour => preferredTimeParts?.$1 ?? BookingTimezone.earliestBookableHour;
   int get selectedMinute => preferredTimeParts?.$2 ?? 0;
 
   void setTime(int hour24, int minute) => setPreferredTime(hour24, minute);
@@ -500,6 +497,11 @@ class BookingFlowProvider extends ChangeNotifier {
     }
     if (bookingTime24 == null) {
       errors['preferredTime'] = 'Please select a preferred time';
+    } else {
+      final parts = preferredTimeParts;
+      if (parts != null && !BookingTimezone.isBookableTime(parts.$1, parts.$2)) {
+        errors['preferredTime'] = 'Please choose 8:00 AM or later';
+      }
     }
     if (fullName.trim().isEmpty) {
       errors['name'] = 'Name is required';
