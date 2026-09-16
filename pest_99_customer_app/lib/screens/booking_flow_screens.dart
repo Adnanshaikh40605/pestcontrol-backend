@@ -389,9 +389,15 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
       final q = flow.quote;
       final quality = flow.isInspectionQuote
           ? 'standard'
-          : (flow.treatmentQuality.isEmpty ? 'standard' : flow.treatmentQuality);
-      final qualityLabel = quality == 'premium' ? 'Premium' : 'Standard';
-      final planLabel = flow.bookingTypeForApi == 'amc' ? 'AMC · 3 visits' : 'One-Time';
+          : (flow.showTreatmentQuality
+              ? (flow.treatmentQuality.isEmpty ? 'standard' : flow.treatmentQuality)
+              : 'standard');
+      final qualityLabel = flow.showTreatmentQuality
+          ? (quality == 'premium' ? 'Premium' : 'Standard')
+          : 'Standard';
+      final planLabel = flow.bookingTypeForApi == 'amc'
+          ? 'AMC · 3 visits'
+          : (flow.isBedBugsPrimaryPlan ? BookingFlowProvider.bedBugPlanTitle : 'One-Time');
       final priceNote = q.pricePending
           ? 'Inspection / on-request pricing'
           : 'CRM ₹${q.offerPrice.round()} excl. GST';
@@ -543,67 +549,67 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                                       ],
                                     ),
                                     if (flow.isResidential && !flow.isInspectionQuote) ...[
-                                      SizedBox(height: gap),
-                                      _label('TREATMENT QUALITY *'),
-                                      _choiceRow(
-                                        height: choiceH,
-                                        children: [
-                                          _choiceCard(
-                                            title: 'Standard',
-                                            sub: 'Gel + spray',
-                                            selected: flow.treatmentQuality == 'standard',
-                                            height: choiceH,
-                                            onTap: () => flow.setTreatmentQuality('standard'),
-                                            onInfo: () => _showTreatmentInfo('standard'),
-                                          ),
-                                          _choiceCard(
-                                            title: 'Premium',
-                                            sub: 'No-smell treatment',
-                                            selected: flow.treatmentQuality == 'premium',
-                                            recommended: true,
-                                            height: choiceH,
-                                            onTap: () => flow.setTreatmentQuality('premium'),
-                                            onInfo: () => _showTreatmentInfo('premium'),
-                                          ),
-                                        ],
-                                      ),
-                                      if (_errors['treatmentQuality'] != null)
-                                        _fieldError(_errors['treatmentQuality']!),
+                                      if (flow.showTreatmentQuality) ...[
+                                        SizedBox(height: gap),
+                                        _label('TREATMENT QUALITY *'),
+                                        _choiceRow(
+                                          height: choiceH,
+                                          children: [
+                                            _choiceCard(
+                                              title: 'Standard',
+                                              sub: 'Gel + spray',
+                                              selected: flow.treatmentQuality == 'standard',
+                                              height: choiceH,
+                                              onTap: () => flow.setTreatmentQuality('standard'),
+                                              onInfo: () => _showTreatmentInfo('standard'),
+                                            ),
+                                            _choiceCard(
+                                              title: 'Premium',
+                                              sub: 'No-smell treatment',
+                                              selected: flow.treatmentQuality == 'premium',
+                                              recommended: true,
+                                              height: choiceH,
+                                              onTap: () => flow.setTreatmentQuality('premium'),
+                                              onInfo: () => _showTreatmentInfo('premium'),
+                                            ),
+                                          ],
+                                        ),
+                                        if (_errors['treatmentQuality'] != null)
+                                          _fieldError(_errors['treatmentQuality']!),
+                                      ],
                                       SizedBox(height: gap),
                                       _label('SERVICE PLAN *'),
                                       _choiceRow(
-                                        height: choiceH,
+                                        height: flow.isBedBugsPrimaryPlan || !flow.amcAvailable
+                                            ? choiceH + 4
+                                            : choiceH,
                                         children: [
                                           _choiceCard(
-                                            title: 'One-Time',
-                                            sub: 'Single service',
+                                            title: flow.oneTimePlanTitle,
+                                            sub: flow.oneTimePlanSub,
                                             selected: flow.serviceType == 'one-time',
-                                            height: choiceH,
+                                            height: flow.isBedBugsPrimaryPlan || !flow.amcAvailable
+                                                ? choiceH + 4
+                                                : choiceH,
                                             onTap: () => flow.setServiceType('one-time'),
                                           ),
                                           _choiceCard(
                                             title: 'AMC — 3 Visits',
-                                            sub: '12-month protection',
+                                            sub: flow.amcAvailable
+                                                ? '12-month protection'
+                                                : BookingFlowProvider.amcUnavailableLabel,
                                             selected: flow.serviceType == 'amc',
-                                            recommended: true,
+                                            recommended: flow.amcAvailable,
                                             disabled: !flow.amcAvailable,
-                                            height: choiceH,
+                                            unavailable: !flow.amcAvailable,
+                                            showLock: !flow.amcAvailable,
+                                            height: flow.isBedBugsPrimaryPlan || !flow.amcAvailable
+                                                ? choiceH + 4
+                                                : choiceH,
                                             onTap: () => flow.setServiceType('amc'),
                                           ),
                                         ],
                                       ),
-                                      if (!flow.amcAvailable)
-                                        const Padding(
-                                          padding: EdgeInsets.only(top: 3),
-                                          child: Text(
-                                            '* Selected service(s) available only as One-Time treatment',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontStyle: FontStyle.italic,
-                                              color: Color(0xFFEA580C),
-                                            ),
-                                          ),
-                                        ),
                                       if (_errors['serviceType'] != null)
                                         _fieldError(_errors['serviceType']!),
                                     ],
@@ -1082,11 +1088,15 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     VoidCallback? onInfo,
     bool recommended = false,
     bool disabled = false,
+    bool unavailable = false,
+    bool showLock = false,
   }) {
     return Opacity(
-      opacity: disabled ? 0.45 : 1,
+      opacity: disabled ? 0.78 : 1,
       child: Material(
-        color: selected ? _soft : Colors.white,
+        color: selected
+            ? _soft
+            : (disabled ? const Color(0xFFF5F7F6) : Colors.white),
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           onTap: disabled ? null : onTap,
@@ -1097,13 +1107,15 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: selected ? _green : _line,
+                color: selected
+                    ? _green
+                    : (disabled ? const Color(0xFFD5DDD8) : _line),
                 width: selected ? 1.6 : 1.5,
               ),
             ),
             child: Stack(
               children: [
-                if (recommended)
+                if (recommended && !disabled)
                   Positioned(
                     right: 0,
                     top: 0,
@@ -1119,12 +1131,51 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                       ),
                     ),
                   ),
+                if (unavailable)
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF6C7F74),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        BookingFlowProvider.amcUnavailableBadge,
+                        style: TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
-                    Text(sub, style: const TextStyle(fontSize: 9, color: Color(0xFF6C7F74))),
+                    Row(
+                      children: [
+                        if (showLock) ...[
+                          const Icon(Icons.lock_outline, size: 12, color: Color(0xFF6C7F74)),
+                          const SizedBox(width: 3),
+                        ],
+                        Expanded(
+                          child: Text(
+                            title,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: disabled ? const Color(0xFF6C7F74) : const Color(0xFF1B2A22),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text(
+                      sub,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 9, color: Color(0xFF6C7F74)),
+                    ),
                   ],
                 ),
                 if (onInfo != null)

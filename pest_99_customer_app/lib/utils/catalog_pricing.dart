@@ -315,13 +315,12 @@ QuotePriceResult calculateCatalogQuotePrice({
   if (premiseSize == null ||
       premiseSize.isEmpty ||
       serviceType == null ||
-      serviceType.isEmpty ||
-      treatmentQuality == null ||
-      treatmentQuality.isEmpty) {
+      serviceType.isEmpty) {
     return pending(treatmentQuality == 'premium' ? 'premium' : 'standard');
   }
 
-  final quality = treatmentQuality;
+  // Default to standard when treatment quality is hidden (non-cockroach path).
+  final quality = treatmentQuality == 'premium' ? 'premium' : 'standard';
   final isAmc = serviceType == 'amc';
   var total = 0.0;
   var anyMissing = false;

@@ -163,12 +163,31 @@ class BookingFlowProvider extends ChangeNotifier {
   bool get amcAvailable =>
       pestTypes.isNotEmpty && pestTypes.every((p) => p == 'cockroach-ants');
 
+  /// Standard/Premium UI — cockroach / ants only (website parity).
+  bool get showTreatmentQuality => pestTypes.contains('cockroach-ants');
+
+  /// Bed Bugs alone or listed first → CRM 2-service package messaging.
+  bool get isBedBugsPrimaryPlan =>
+      pestTypes.contains('bedbugs') &&
+      (pestTypes.length == 1 || pestTypes.first == 'bedbugs');
+
+  static const bedBugPlanTitle = '2-Service Package';
+  static const bedBugPlanSub = '1 month • 2 services • 15 days apart';
+  static const amcUnavailableLabel = 'Not available for this service';
+  static const amcUnavailableBadge = 'Unavailable';
+
+  String get oneTimePlanTitle =>
+      isBedBugsPrimaryPlan ? bedBugPlanTitle : 'One-Time';
+
+  String get oneTimePlanSub =>
+      isBedBugsPrimaryPlan ? bedBugPlanSub : 'Single service';
+
   bool get selectionsComplete {
     if (premiseType.isEmpty || pestTypes.isEmpty) return false;
     if (isInspectionQuote) return true;
-    return premiseSize.isNotEmpty &&
-        treatmentQuality.isNotEmpty &&
-        serviceType.isNotEmpty;
+    if (premiseSize.isEmpty || serviceType.isEmpty) return false;
+    if (showTreatmentQuality && treatmentQuality.isEmpty) return false;
+    return true;
   }
 
   QuotePriceResult get quote => calculateCatalogQuotePrice(
@@ -177,16 +196,27 @@ class BookingFlowProvider extends ChangeNotifier {
         premiseType: premiseType,
         premiseSize: premiseSize,
         serviceType: serviceType,
-        treatmentQuality: treatmentQuality,
+        treatmentQuality: showTreatmentQuality
+            ? treatmentQuality
+            : (treatmentQuality.isEmpty ? 'standard' : treatmentQuality),
       );
 
   String get priceSummaryLabel {
     if (!selectionsComplete) return 'Select options for price';
     if (isOtherPremiseSize) return 'Custom quote — call / WhatsApp';
     if (isInspectionQuote) return 'Site inspection';
-    final quality = treatmentQuality == 'premium' ? 'Premium' : 'Standard';
-    if (serviceType == 'amc') return '$quality AMC • 3 visits';
-    if (serviceType == 'one-time') return '$quality • One-Time';
+    if (serviceType == 'amc') {
+      final quality = treatmentQuality == 'premium' ? 'Premium' : 'Standard';
+      return '$quality AMC • 3 visits';
+    }
+    if (serviceType == 'one-time') {
+      if (isBedBugsPrimaryPlan) return '2-Service Package • 2 visits';
+      if (showTreatmentQuality) {
+        final quality = treatmentQuality == 'premium' ? 'Premium' : 'Standard';
+        return '$quality • One-Time';
+      }
+      return 'One-Time service';
+    }
     return 'Select options for price';
   }
 
@@ -237,16 +267,19 @@ class BookingFlowProvider extends ChangeNotifier {
   }
 
   void setPestTypes(List<String> values) {
+    final previousShowQuality = showTreatmentQuality;
     pestTypes
       ..clear()
       ..addAll(values.where((v) => v != 'hotel-commercial'));
     if (!amcAvailable && serviceType == 'amc') {
       serviceType = '';
     }
+    _syncTreatmentQualityForPests(previousShowQuality: previousShowQuality);
     notifyListeners();
   }
 
   void togglePest(String value) {
+    final previousShowQuality = showTreatmentQuality;
     if (pestTypes.contains(value)) {
       pestTypes.remove(value);
     } else {
@@ -256,7 +289,17 @@ class BookingFlowProvider extends ChangeNotifier {
     if (!amcAvailable && serviceType == 'amc') {
       serviceType = '';
     }
+    _syncTreatmentQualityForPests(previousShowQuality: previousShowQuality);
     notifyListeners();
+  }
+
+  void _syncTreatmentQualityForPests({required bool previousShowQuality}) {
+    if (!showTreatmentQuality) {
+      treatmentQuality = 'standard';
+    } else if (!previousShowQuality) {
+      // Switching onto cockroach — require an explicit Standard/Premium pick.
+      treatmentQuality = '';
+    }
   }
 
   void setPremiseSize(String value) {
@@ -305,11 +348,13 @@ class BookingFlowProvider extends ChangeNotifier {
 
   /// Prefill from home popular tile / deep link.
   void beginWithService(String id) {
+    final previousShowQuality = showTreatmentQuality;
     final slug = legacyServiceToPest[id] ?? id;
     pestTypes
       ..clear()
       ..add(slug);
     if (!amcAvailable && serviceType == 'amc') serviceType = '';
+    _syncTreatmentQualityForPests(previousShowQuality: previousShowQuality);
     notifyListeners();
   }
 
@@ -438,7 +483,9 @@ class BookingFlowProvider extends ChangeNotifier {
       } else if (premiseSize == 'other') {
         errors['premiseSize'] = 'Please call or WhatsApp us for a custom quote';
       }
-      if (treatmentQuality != 'standard' && treatmentQuality != 'premium') {
+      if (showTreatmentQuality &&
+          treatmentQuality != 'standard' &&
+          treatmentQuality != 'premium') {
         errors['treatmentQuality'] = 'Please select treatment quality';
       }
       if (serviceType != 'amc' && serviceType != 'one-time') {

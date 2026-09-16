@@ -33,6 +33,58 @@ void main() {
       expect(flow.serviceType, isEmpty);
     });
 
+    test('treatment quality visible only for cockroach-ants', () {
+      final flow = BookingFlowProvider();
+      expect(flow.showTreatmentQuality, isTrue);
+      flow.setPestTypes(['bedbugs']);
+      expect(flow.showTreatmentQuality, isFalse);
+      expect(flow.treatmentQuality, 'standard');
+      flow.setPestTypes(['rodent']);
+      expect(flow.showTreatmentQuality, isFalse);
+      flow.setPestTypes(['cockroach-ants']);
+      expect(flow.showTreatmentQuality, isTrue);
+      expect(flow.treatmentQuality, isEmpty);
+    });
+
+    test('bed bugs primary plan uses 2-service package copy', () {
+      final flow = BookingFlowProvider();
+      flow.beginWithService('bedbug');
+      expect(flow.isBedBugsPrimaryPlan, isTrue);
+      expect(flow.oneTimePlanTitle, BookingFlowProvider.bedBugPlanTitle);
+      expect(flow.oneTimePlanSub, BookingFlowProvider.bedBugPlanSub);
+      flow.setPremiseSize('2bhk');
+      flow.setServiceType('one-time');
+      expect(flow.selectionsComplete, isTrue);
+      expect(flow.priceSummaryLabel, contains('2-Service Package'));
+      expect(flow.validate()['treatmentQuality'], isNull);
+    });
+
+    test('bed bugs prices without explicit treatment quality', () {
+      final flow = BookingFlowProvider();
+      flow.setPestTypes(['bedbugs']);
+      flow.setPremiseSize('2bhk');
+      flow.setServiceType('one-time');
+      flow.setRates([
+        CatalogRate(
+          id: 8,
+          servicePackage: 'Bed Bugs',
+          planType: 'One Time Service',
+          areaKey: '2 BHK',
+          amount: '3400',
+          baseAmount: '3400',
+          standardAmount: '4012',
+          premiumAmount: '4614',
+          propertyCategory: 'residential',
+          priceIncludesGst: false,
+        ),
+      ]);
+      final q = flow.quote;
+      expect(q.pricePending, isFalse);
+      expect(q.offerPrice, 3400);
+      expect(q.pricingRateId, 8);
+      expect(flow.bookingTypeForApi, 'one_time');
+    });
+
     test('commercial clears residential-only fields', () {
       final flow = BookingFlowProvider();
       flow.setPremiseSize('2bhk');

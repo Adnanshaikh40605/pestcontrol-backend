@@ -124,6 +124,29 @@ class CatalogMatchTests(TestCase):
         )
         self.assertEqual(rate.id, self.cockroach.id)
 
+    def test_missing_size_does_not_fallback_to_other_bhk(self):
+        """6 BHK with no catalog row must stay unmatched (not first residential)."""
+        rate = match_rate_for_pest(
+            self.rates,
+            'cockroach-ants',
+            is_amc=False,
+            premise_type='residential',
+            premise_size='6bhk',
+            treatment_quality='standard',
+        )
+        self.assertIsNone(rate)
+
+    def test_other_premise_size_stays_unmatched(self):
+        rate = match_rate_for_pest(
+            self.rates,
+            'cockroach-ants',
+            is_amc=False,
+            premise_type='residential',
+            premise_size='other',
+            treatment_quality='standard',
+        )
+        self.assertIsNone(rate)
+
     def test_sanitize_replaces_integrated_with_regular_rodent(self):
         rematched, pending = sanitize_home_booking_rate(
             self.integrated,

@@ -83,6 +83,8 @@ _AREA_FROM_BHK = {
     '3bhk': '3 BHK',
     '4bhk': '4 BHK',
     '5bhk': '5 BHK',
+    '6bhk': '6 BHK',
+    'other': 'Other',
 }
 
 
@@ -236,6 +238,10 @@ def match_rate_for_pest(
         ]
         if soft:
             return soft[0]
+        # Explicit size requested but no catalog row — do not price a different BHK/RK.
+        # Mirrors pestcontroll99 catalogPricing.ts / customer app catalog_pricing.dart.
+        if is_home:
+            return None
 
     if is_home:
         residential = []
