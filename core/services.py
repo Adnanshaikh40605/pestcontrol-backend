@@ -554,29 +554,20 @@ class ClientService:
 
 class InquiryService:
     """Service class for Inquiry-related business logic."""
-    
+
+    WEBSITE_LEAD_PLACEHOLDER = 'Website Lead'
+
     @staticmethod
-    def create_inquiry(data: Dict[str, Any], user=None) -> Inquiry:
-        """Create a new inquiry with validation."""
-        payload = dict(data)
-        remark_text = payload.get('remark')
-        if remark_text is not None:
-            remark_text = str(remark_text).strip() or None
-            payload['remark'] = remark_text
+    def _is_placeholder_name(name: str | None) -> bool:
+        """True when name is missing or the silent-capture placeholder."""
+        cleaned = (name or '').strip()
+        if not cleaned:
+            return True
+        return cleaned.casefold() == InquiryService.WEBSITE_LEAD_PLACEHOLDER.casefold()
 
-        inquiry = Inquiry(created_by=user, **payload)
-        inquiry.full_clean()  # Run model validation
-        inquiry.save()
-
-        # Keep append-only remark history in sync (CRM remark panel reads WebsiteLeadRemark).
-        if remark_text:
-            WebsiteLeadRemark.objects.create(
-                lead=inquiry,
-                remark=remark_text,
-                created_by=user,
-                remark_type=RemarkType.NOTE,
-            )
-
+    @staticmethod
+    def _notify_inquiry_channels(inquiry: Inquiry) -> None:
+        """Telegram + staff WhatsApp for a lead (soft-fail each channel)."""
         try:
             notify_new_inquiry(
                 name=inquiry.name,
@@ -610,6 +601,41 @@ class InquiryService:
                 exc_info=True,
             )
 
+    @staticmethod
+    def create_inquiry(data: Dict[str, Any], user=None) -> Inquiry:
+        """Create a new inquiry with validation."""
+        payload = dict(data)
+        remark_text = payload.get('remark')
+        if remark_text is not None:
+            remark_text = str(remark_text).strip() or None
+            payload['remark'] = remark_text
+
+        inquiry = Inquiry(created_by=user, **payload)
+        inquiry.full_clean()  # Run model validation
+        inquiry.save()
+
+        # Keep append-only remark history in sync (CRM remark panel reads WebsiteLeadRemark).
+        if remark_text:
+            WebsiteLeadRemark.objects.create(
+                lead=inquiry,
+                remark=remark_text,
+                created_by=user,
+                remark_type=RemarkType.NOTE,
+            )
+
+        # Silent website capture often creates on mobile blur before the customer
+        # types their name. Defer Telegram/WhatsApp for session leads still on the
+        # placeholder so alerts use the real name once upserted. Contact/quote
+        # forms (no booking_session_id) notify immediately as before.
+        is_session_lead = bool((inquiry.booking_session_id or '').strip())
+        if is_session_lead and InquiryService._is_placeholder_name(inquiry.name):
+            logger.info(
+                "Deferring lead notifications for inquiry %s until real name is captured",
+                inquiry.id,
+            )
+        else:
+            InquiryService._notify_inquiry_channels(inquiry)
+
         return inquiry
 
     @staticmethod
@@ -628,7 +654,7 @@ class InquiryService:
         import re
 
         mobile = InquiryService._normalize_inquiry_mobile(data.get('mobile'))
-        name = (data.get('name') or '').strip() or 'Website Lead'
+        name = (data.get('name') or '').strip() or InquiryService.WEBSITE_LEAD_PLACEHOLDER
         city = (data.get('city') or '').strip() or 'Mumbai'
         state = (data.get('state') or '').strip() or None
         service_interest = (data.get('service_interest') or '').strip() or 'General Pest Control'
@@ -716,11 +742,21 @@ class InquiryService:
                 return existing, False
 
             # Keep Contacted/New status; refresh captured details only.
+            prior_name = existing.name
             update_fields = []
             for key, value in fields.items():
                 if key in ('status', 'booking_session_id'):
                     continue
-                if value in (None, '') and key not in ('mobile', 'name', 'city', 'message', 'service_interest'):
+                if key == 'name':
+                    # Never replace a real customer name with the silent-capture placeholder
+                    # (early mobile-only upserts often send empty → "Website Lead").
+                    if InquiryService._is_placeholder_name(value):
+                        if not InquiryService._is_placeholder_name(existing.name):
+                            continue
+                        # Both placeholder — no-op even if casing differs.
+                        continue
+                    # Real incoming name always wins over placeholder / prior value.
+                elif value in (None, '') and key not in ('mobile', 'city', 'message', 'service_interest'):
                     # Don't wipe previously captured optionals with empty payloads.
                     continue
                 if getattr(existing, key) != value:
@@ -730,6 +766,15 @@ class InquiryService:
                 existing.full_clean()
                 update_fields.append('updated_at')
                 existing.save(update_fields=update_fields)
+
+            # Name arrived after an early mobile-only create — fire deferred alerts now.
+            name_upgraded = (
+                InquiryService._is_placeholder_name(prior_name)
+                and not InquiryService._is_placeholder_name(existing.name)
+            )
+            if name_upgraded:
+                InquiryService._notify_inquiry_channels(existing)
+
             return existing, False
 
         create_payload = dict(fields)

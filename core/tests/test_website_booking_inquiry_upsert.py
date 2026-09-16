@@ -89,6 +89,65 @@ class WebsiteBookingInquiryUpsertTests(TestCase):
         self.assertEqual(a.data['id'], b.data['id'])
         self.assertEqual(Inquiry.objects.filter(booking_session_id=self.session_id).count(), 1)
 
+    @patch('core.services.notify_new_inquiry', return_value=True)
+    def test_upsert_without_name_then_with_name_updates(self, tg_mock):
+        """Early mobile-only capture must upgrade off the Website Lead placeholder."""
+        first = self._upsert(mobile='9876508888', name='')
+        self.assertEqual(first.status_code, 201, first.data)
+        lead = Inquiry.objects.get(pk=first.data['id'])
+        self.assertEqual(lead.name, 'Website Lead')
+        # Telegram deferred until a real name arrives.
+        tg_mock.assert_not_called()
+
+        second = self._upsert(mobile='9876508888', name='Priya Sharma')
+        self.assertEqual(second.status_code, 200, second.data)
+        lead.refresh_from_db()
+        self.assertEqual(lead.name, 'Priya Sharma')
+        tg_mock.assert_called_once()
+        self.assertEqual(tg_mock.call_args.kwargs['name'], 'Priya Sharma')
+
+    @patch('core.services.notify_new_inquiry', return_value=True)
+    def test_create_with_name_uses_real_name_and_notifies(self, tg_mock):
+        res = self._upsert(mobile='9876509999', name='Anuj Shukla')
+        self.assertEqual(res.status_code, 201, res.data)
+        lead = Inquiry.objects.get(pk=res.data['id'])
+        self.assertEqual(lead.name, 'Anuj Shukla')
+        tg_mock.assert_called_once()
+        self.assertEqual(tg_mock.call_args.kwargs['name'], 'Anuj Shukla')
+
+    @patch('core.services.notify_new_inquiry', return_value=True)
+    def test_placeholder_name_does_not_overwrite_real_name(self, tg_mock):
+        first = self._upsert(mobile='9876507770', name='Rachna Rai')
+        self.assertEqual(first.status_code, 201, first.data)
+        tg_mock.assert_called_once()
+
+        # Later silent upsert with empty name must not clobber the real name.
+        second = self._upsert(mobile='9876507770', name='', service_interest='Cockroach / Ants')
+        self.assertEqual(second.status_code, 200, second.data)
+        lead = Inquiry.objects.get(pk=first.data['id'])
+        self.assertEqual(lead.name, 'Rachna Rai')
+        self.assertEqual(lead.service_interest, 'Cockroach / Ants')
+        # No second notify — name was never a placeholder.
+        tg_mock.assert_called_once()
+
+    @patch('core.services.notify_new_inquiry', return_value=True)
+    def test_explicit_website_lead_payload_does_not_stick_after_real_name(self, tg_mock):
+        first = self._upsert(mobile='9876506660', name='Website Lead')
+        self.assertEqual(first.status_code, 201, first.data)
+        self.assertEqual(Inquiry.objects.get(pk=first.data['id']).name, 'Website Lead')
+        tg_mock.assert_not_called()
+
+        second = self._upsert(mobile='9876506660', name='Website Lead')
+        self.assertEqual(second.status_code, 200)
+        tg_mock.assert_not_called()
+
+        third = self._upsert(mobile='9876506660', name='Karan Mehta')
+        self.assertEqual(third.status_code, 200, third.data)
+        lead = Inquiry.objects.get(pk=first.data['id'])
+        self.assertEqual(lead.name, 'Karan Mehta')
+        tg_mock.assert_called_once()
+        self.assertEqual(tg_mock.call_args.kwargs['name'], 'Karan Mehta')
+
 
 @override_settings(
     TELEGRAM_NOTIFICATIONS_ENABLED=False,
