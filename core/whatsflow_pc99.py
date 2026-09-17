@@ -35,7 +35,7 @@ STAFF_LEAD_TEMPLATE_BODY = (
     "- Selected Area: {{4}}\n\n"
     "Please contact the customer with pricing and booking details.\n\n"
     "www.pestcontrol99.com\n"
-    "Call: 8080748282\n\n"
+    "Call: 7710032627\n\n"
     "Regards,\n"
     "PestControl99.com"
 )
