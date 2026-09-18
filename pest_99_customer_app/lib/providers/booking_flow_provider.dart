@@ -82,8 +82,8 @@ class BookingFlowProvider extends ChangeNotifier {
 
   static const otherPremiseWhatsAppMessage =
       'Hi Pest Control 99, I selected Other for premise size on the app booking form and need a custom quote.';
-  static const supportPhoneTel = '+917710032627';
-  static const supportWhatsApp = '917710032627';
+  static const supportPhoneTel = '+918080748282';
+  static const supportWhatsApp = '918080748282';
 
   /// 'residential' | 'commercial'
   String premiseType = 'residential';

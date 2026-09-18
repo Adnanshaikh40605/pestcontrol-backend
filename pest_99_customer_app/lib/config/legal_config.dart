@@ -14,7 +14,7 @@ class LegalConfig {
   static const String companyLegalName = 'Multi Pest Care LLP';
   static const String brandName = 'Pest Control 99';
   static const String supportEmail = 'accounts@pestcontrol99.com';
-  static const String supportPhone = '+91 77100 32627';
-  static const String supportPhoneTel = 'tel:+917710032627';
+  static const String supportPhone = '+91 80807 48282';
+  static const String supportPhoneTel = 'tel:+918080748282';
   static const String supportEmailMail = 'mailto:accounts@pestcontrol99.com';
 }

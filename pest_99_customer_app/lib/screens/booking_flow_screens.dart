@@ -190,7 +190,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
             FilledButton(
               style: FilledButton.styleFrom(backgroundColor: _navy),
               onPressed: () => launchUrl(tel),
-              child: const Text('Call +91 77100 32627'),
+              child: const Text('Call +91 80807 48282'),
             ),
             const SizedBox(height: 8),
             TextButton(
