@@ -494,7 +494,7 @@ class _MoneyBreakdownCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Money for this service',
+            'Payment breakdown',
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
@@ -502,8 +502,8 @@ class _MoneyBreakdownCard extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             showSplit
-                ? 'Customer may pay base only or total with GST. Your money is the technician share (excl. GST).'
-                : 'Customer may pay base only or total with GST. No revenue-share payout on this visit.',
+                ? 'Clear split of total service amount, GST, technician share, and company share.'
+                : 'Customer total and GST. No revenue-share payout on this visit.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
                 ),
@@ -511,9 +511,9 @@ class _MoneyBreakdownCard extends StatelessWidget {
           if (gst.hasAmount) ...[
             const SizedBox(height: 12),
             _DetailMoneyRow(
-              label: 'Base price (excl. GST)',
-              value: MoneyFormat.rupees(gst.baseAmount),
-              muted: true,
+              label: 'Total Service Amount',
+              value: MoneyFormat.rupees(gst.totalAmount),
+              emphasize: true,
             ),
             const SizedBox(height: 8),
             _DetailMoneyRow(
@@ -523,9 +523,9 @@ class _MoneyBreakdownCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             _DetailMoneyRow(
-              label: 'Total (incl. GST)',
-              value: MoneyFormat.rupees(gst.totalAmount),
-              emphasize: true,
+              label: 'Base (excl. GST)',
+              value: MoneyFormat.rupees(gst.baseAmount),
+              muted: true,
             ),
           ],
           if (visitRev != null &&

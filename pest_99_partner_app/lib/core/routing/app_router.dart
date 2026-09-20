@@ -14,6 +14,7 @@ import '../../features/earnings/leave_requests_screen.dart';
 import '../../features/profile/edit_profile_screen.dart';
 import '../../features/profile/profile_screen.dart';
 import '../../features/referral/refer_client_screen.dart';
+import '../../features/referral/guest_request_screen.dart';
 import '../../features/referral/referral_progress_screen.dart';
 import '../../features/splash/splash_screen.dart';
 import 'booking_open_args.dart';
@@ -129,6 +130,11 @@ class AppRouter {
           path: '/refer-client',
           parentNavigatorKey: rootNavigatorKey,
           pageBuilder: (context, state) => _slidePage(state, const ReferClientScreen()),
+        ),
+        GoRoute(
+          path: '/guest-request',
+          parentNavigatorKey: rootNavigatorKey,
+          pageBuilder: (context, state) => _slidePage(state, const GuestRequestScreen()),
         ),
         GoRoute(
           path: '/referral-progress',

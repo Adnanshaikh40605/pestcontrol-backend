@@ -103,17 +103,17 @@ class Booking {
     final pct = technicianSharePercent?.trim();
     if (pct != null && pct.isNotEmpty && pct != '0' && pct != '0.00') {
       final clean = pct.endsWith('.00') ? pct.substring(0, pct.length - 3) : pct;
-      return 'Your share ($clean%)';
+      return "Technician's Share ($clean%)";
     }
-    return 'Your share (40%)';
+    return "Technician's Share (40%)";
   }
 
   String get companyShareLabel {
     final pct = companySharePercent?.trim();
     if (pct != null && pct.isNotEmpty && pct != '0' && pct != '0.00') {
       final clean = pct.endsWith('.00') ? pct.substring(0, pct.length - 3) : pct;
-      return 'Company share ($clean%)';
+      return "Company's Share ($clean%)";
     }
-    return 'Company share (60%)';
+    return "Company's Share (60%)";
   }
 }

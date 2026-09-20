@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/mappers/booking_mapper.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../models/booking.dart' as api;
 import '../../providers/bookings_provider.dart';
@@ -13,6 +12,7 @@ import '../../shared/widgets/async_error_view.dart';
 import '../../shared/widgets/no_internet_view.dart';
 import '../../shared/widgets/profile_aware_top_bar.dart';
 import '../../shared/widgets/booking_cards.dart';
+import '../../shared/widgets/booking_day_sections.dart';
 
 class AcceptedScreen extends StatefulWidget {
   const AcceptedScreen({super.key});
@@ -115,39 +115,32 @@ class _AcceptedScreenState extends State<AcceptedScreen> {
                         ],
                       ),
                       const SizedBox(height: AppSpacing.sectionGap),
-                      if (bookings.accepted.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 48),
-                          child: Center(child: Text('No accepted jobs yet')),
-                        )
-                      else
-                        ...bookings.accepted.map((raw) {
-                          final ui = BookingMapper.fromPartner(raw);
+                      ...buildDaySectionedBookingChildren(
+                        bookings: bookings.accepted,
+                        emptyMessage: 'No accepted jobs yet',
+                        cardBuilder: (raw, ui) {
                           final processing = bookings.isProcessing(raw.id);
                           final label = bookings.processingLabel(raw.id);
-
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: AppSpacing.elementGap),
-                            child: AcceptedBookingCard(
-                              booking: ui,
-                              onViewDetails: processing
-                                  ? null
-                                  : () => context.push('/booking/${raw.id}'),
-                              onCall: processing || !raw.canViewClientPhone
-                                  ? null
-                                  : () => _call(context, raw),
-                              onMaps: processing
-                                  ? null
-                                  : () => _maps(context, raw),
-                              onPrimaryAction:
-                                  (raw.allowsStart || raw.allowsComplete)
-                                      ? () => _onPrimary(context, raw)
-                                      : null,
-                              isPrimaryLoading: processing,
-                              primaryLoadingLabel: label,
-                            ),
+                          return AcceptedBookingCard(
+                            booking: ui,
+                            onViewDetails: processing
+                                ? null
+                                : () => context.push('/booking/${raw.id}'),
+                            onCall: processing || !raw.canViewClientPhone
+                                ? null
+                                : () => _call(context, raw),
+                            onMaps: processing
+                                ? null
+                                : () => _maps(context, raw),
+                            onPrimaryAction:
+                                (raw.allowsStart || raw.allowsComplete)
+                                    ? () => _onPrimary(context, raw)
+                                    : null,
+                            isPrimaryLoading: processing,
+                            primaryLoadingLabel: label,
                           );
-                        }),
+                        },
+                      ),
                     ],
                   ),
       ),

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/mappers/booking_mapper.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../providers/bookings_provider.dart';
 import '../../shared/widgets/profile_aware_top_bar.dart';
@@ -11,6 +10,7 @@ import '../../shared/booking_workflow.dart';
 import '../../shared/widgets/async_error_view.dart';
 import '../../shared/widgets/no_internet_view.dart';
 import '../../shared/widgets/booking_cards.dart';
+import '../../shared/widgets/booking_day_sections.dart';
 
 class BookingsScreen extends StatefulWidget {
   const BookingsScreen({super.key});
@@ -136,40 +136,35 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 color: const Color(0xFF111827),
               ),
         ),
+        const SizedBox(height: 6),
+        Text(
+          "Today's and Tomorrow's jobs are listed in separate sections.",
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF6B7280),
+              ),
+        ),
         const SizedBox(height: AppSpacing.sectionGap),
-        if (list.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 48),
-            child: Center(
-              child: Text(
-                bookings.isSuspended
-                    ? 'No bookings available while suspended'
-                    : bookings.isOnLeave
-                        ? 'No bookings available while you are on leave'
-                        : bookings.manualAssignOnly
-                            ? 'Nothing assigned to you yet'
-                            : 'No new bookings right now',
-              ),
-            ),
-          )
-        else
-          ...list.map((b) {
-            final ui = BookingMapper.fromPartner(b);
-            return Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.elementGap),
-              child: AvailableBookingCard(
-                booking: ui,
-                isAcceptLoading: bookings.isProcessing(b.id),
-                isRejectLoading: bookings.isProcessing(b.id),
-                onAccept: bookings.isProcessing(b.id)
-                    ? null
-                    : () => BookingWorkflow.accept(context, b.id),
-                onReject: bookings.isProcessing(b.id)
-                    ? null
-                    : () => BookingWorkflow.reject(context, b.id),
-              ),
-            );
-          }),
+        ...buildDaySectionedBookingChildren(
+          bookings: list,
+          emptyMessage: bookings.isSuspended
+              ? 'No bookings available while suspended'
+              : bookings.isOnLeave
+                  ? 'No bookings available while you are on leave'
+                  : bookings.manualAssignOnly
+                      ? 'Nothing assigned to you yet'
+                      : 'No new bookings right now',
+          cardBuilder: (b, ui) => AvailableBookingCard(
+            booking: ui,
+            isAcceptLoading: bookings.isProcessing(b.id),
+            isRejectLoading: bookings.isProcessing(b.id),
+            onAccept: bookings.isProcessing(b.id)
+                ? null
+                : () => BookingWorkflow.accept(context, b.id),
+            onReject: bookings.isProcessing(b.id)
+                ? null
+                : () => BookingWorkflow.reject(context, b.id),
+          ),
+        ),
       ],
     );
   }
