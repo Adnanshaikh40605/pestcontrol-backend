@@ -10,6 +10,7 @@ from core.booking_schedule_engine import (
     enforce_fixed_service_rules_on_job,
     heal_all_bed_bug_packages,
     heal_bed_bug_package,
+    is_multi_service_booking,
     parse_amc_visit_count,
     resolve_recurring_spec,
 )
@@ -485,12 +486,12 @@ class MultiServiceSeparateVisitTests(TestCase):
         )
         self.assertEqual(len(day1), 3)
         names = [c.service_type for c in day1]
-        self.assertEqual(names, ['Bed Bugs', 'Cockroach', 'Mosquito'])
+        self.assertEqual(names, ['Bed Bugs', 'Cockroach Standard', 'Mosquito'])
 
         by_name = {c.service_type: c for c in day1}
         from core.payment_utils import parse_jobcard_price
-        self.assertEqual(parse_jobcard_price(by_name['Cockroach'].price), parse_jobcard_price('1500'))
-        self.assertEqual(by_name['Cockroach'].planned_visit_count, 1)
+        self.assertEqual(parse_jobcard_price(by_name['Cockroach Standard'].price), parse_jobcard_price('1500'))
+        self.assertEqual(by_name['Cockroach Standard'].planned_visit_count, 1)
         self.assertEqual(by_name['Bed Bugs'].planned_visit_count, 2)
         self.assertEqual(by_name['Mosquito'].planned_visit_count, 3)
         self.assertEqual(by_name['Mosquito'].service_category, JobCard.ServiceCategory.AMC)
@@ -822,4 +823,101 @@ class MultiServiceSeparateVisitTests(TestCase):
         self.assertEqual(bed.status, JobCard.JobStatus.DONE)
         self.assertEqual(cock.status, JobCard.JobStatus.DONE)
         self.assertIsNotNone(bed.completed_at)
+
+    def test_website_cockroach_ants_dual_labels_do_not_create_multi_visits(self):
+        """Ant Control + Cockroach Control is ONE cockroach package, not multi."""
+        client = Client.objects.create(
+            full_name='Roach Only', mobile='9876543499', city='Mumbai',
+        )
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Cockroach Control, Ant Control',
+            service_items=[
+                {
+                    'service': 'Ant Control',
+                    'plan': 'One Time Service',
+                    'area': '2 BHK',
+                    'amount': 0,
+                },
+                {
+                    'service': 'Cockroach Control',
+                    'plan': 'One Time Service',
+                    'area': '2 BHK',
+                    'amount': 1500,
+                },
+            ],
+            schedule_datetime=datetime(2026, 9, 21, 14, 0, tzinfo=dt_timezone.utc),
+            time_slot='2:00 pm',
+            price='1500',
+            total_amount=1500,
+            status=JobCard.JobStatus.PENDING,
+        )
+        BookingScheduleEngine.generate_all_visits(job)
+        job.refresh_from_db()
+
+        self.assertFalse(is_multi_service_booking(job))
+        self.assertEqual(
+            JobCard.objects.filter(parent_job=job, service_cycle=1)
+            .exclude(status=JobCard.JobStatus.CANCELLED)
+            .count(),
+            0,
+        )
+        self.assertEqual(job.service_type, 'Cockroach Standard')
+        self.assertEqual(len(job.service_items), 1)
+        self.assertEqual(job.service_items[0]['service'], 'Cockroach Standard')
+        self.assertNotEqual(job.visit_type, 'MULTI SERVICE PACKAGE')
+
+        timeline = BookingScheduleEngine.service_timeline_for(job)
+        self.assertEqual(len(timeline), 1)
+        self.assertEqual(timeline[0]['service_name'], 'Cockroach Standard')
+        self.assertEqual(timeline[0]['visit_type'], 'COCKROACH SERVICE')
+
+    def test_timeline_collapses_existing_false_cockroach_dual_children(self):
+        """Job 3588-style rows: parent MULTI + Ant + Cockroach children → one card."""
+        client = Client.objects.create(
+            full_name='Legacy Dual', mobile='9876543498', city='Mumbai',
+        )
+        job = JobCard.objects.create(
+            client=client,
+            service_type='Cockroach Control, Ant Control',
+            service_items=[
+                {'service': 'Ant Control', 'plan': 'One Time Service', 'area': '1 BHK', 'amount': 0},
+                {'service': 'Cockroach Control', 'plan': 'One Time Service', 'area': '1 BHK', 'amount': 0},
+            ],
+            schedule_datetime=datetime(2026, 9, 21, 14, 0, tzinfo=dt_timezone.utc),
+            visit_type='MULTI SERVICE PACKAGE',
+            status=JobCard.JobStatus.ON_PROCESS,
+        )
+        JobCard.objects.create(
+            client=client,
+            parent_job=job,
+            service_type='Ant Control',
+            source_service='Ant Control',
+            visit_type='SERVICE VISIT',
+            service_cycle=1,
+            max_cycle=1,
+            schedule_datetime=job.schedule_datetime,
+            status=JobCard.JobStatus.PENDING,
+            is_auto_generated=True,
+        )
+        JobCard.objects.create(
+            client=client,
+            parent_job=job,
+            service_type='Cockroach Control',
+            source_service='Cockroach Control',
+            visit_type='COCKROACH SERVICE',
+            service_cycle=1,
+            max_cycle=1,
+            schedule_datetime=job.schedule_datetime,
+            status=JobCard.JobStatus.PENDING,
+            is_auto_generated=True,
+        )
+
+        timeline = BookingScheduleEngine.service_timeline_for(job)
+        self.assertEqual(len(timeline), 1)
+        self.assertEqual(timeline[0]['service_name'], 'Cockroach Standard')
+        self.assertEqual(timeline[0]['id'], job.id)
+        self.assertIn(timeline[0]['visit_type'], ('COCKROACH SERVICE', 'MULTI SERVICE PACKAGE'))
+        # Collapsed display should not keep MULTI as the badge when remapped.
+        self.assertEqual(timeline[0]['visit_type'], 'COCKROACH SERVICE')
 

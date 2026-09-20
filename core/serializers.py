@@ -944,6 +944,19 @@ class JobCardSerializer(serializers.ModelSerializer):
             if not data.get('service_type'):
                 data['service_type'] = ', '.join(i['service'] for i in normalized)
 
+            # Website "Cockroach / Ants" used to become Ant Control + Cockroach
+            # Control rows. Collapse those into one live package before save so
+            # visit generation never creates a false MULTI SERVICE PACKAGE.
+            from core.pricing.aliases import coalesce_cockroach_family_service_items
+
+            coalesced = coalesce_cockroach_family_service_items(normalized)
+            if coalesced != normalized:
+                normalized = coalesced
+                data['service_items'] = normalized
+                data['service_type'] = ', '.join(
+                    i['service'] for i in normalized if i.get('service')
+                )
+
             from core.booking_schedule_engine import (
                 is_bed_bug_service,
                 is_fixed_visit_service,
@@ -1128,6 +1141,10 @@ class JobCardSerializer(serializers.ModelSerializer):
             is_multi_service_booking,
             sync_plan_flags_from_service_items,
         )
+
+        # Heal legacy Ant Control + Cockroach Control day-1 splits on save.
+        BookingScheduleEngine._cancel_false_cockroach_dual_children(instance)
+        instance.refresh_from_db()
 
         plan_changed = sync_plan_flags_from_service_items(instance)
         if plan_changed:

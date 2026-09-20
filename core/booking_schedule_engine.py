@@ -564,6 +564,8 @@ def visit_date_for_cycle(
 
 
 def visit_type_label(service: str, plan: str, cycle: int = 1) -> str:
+    from core.pricing.aliases import is_cockroach_family
+
     svc = (service or '').lower()
     recurring = is_amc_plan(plan) and not is_fixed_visit_service(service)
     if is_termite_service(service):
@@ -573,7 +575,8 @@ def visit_type_label(service: str, plan: str, cycle: int = 1) -> str:
         return 'RODENT AMC' if recurring else 'RODENT SERVICE'
     if 'mosquito' in svc:
         return 'MOSQUITO AMC' if recurring else 'MOSQUITO SERVICE'
-    if 'cockroach' in svc or 'ants' in svc or 'general pest' in svc:
+    # "Ant Control" must map here (legacy website split) — not generic SERVICE VISIT.
+    if is_cockroach_family(service) or 'general pest' in svc:
         return 'COCKROACH AMC' if recurring else 'COCKROACH SERVICE'
     if is_bed_bug_service(service):
         return 'BED BUG SERVICE'
@@ -666,19 +669,41 @@ def calculate_next_visit_date(service: str, plan: str, schedule_date: date) -> t
 
 
 def service_line_names(job_or_items) -> list[str]:
-    """Distinct non-empty service names from a JobCard or service_items list."""
+    """Distinct non-empty service names from a JobCard or service_items list.
+
+    Cockroach-family aliases (Ant Control + Cockroach Control, etc.) collapse
+    to one live package so website "Cockroach / Ants" is never treated as multi.
+    """
+    from core.pricing.aliases import (
+        coalesce_cockroach_family_service_names,
+        coalesce_cockroach_family_service_items,
+        is_cockroach_family,
+        resolve_service_package,
+    )
+
     if isinstance(job_or_items, list):
-        items = job_or_items
+        items = coalesce_cockroach_family_service_items(job_or_items)
     else:
-        items = list(getattr(job_or_items, 'service_items', None) or [])
+        items = coalesce_cockroach_family_service_items(
+            list(getattr(job_or_items, 'service_items', None) or []),
+        )
         if not items and getattr(job_or_items, 'service_type', None):
-            return [str(job_or_items.service_type).strip()]
+            raw = str(job_or_items.service_type).strip()
+            if not raw:
+                return []
+            if ',' in raw and all(
+                is_cockroach_family(p.strip()) for p in raw.split(',') if p.strip()
+            ):
+                return [resolve_service_package(raw) or 'Cockroach Standard']
+            return coalesce_cockroach_family_service_names(
+                [p.strip() for p in raw.split(',') if p.strip()] or [raw],
+            )
     names: list[str] = []
     for item in items:
         name = str((item or {}).get('service') or '').strip()
         if name and name not in names:
             names.append(name)
-    return names
+    return coalesce_cockroach_family_service_names(names)
 
 
 def is_multi_service_booking(job) -> bool:
@@ -1148,16 +1173,53 @@ class BookingScheduleEngine:
         start_date = main_job.schedule_datetime.date()
         contract_months = parse_contract_months(getattr(main_job, 'contract_duration', None))
         preferred_visits = getattr(main_job, 'max_cycle', None) or None
-        items = list(main_job.service_items or [])
+        from core.pricing.aliases import (
+            coalesce_cockroach_family_service_items,
+            is_cockroach_family,
+            resolve_service_package,
+        )
+
+        raw_items = list(main_job.service_items or [])
+        items = coalesce_cockroach_family_service_items(raw_items)
+        # Persist coalesced cockroach dual rows so CRM / ledger stop seeing multi.
+        raw_services = [str((i or {}).get('service') or '').strip() for i in raw_items]
+        new_services = [str((i or {}).get('service') or '').strip() for i in items]
+        if items and raw_services != new_services:
+            main_job.service_items = items
+            st_parts = [s for s in new_services if s]
+            if st_parts:
+                main_job.service_type = ', '.join(st_parts)
+            update_fields = ['service_items', 'service_type', 'updated_at']
+            if len(st_parts) == 1 and main_job.visit_type == 'MULTI SERVICE PACKAGE':
+                main_job.visit_type = visit_type_label(
+                    st_parts[0],
+                    str((items[0] or {}).get('plan') or ''),
+                )
+                update_fields.append('visit_type')
+            main_job.save(update_fields=update_fields)
+
         if not items and main_job.service_type:
+            resolved_type = main_job.service_type
+            if ',' in resolved_type and all(
+                is_cockroach_family(p.strip())
+                for p in resolved_type.split(',')
+                if p.strip()
+            ):
+                resolved_type = resolve_service_package(resolved_type) or 'Cockroach Standard'
+                if resolved_type != main_job.service_type:
+                    main_job.service_type = resolved_type
+                    main_job.save(update_fields=['service_type', 'updated_at'])
             items = [
                 {
-                    'service': main_job.service_type,
+                    'service': resolved_type,
                     'plan': '',
                     'area': main_job.bhk_size or '',
                     'amount': 0,
                 }
             ]
+
+        # Cancel false Ant+Cockroach day-1 children left by the legacy dual label.
+        BookingScheduleEngine._cancel_false_cockroach_dual_children(main_job)
 
         # Multi-service package: create cycle-1 JobCards per line so the ledger
         # shows Cockroach / Bed Bugs / Mosquito separately (not one combined row).
@@ -1435,13 +1497,111 @@ class BookingScheduleEngine:
                 root.save(update_fields=['next_service_date'])
 
     @staticmethod
+    def _cancel_false_cockroach_dual_children(main_job) -> int:
+        """Cancel day-1 children created only because Ant+Cockroach were split.
+
+        After coalesce, a cockroach-only booking is single-service. Leftover
+        day-1 children (Ant Control / Cockroach Control) must not stay open.
+        """
+        from core.models import JobCard
+        from core.pricing.aliases import is_cockroach_family, resolve_service_package
+
+        if getattr(main_job, 'parent_job_id', None):
+            return 0
+        if is_multi_service_booking(main_job):
+            return 0
+
+        children = list(
+            JobCard.objects.filter(parent_job=main_job, service_cycle=1).exclude(
+                status=JobCard.JobStatus.CANCELLED,
+            )
+        )
+        if not children:
+            return 0
+        if not all(
+            is_cockroach_family(c.source_service or c.service_type or '')
+            for c in children
+        ):
+            return 0
+
+        cancelled = 0
+        for child in children:
+            child.status = JobCard.JobStatus.CANCELLED
+            child.save(update_fields=['status', 'updated_at'])
+            cancelled += 1
+
+        live = resolve_service_package(main_job.service_type or '') or 'Cockroach Standard'
+        update_fields: list[str] = []
+        if main_job.visit_type == 'MULTI SERVICE PACKAGE':
+            plan = ''
+            items = list(main_job.service_items or [])
+            if items:
+                plan = str((items[0] or {}).get('plan') or '')
+            main_job.visit_type = visit_type_label(live, plan)
+            update_fields.append('visit_type')
+        if main_job.service_type != live and is_cockroach_family(main_job.service_type or ''):
+            main_job.service_type = live
+            update_fields.append('service_type')
+        if not main_job.source_service or is_cockroach_family(main_job.source_service):
+            main_job.source_service = live
+            update_fields.append('source_service')
+        if update_fields:
+            main_job.save(update_fields=list(dict.fromkeys(update_fields + ['updated_at'])))
+        return cancelled
+
+    @staticmethod
     def service_timeline_for(jobcard) -> list[dict[str, Any]]:
         """Ordered visit list for a booking root (main + auto-generated children)."""
         from core.models import JobCard
+        from core.pricing.aliases import (
+            is_cockroach_family,
+            resolve_service_package,
+        )
 
         root = jobcard
         if jobcard.parent_job_id:
             root = JobCard.objects.filter(id=jobcard.parent_job_id).first() or jobcard
+
+        # Legacy website "Cockroach / Ants" → Ant Control + Cockroach Control children.
+        # CRM should show one Cockroach Standard/Premium visit, not three cards.
+        if BookingScheduleEngine._is_false_cockroach_dual_package(root):
+            live = resolve_service_package(root.service_type or '') or 'Cockroach Standard'
+            plan = ''
+            items = list(root.service_items or [])
+            if items:
+                plan = str((items[0] or {}).get('plan') or '')
+            return [
+                {
+                    'id': root.id,
+                    'code': root.code,
+                    'service_name': live,
+                    'visit_number': root.service_cycle or 1,
+                    'total_visits': root.max_cycle or 1,
+                    'visit_type': (
+                        root.visit_type
+                        if root.visit_type and root.visit_type != 'MULTI SERVICE PACKAGE'
+                        else visit_type_label(live, plan)
+                    ),
+                    'scheduled_date': (
+                        root.schedule_datetime.date().isoformat()
+                        if root.schedule_datetime
+                        else None
+                    ),
+                    'next_scheduled_date': (
+                        root.next_service_date.isoformat()
+                        if root.next_service_date
+                        else None
+                    ),
+                    'status': root.status,
+                    'technician_name': (
+                        root.technician.name if root.technician_id else root.assigned_to
+                    ),
+                    'completed_at': (
+                        root.completed_at.isoformat() if root.completed_at else None
+                    ),
+                    'is_auto_generated': False,
+                }
+            ]
 
         visits = (
             JobCard.objects.filter(Q(id=root.id) | Q(parent_job=root))
@@ -1450,11 +1610,14 @@ class BookingScheduleEngine:
 
         rows: list[dict[str, Any]] = []
         for visit in visits:
+            service_name = visit.source_service or visit.service_type
+            if service_name and is_cockroach_family(service_name):
+                service_name = resolve_service_package(service_name) or service_name
             rows.append(
                 {
                     'id': visit.id,
                     'code': visit.code,
-                    'service_name': visit.source_service or visit.service_type,
+                    'service_name': service_name,
                     'visit_number': visit.service_cycle,
                     'total_visits': visit.max_cycle,
                     'visit_type': visit.visit_type,
@@ -1479,3 +1642,41 @@ class BookingScheduleEngine:
                 }
             )
         return rows
+
+    @staticmethod
+    def _is_false_cockroach_dual_package(root) -> bool:
+        """True when multi-looking visits are only cockroach-family aliases of one package."""
+        from core.models import JobCard
+        from core.pricing.aliases import is_cockroach_family
+
+        children = list(
+            JobCard.objects.filter(parent_job=root, service_cycle=1).exclude(
+                status=JobCard.JobStatus.CANCELLED,
+            )
+        )
+        labels: list[str] = []
+        for child in children:
+            labels.append(str(child.source_service or child.service_type or '').strip())
+        st = str(root.service_type or '').strip()
+        if st:
+            for part in st.split(','):
+                part = part.strip()
+                if part:
+                    labels.append(part)
+        for item in list(root.service_items or []):
+            name = str((item or {}).get('service') or '').strip()
+            if name:
+                labels.append(name)
+
+        labels = [n for n in labels if n]
+        if not labels:
+            return False
+        if not all(is_cockroach_family(n) for n in labels):
+            return False
+        # Dual children, dual service_items, or comma dual service_type.
+        distinct_raw = {n.casefold() for n in labels}
+        return (
+            len(children) >= 2
+            or len(distinct_raw) >= 2
+            or (',' in st and len([p for p in st.split(',') if p.strip()]) >= 2)
+        )

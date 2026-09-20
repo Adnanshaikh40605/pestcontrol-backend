@@ -76,6 +76,11 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         service_type = (rate.service_package or service_type).strip()
     if not service_type:
         raise CustomerAppError('service_type is required.', code='service_required')
+    # Always map legacy marketing labels (Cockroach Control, Ant Control, …)
+    # onto Cockroach Standard/Premium — even when price is still pending.
+    from core.pricing.aliases import resolve_service_package
+
+    service_type = resolve_service_package(service_type) or service_type
     data = {**data, 'service_type': service_type}
 
     amount = Decimal(str(amount)) if amount is not None else Decimal('0.00')

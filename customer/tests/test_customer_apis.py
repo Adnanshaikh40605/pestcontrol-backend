@@ -604,6 +604,25 @@ class CustomerApiTests(TestCase):
         self.assertEqual(job.service_type, 'Cockroach Standard')
         self.assertEqual(Decimal(str(job.total_amount)), Decimal('1475.00'))
 
+    def test_website_booking_pending_price_still_resolves_legacy_cockroach_label(self):
+        """Even without a rate, dual marketing label must become Cockroach Standard."""
+        res = self.api.post(
+            '/api/customer/website-bookings/',
+            self._website_booking_payload(
+                mobile='9111222556',
+                service_type='Cockroach Control, Ant Control',
+                pricing_rate_id=None,
+                price_confirmation_pending=True,
+            ),
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        job = JobCard.objects.get(id=res.data['booking']['id'])
+        self.assertEqual(job.service_type, 'Cockroach Standard')
+        self.assertEqual(
+            JobCard.objects.filter(parent_job=job).count(),
+            0,
+        )
     def test_website_booking_rejects_without_otp_token(self):
         payload = self._website_booking_payload(mobile='9111222777')
         payload.pop('otp_verification_token')

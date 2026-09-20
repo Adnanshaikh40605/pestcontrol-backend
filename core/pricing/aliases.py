@@ -50,6 +50,16 @@ COCKROACH_FAMILY = frozenset({
     'Cockroach Premium',
     'Cockroach Control',
     'Ant Control',
+    'Cockroach Control, Ant Control',
+    'Ant Control, Cockroach Control',
+    'Cockroach',
+    'Ants',
+})
+
+# Live chart packages — never treat these as "legacy dual" labels to merge away.
+COCKROACH_LIVE_PACKAGES = frozenset({
+    'Cockroach Standard',
+    'Cockroach Premium',
 })
 
 
@@ -74,6 +84,97 @@ def alias_candidates(service: str) -> tuple[str, ...]:
         if candidate and candidate not in ordered:
             ordered.append(candidate)
     return tuple(ordered)
+
+
+def _prefer_cockroach_live_package(names: list[str]) -> str:
+    """Pick Cockroach Premium when any label says premium; else Standard."""
+    if any('premium' in (n or '').casefold() for n in names):
+        return 'Cockroach Premium'
+    for name in names:
+        resolved = resolve_service_package(name)
+        if resolved in COCKROACH_LIVE_PACKAGES:
+            return resolved
+    return 'Cockroach Standard'
+
+
+def coalesce_cockroach_family_service_names(names: list[str]) -> list[str]:
+    """Collapse Ant Control + Cockroach Control (+ legacy) into one live package name.
+
+    Real multi-service packages (e.g. Cockroach + Bed Bugs) keep both lines.
+    """
+    cockroach: list[str] = []
+    others: list[str] = []
+    for raw in names:
+        name = _norm(raw)
+        if not name:
+            continue
+        if is_cockroach_family(name):
+            cockroach.append(name)
+        else:
+            others.append(name)
+    if not cockroach:
+        return list(names)
+    live = _prefer_cockroach_live_package(cockroach)
+    return [live, *others]
+
+
+def coalesce_cockroach_family_service_items(items: list | None) -> list[dict]:
+    """Merge cockroach-family service_items rows into one Cockroach Standard/Premium line.
+
+    Website "Cockroach / Ants" used to land as Ant Control + Cockroach Control
+    (two rows). Visit generation then created a MULTI SERVICE PACKAGE shell plus
+    two day-1 children. One combined row prevents that.
+    """
+    if not items:
+        return []
+
+    from core.payment_utils import parse_jobcard_price
+
+    cockroach: list[dict] = []
+    others: list[dict] = []
+    for raw in items:
+        item = dict(raw or {})
+        name = _norm(str(item.get('service') or ''))
+        if name and is_cockroach_family(name):
+            cockroach.append(item)
+        else:
+            others.append(item)
+
+    if not cockroach:
+        return [dict(raw or {}) for raw in items]
+
+    live = _prefer_cockroach_live_package(
+        [_norm(str(i.get('service') or '')) for i in cockroach],
+    )
+
+    if len(cockroach) == 1:
+        merged = dict(cockroach[0])
+        merged['service'] = live
+        return [merged, *others]
+
+    amount = sum(float(parse_jobcard_price(i.get('amount'))) for i in cockroach)
+    discount = sum(float(parse_jobcard_price(i.get('discount'))) for i in cockroach)
+    base = sum(
+        float(parse_jobcard_price(i.get('base_amount', i.get('amount'))))
+        for i in cockroach
+    )
+    plan = next(
+        (str(i.get('plan') or i.get('frequency') or '').strip() for i in cockroach if str(i.get('plan') or i.get('frequency') or '').strip()),
+        '',
+    )
+    area = next(
+        (str(i.get('area') or '').strip() for i in cockroach if str(i.get('area') or '').strip()),
+        '',
+    )
+    merged = {
+        'service': live,
+        'plan': plan,
+        'area': area,
+        'amount': amount,
+        'discount': discount,
+        'base_amount': base if base > 0 else amount,
+    }
+    return [merged, *others]
 
 
 def resolve_service_package(

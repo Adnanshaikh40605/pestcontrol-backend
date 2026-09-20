@@ -433,7 +433,7 @@ class MultiServiceBookingTests(BookingE2EBase):
         rodent_children = self._child_visits(main).filter(source_service='Rodent')
         self.assertEqual(rodent_children.count(), 3)  # cycles 1,2,3
         self.assertTrue(rodent_children.filter(service_cycle=1).exists())
-        cockroach_children = self._child_visits(main).filter(source_service='Cockroach / Ants')
+        cockroach_children = self._child_visits(main).filter(source_service='Cockroach Standard')
         self.assertEqual(cockroach_children.count(), 1)  # day-1 only
         self.assertEqual(main.visit_type, 'MULTI SERVICE PACKAGE')
 
