@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -13,13 +15,14 @@ class ApiClient {
   final FlutterSecureStorage _storage;
   static const _accessKey = 'customer_access';
   static const _refreshKey = 'customer_refresh';
+  static const Duration _storageTimeout = Duration(seconds: 2);
 
   static Dio _createDio() {
     return Dio(
       BaseOptions(
         baseUrl: ApiConfig.baseUrl,
-        connectTimeout: const Duration(seconds: 30),
-        receiveTimeout: const Duration(seconds: 30),
+        connectTimeout: const Duration(seconds: 12),
+        receiveTimeout: const Duration(seconds: 12),
         headers: {'Accept': 'application/json'},
         validateStatus: (_) => true,
       ),
@@ -27,16 +30,26 @@ class ApiClient {
   }
 
   Future<void> saveTokens({required String access, required String refresh}) async {
-    await _storage.write(key: _accessKey, value: access);
-    await _storage.write(key: _refreshKey, value: refresh);
+    await _storage.write(key: _accessKey, value: access).timeout(_storageTimeout);
+    await _storage.write(key: _refreshKey, value: refresh).timeout(_storageTimeout);
   }
 
   Future<void> clearTokens() async {
-    await _storage.delete(key: _accessKey);
-    await _storage.delete(key: _refreshKey);
+    try {
+      await _storage.delete(key: _accessKey).timeout(_storageTimeout);
+      await _storage.delete(key: _refreshKey).timeout(_storageTimeout);
+    } catch (_) {
+      // Ignore storage hangs / errors on logout path.
+    }
   }
 
-  Future<String?> getAccessToken() => _storage.read(key: _accessKey);
+  Future<String?> getAccessToken() async {
+    try {
+      return await _storage.read(key: _accessKey).timeout(_storageTimeout);
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<bool> hasSession() async {
     final token = await getAccessToken();

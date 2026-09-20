@@ -10,8 +10,11 @@ import '../../core/theme/app_colors.dart';
 import '../../providers/app_update_provider.dart';
 import '../../providers/auth_provider.dart';
 
-/// Max time splash may block before navigating to home/login destination.
-const Duration _kSplashDeadline = Duration(seconds: 5);
+/// Absolute max time on splash before forced navigation (belt + suspenders).
+const Duration _kSplashHardDeadline = Duration(seconds: 3);
+
+/// Soft budget for local session restore only (no network).
+const Duration _kBootstrapBudget = Duration(seconds: 2);
 
 /// Matches native Android/iOS splash (white + official logo) so users never see
 /// a second, different splash design after launch.
@@ -24,6 +27,7 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> {
   bool _navigated = false;
+  Timer? _hardDeadline;
 
   @override
   void initState() {
@@ -31,7 +35,24 @@ class _SplashScreenState extends State<SplashScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FlutterNativeSplash.remove();
     });
+    // Hard timer: leave splash even if every await hangs forever.
+    _hardDeadline = Timer(_kSplashHardDeadline, _forceLeave);
     unawaited(_boot());
+  }
+
+  @override
+  void dispose() {
+    _hardDeadline?.cancel();
+    super.dispose();
+  }
+
+  void _forceLeave() {
+    if (!mounted || _navigated) return;
+    final auth = context.read<AuthProvider>();
+    if (!auth.ready) {
+      auth.markReadyAsGuest();
+    }
+    _goNext(auth);
   }
 
   Future<void> _boot() async {
@@ -39,11 +60,10 @@ class _SplashScreenState extends State<SplashScreen> {
     final appUpdate = context.read<AppUpdateProvider>();
 
     try {
-      // Auth restore only — never block splash on Play Store / network hangs.
-      await auth.bootstrap().timeout(_kSplashDeadline);
+      // Local token check only — profile / Play update never block splash.
+      await auth.bootstrap().timeout(_kBootstrapBudget);
     } catch (e, stack) {
       debugPrint('[Splash] boot error: $e\n$stack');
-      // Ensure router redirect can leave /splash even if bootstrap hung.
       if (!auth.ready) {
         auth.markReadyAsGuest();
       }
@@ -51,18 +71,24 @@ class _SplashScreenState extends State<SplashScreen> {
 
     _goNext(auth);
 
-    // Play in-app update after navigation so a hung Play API never traps users.
+    // After leave — Play update must never gate home.
     unawaited(appUpdate.checkForUpdate(silent: true));
   }
 
   void _goNext(AuthProvider auth) {
     if (!mounted || _navigated) return;
     _navigated = true;
-    if (!auth.loggedIn) {
-      context.go('/home');
-      return;
+    _hardDeadline?.cancel();
+    final dest = auth.loggedIn ? (auth.takePendingRoute() ?? '/home') : '/home';
+    try {
+      context.go(dest);
+    } catch (e, stack) {
+      debugPrint('[Splash] navigate failed: $e\n$stack');
+      // Last resort — try home without pending route.
+      if (mounted) {
+        context.go('/home');
+      }
     }
-    context.go(auth.takePendingRoute() ?? '/home');
   }
 
   @override

@@ -117,20 +117,29 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Local session restore only. Never awaits network — splash must not hang.
   Future<void> bootstrap() async {
-    loggedIn = await _api.hasSession();
-    if (loggedIn) {
-      try {
-        // Hard cap so a slow/unreachable API cannot trap splash forever.
-        profile = await _auth.getProfile().timeout(const Duration(seconds: 4));
-      } catch (_) {
-        loggedIn = false;
-        profile = null;
-        await _api.clearTokens();
-      }
+    try {
+      loggedIn = await _api.hasSession().timeout(const Duration(seconds: 2));
+    } catch (_) {
+      loggedIn = false;
     }
     ready = true;
     notifyListeners();
+
+    // Profile refresh after splash can leave; failures must not clear session yet.
+    if (loggedIn) {
+      unawaited(_refreshProfileInBackground());
+    }
+  }
+
+  Future<void> _refreshProfileInBackground() async {
+    try {
+      profile = await _auth.getProfile().timeout(const Duration(seconds: 8));
+      notifyListeners();
+    } catch (_) {
+      // Keep tokens; next authenticated call handles 401 / refresh.
+    }
   }
 
   Future<OtpSendResult> sendOtp({

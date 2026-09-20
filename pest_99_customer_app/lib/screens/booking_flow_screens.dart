@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -84,7 +86,9 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     final flow = context.read<BookingFlowProvider>();
     flow.setRatesLoading(true);
     try {
-      final rates = await CatalogService(context.read<ApiClient>()).list();
+      final rates = await CatalogService(context.read<ApiClient>())
+          .list()
+          .timeout(const Duration(seconds: 8));
       if (!mounted) return;
       flow.setRates(rates);
     } catch (e) {
