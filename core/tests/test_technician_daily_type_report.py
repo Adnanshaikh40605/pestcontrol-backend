@@ -146,3 +146,34 @@ class TechnicianDailyTypeReportTests(TestCase):
         self.assertEqual(res.status_code, 200, res.data)
         self.assertEqual(res.data['summary']['performing_count'], 0)
         self.assertEqual(res.data['summary']['non_performing_count'], 2)
+
+    def test_absent_crew_not_counted_as_performing(self):
+        """Crew rows without completed attendance must not mark a tech performing."""
+        job = self._done_job(self.partner_tech, price='4000', city='Mumbai')
+        JobCardTechnicianParticipation.objects.create(
+            jobcard=job,
+            technician=self.idle_partner,
+            role=JobCardTechnicianParticipation.Role.CREW,
+            attendance_status=JobCardTechnicianParticipation.AttendanceStatus.ABSENT,
+            is_payout_eligible=False,
+            payout_amount_snapshot=Decimal('0.00'),
+        )
+        res = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {
+                'date': self.today.date().isoformat(),
+                'technician_type': 'priority',
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        performing_names = {r['name'] for r in res.data['performing']}
+        self.assertIn('Daily Partner', performing_names)
+        self.assertNotIn('Idle Partner', performing_names)
+        self.assertEqual(res.data['summary']['performing_count'], 1)
+
+    def test_bad_date_rejected(self):
+        res = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {'date': 'not-a-date', 'technician_type': 'partner'},
+        )
+        self.assertEqual(res.status_code, 400)

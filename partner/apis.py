@@ -1064,7 +1064,10 @@ class ReferClientAPIView(PartnerAPIView):
         service_type = (request.data.get('service_type') or '').strip()
         preferred_date = (request.data.get('preferred_date') or '').strip()
         notes = (request.data.get('notes') or request.data.get('remark') or '').strip()
-        request_type = (request.data.get('request_type') or 'referral').strip().lower()
+        # /guest-request/ defaults to guest when request_type is omitted.
+        path = (request.path or '').rstrip('/')
+        default_type = 'guest_request' if path.endswith('/guest-request') else 'referral'
+        request_type = (request.data.get('request_type') or default_type).strip().lower()
         is_guest = request_type in ('guest', 'guest_request', 'guest_inquiry')
 
         if not client_name or len(mobile) != 10:

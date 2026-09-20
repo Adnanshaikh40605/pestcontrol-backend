@@ -29,15 +29,28 @@ def _inject_partner_money_fields(data, instance):
     inclusive = data.get('total_booking_amount')
     data.update(partner_customer_gst_fields(instance, inclusive_amount=inclusive))
 
+    def _money_str(value, fallback='0.00'):
+        if value is None or value == '':
+            return fallback
+        return str(value)
+
     data['payment_breakdown'] = {
-        'total_service_amount': data.get('total_amount') or data.get('base_amount') or '0.00',
-        'gst': data.get('gst_amount') or '0.00',
-        'gst_percent': data.get('gst_percent') or str(gst),
-        'base_amount': data.get('base_amount') or '0.00',
-        'technician_share': data.get('visit_payout_amount') or '0.00',
-        'company_share': data.get('company_share_amount') or '0.00',
-        'technician_share_percent': data.get('technician_share_percent'),
-        'company_share_percent': data.get('company_share_percent'),
+        'total_service_amount': _money_str(
+            data.get('total_amount') or data.get('base_amount')
+        ),
+        'gst': _money_str(data.get('gst_amount')),
+        'gst_percent': _money_str(data.get('gst_percent'), fallback=str(gst)),
+        'base_amount': _money_str(data.get('base_amount')),
+        'technician_share': _money_str(data.get('visit_payout_amount')),
+        'company_share': _money_str(data.get('company_share_amount')),
+        'technician_share_percent': _money_str(
+            data.get('technician_share_percent'), fallback=''
+        )
+        or None,
+        'company_share_percent': _money_str(
+            data.get('company_share_percent'), fallback=''
+        )
+        or None,
     }
     return data
 

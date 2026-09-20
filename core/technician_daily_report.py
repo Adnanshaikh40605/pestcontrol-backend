@@ -135,11 +135,12 @@ def build_daily_type_report(*, report_date: date, technician_type: str) -> dict[
         .select_related('technician', 'master_city')
     )
 
-    # Crew completions on this day.
+    # Crew completions on this day (completed attendance only — not absent/assigned).
     participation_qs = (
         JobCardTechnicianParticipation.objects.filter(
             technician_id__in=tech_ids,
             jobcard__status=JobCard.JobStatus.DONE,
+            attendance_status=JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
         )
         .filter(
             Q(jobcard__completed_at__date=report_date)
