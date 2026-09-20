@@ -577,6 +577,33 @@ class CustomerApiTests(TestCase):
         self.assertEqual(job.partner_status, JobCard.PartnerStatus.PENDING)
         self.assertTrue(CustomerAccount.objects.filter(mobile='9111222333').exists())
 
+    def test_website_booking_rewrites_legacy_cockroach_label_to_catalog_package(self):
+        """Marketing label must not land on JobCard — CRM would show two RETIRED boxes."""
+        cockroach = PricingRate.objects.create(
+            region=self.region,
+            service_package='Cockroach Standard',
+            plan_type='One Time Service',
+            area_key='1 BHK',
+            property_category='residential',
+            amount=Decimal('1250.00'),
+            gst_percent=Decimal('18.00'),
+            price_includes_gst=False,
+            is_active=True,
+        )
+        res = self.api.post(
+            '/api/customer/website-bookings/',
+            self._website_booking_payload(
+                mobile='9111222555',
+                service_type='Cockroach Control, Ant Control',
+                pricing_rate_id=cockroach.id,
+            ),
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        job = JobCard.objects.get(id=res.data['booking']['id'])
+        self.assertEqual(job.service_type, 'Cockroach Standard')
+        self.assertEqual(Decimal(str(job.total_amount)), Decimal('1475.00'))
+
     def test_website_booking_rejects_without_otp_token(self):
         payload = self._website_booking_payload(mobile='9111222777')
         payload.pop('otp_verification_token')

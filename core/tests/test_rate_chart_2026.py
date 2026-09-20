@@ -189,6 +189,14 @@ class RateChartImportTests(TestCase):
             resolve_service_package('Cockroach / Ants', available),
             'Cockroach Standard',
         )
+        self.assertEqual(
+            resolve_service_package('Cockroach Control, Ant Control', available),
+            'Cockroach Standard',
+        )
+        self.assertEqual(
+            resolve_service_package('Ant Control', available),
+            'Cockroach Standard',
+        )
 
         hotel = get_area_options(
             region='mumbai',

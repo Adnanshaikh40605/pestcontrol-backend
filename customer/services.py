@@ -62,15 +62,18 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
             gst_percent=rate.gst_percent,
             price_includes_gst=rate.price_includes_gst,
         )['total_with_gst']))
-        if not data.get('service_type'):
-            data = {**data, 'service_type': rate.service_package}
+        # Always store the live Pricing Master package (e.g. Cockroach Standard /
+        # Premium). Website used to send marketing copy "Cockroach Control, Ant
+        # Control", which CRM split into two RETIRED checkboxes on Edit Job Card.
+        data = {**data, 'service_type': rate.service_package}
 
     if amount is None and not data.get('price_confirmation_pending'):
         raise CustomerAppError('amount or pricing_rate_id is required.', code='amount_required')
 
     service_type = (data.get('service_type') or '').strip()
-    if not service_type and rate:
-        service_type = rate.service_package
+    if rate:
+        # Prefer catalog package even when the client still sends a legacy label.
+        service_type = (rate.service_package or service_type).strip()
     if not service_type:
         raise CustomerAppError('service_type is required.', code='service_required')
     data = {**data, 'service_type': service_type}

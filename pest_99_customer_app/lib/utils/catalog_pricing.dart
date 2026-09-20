@@ -38,9 +38,10 @@ const Map<String, Map<String, List<String>>> pestPreferredPackages = {
   },
 };
 
-/// Website pest slug → service_type label sent on booking create.
+/// Website pest slug → fallback service_type when no Pricing Master row matched.
+/// Prefer the matched rate's servicePackage (see serviceTypeLabelForQuote).
 const Map<String, String> pestServiceLabels = {
-  'cockroach-ants': 'Cockroach Control, Ant Control',
+  'cockroach-ants': 'Cockroach Standard',
   'mosquito': 'Mosquito Control',
   'termite': 'Termite Control',
   'rodent': 'Rodent / Rat Control',
@@ -51,6 +52,22 @@ const Map<String, String> pestServiceLabels = {
   'hotel-commercial': 'General Pest Control',
   'other': 'General Pest Control',
 };
+
+/// Build JobCard.service_type from matched catalog package(s), not marketing copy.
+String serviceTypeLabelForQuote(
+  List<String> pestTypes,
+  CatalogRate? matchedRate, {
+  String treatmentQuality = 'standard',
+}) {
+  final pkg = matchedRate?.servicePackage.trim() ?? '';
+  if (pkg.isNotEmpty) return pkg;
+
+  if (pestTypes.length == 1 && pestTypes.first == 'cockroach-ants') {
+    return treatmentQuality == 'premium' ? 'Cockroach Premium' : 'Cockroach Standard';
+  }
+
+  return pestTypes.map((p) => pestServiceLabels[p] ?? p).join(', ');
+}
 
 const Map<String, String> premiseSizeToArea = {
   '1rk': '1 RK',
@@ -297,7 +314,11 @@ QuotePriceResult calculateCatalogQuotePrice({
       pricingRateId: null,
       pricePending: true,
       matchedRate: null,
-      serviceTypeLabel: pestTypes.map((p) => pestServiceLabels[p] ?? p).join(', '),
+      serviceTypeLabel: serviceTypeLabelForQuote(
+        pestTypes,
+        null,
+        treatmentQuality: treatmentQuality == 'premium' ? 'premium' : 'standard',
+      ),
       packageTier: packageTier,
     );
   }
@@ -362,7 +383,11 @@ QuotePriceResult calculateCatalogQuotePrice({
     pricingRateId: pricePending ? null : firstRate.id,
     pricePending: pricePending,
     matchedRate: firstRate,
-    serviceTypeLabel: pestTypes.map((p) => pestServiceLabels[p] ?? p).join(', '),
+    serviceTypeLabel: serviceTypeLabelForQuote(
+      pestTypes,
+      firstRate,
+      treatmentQuality: quality,
+    ),
     packageTier: pricePending ? quality : packageTier,
   );
 }

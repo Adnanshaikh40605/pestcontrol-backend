@@ -8,12 +8,18 @@ prices — only packages that already have PricingRate rows are returned.
 
 from __future__ import annotations
 
+import re
+
 # Preferred target first. Callers pick the first candidate that exists in the
 # live rate matrix / DB for the region.
 LEGACY_SERVICE_PACKAGE_ALIASES: dict[str, tuple[str, ...]] = {
     'Cockroach / Ants': ('Cockroach Standard', 'Cockroach Premium'),
     'Cockroach': ('Cockroach Standard', 'Cockroach Premium'),
     'Ants': ('Cockroach Standard', 'Cockroach Premium'),
+    # Website used to send these marketing labels as JobCard.service_type.
+    'Cockroach Control': ('Cockroach Standard', 'Cockroach Premium'),
+    'Ant Control': ('Cockroach Standard', 'Cockroach Premium'),
+    'Cockroach Control, Ant Control': ('Cockroach Standard', 'Cockroach Premium'),
     'Rodent': ('Regular Rodent', 'Kill-Rodent System'),
     'Mosquito': ('Mosquito Cold Fogging', 'Mosquito Thermal Fogging'),
     'Termite': ('Termite Spot Treatment', 'Termite'),
@@ -42,6 +48,8 @@ COCKROACH_FAMILY = frozenset({
     'Cockroach / Ants',
     'Cockroach Standard',
     'Cockroach Premium',
+    'Cockroach Control',
+    'Ant Control',
 })
 
 
@@ -54,6 +62,12 @@ def alias_candidates(service: str) -> tuple[str, ...]:
     name = _norm(service)
     if not name:
         return ()
+    # Comma-joined legacy website label → treat as one cockroach family package.
+    if ',' in name:
+        parts = [p.strip() for p in name.split(',') if p.strip()]
+        legacy_pair = {'Cockroach Control', 'Ant Control'}
+        if parts and set(parts) <= legacy_pair:
+            return alias_candidates('Cockroach Control')
     aliases = LEGACY_SERVICE_PACKAGE_ALIASES.get(name, ())
     ordered: list[str] = []
     for candidate in (name, *aliases):
@@ -90,7 +104,7 @@ def resolve_service_package(
                 return candidate
         lower = name.casefold()
         fuzzy: list[str] = []
-        if 'cockroach' in lower or lower in {'ants', 'ant'}:
+        if 'cockroach' in lower or lower in {'ants', 'ant'} or re.search(r'\bants?\b', lower):
             fuzzy = ['Cockroach Standard', 'Cockroach Premium']
         elif 'rodent' in lower or lower in {'rat', 'rats'}:
             fuzzy = ['Regular Rodent', 'Kill-Rodent System']
