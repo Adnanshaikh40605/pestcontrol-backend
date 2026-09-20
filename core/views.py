@@ -442,12 +442,16 @@ class TechnicianViewSet(BaseModelViewSet):
     """
     queryset = Technician.objects.all()
     serializer_class = TechnicianSerializer
+    # Search is applied in get_queryset (accepts both `q` and `search`, with
+    # phone digit normalization). Skip DRF SearchFilter so a raw `q` like
+    # "+91 …" is not AND-combined against a literal icontains miss.
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     search_fields = ['name', 'mobile', 'alternative_mobile']
     filterset_fields = ['is_active']
     ordering_fields = ['name', 'created_at']
 
     def get_queryset(self):
-        return Technician.objects.select_related('partner_account').prefetch_related(
+        qs = Technician.objects.select_related('partner_account').prefetch_related(
             'service_cities__state',
             Prefetch(
                 'remarks',
@@ -456,6 +460,34 @@ class TechnicianViewSet(BaseModelViewSet):
         ).annotate(
             active_jobs=Count('jobcards', filter=Q(jobcards__status__iexact='On Process'))
         )
+
+        # CRM sends `search`; REST_FRAMEWORK SEARCH_PARAM is `q`. Accept both.
+        # Phone match uses digits-only so "+91 9353…", spaces, and dashes work.
+        raw = self.request.query_params.get(
+            'q', self.request.query_params.get('search', '')
+        ).strip()
+        if raw:
+            q_filters = (
+                Q(name__icontains=raw)
+                | Q(mobile__icontains=raw)
+                | Q(alternative_mobile__icontains=raw)
+            )
+            phone_digits = re.sub(r'\D', '', raw)
+            if phone_digits:
+                candidates = {phone_digits}
+                if len(phone_digits) > 10 and phone_digits.startswith('91'):
+                    candidates.add(phone_digits[-10:])
+                if phone_digits.startswith('0') and len(phone_digits) > 1:
+                    stripped = phone_digits.lstrip('0')
+                    if stripped:
+                        candidates.add(stripped)
+                for digits in candidates:
+                    q_filters |= (
+                        Q(mobile__icontains=digits)
+                        | Q(alternative_mobile__icontains=digits)
+                    )
+            qs = qs.filter(q_filters)
+        return qs
 
     def perform_destroy(self, instance):
         tech_label = f"{instance.name} ({instance.mobile})"
