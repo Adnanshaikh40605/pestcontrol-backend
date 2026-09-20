@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../core/api_client.dart';
-import '../core/auth_gate.dart';
 import '../core/booking_timezone.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
@@ -190,6 +189,39 @@ class _BookingsScreenState extends State<BookingsScreen> {
                       child: ListView(
                         padding: const EdgeInsets.all(AppSpacing.screenEdge),
                         children: [
+                          if (_items.any((b) => b.canRate)) ...[
+                            Material(
+                              color: const Color(0xFFFFF7ED),
+                              borderRadius: BorderRadius.circular(12),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+                                  final b = _items.firstWhere((x) => x.canRate);
+                                  context.push('/booking/${b.id}');
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(14),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.star_rate_rounded, color: Color(0xFFC2410C)),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          'Service completed — tap to leave feedback now',
+                                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                                color: const Color(0xFF9A3412),
+                                              ),
+                                        ),
+                                      ),
+                                      const Icon(Icons.chevron_right, color: Color(0xFF9A3412)),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
                           if (widget.historyOnly && _amcGroups.isNotEmpty) ...[
                             Text('AMC schedule', style: Theme.of(context).textTheme.titleMedium),
                             const SizedBox(height: 12),

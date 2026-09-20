@@ -606,6 +606,9 @@ class TechnicianViewSet(BaseModelViewSet):
         from_date = request.query_params.get('from')
         to_date = request.query_params.get('to')
         service_type = request.query_params.get('service_type')
+        technician_type = (request.query_params.get('technician_type') or '').strip().lower()
+        if technician_type in ('priority',):
+            technician_type = Technician.TechnicianType.PARTNER
 
         # Base filter for jobcards (lead technician FK)
         job_filter = Q()
@@ -643,7 +646,15 @@ class TechnicianViewSet(BaseModelViewSet):
         done_payout_filter = job_filter & Q(jobcards__status='Done')
 
         # Performance annotation
-        queryset = Technician.objects.annotate(
+        tech_qs = Technician.objects.all()
+        if technician_type in (
+            Technician.TechnicianType.PARTNER,
+            Technician.TechnicianType.SECONDARY,
+            Technician.TechnicianType.SALARIED,
+        ):
+            tech_qs = tech_qs.filter(technician_type=technician_type)
+
+        queryset = tech_qs.annotate(
             assigned_count=Count('jobcards', filter=job_filter, distinct=True),
             completed_count=Count('jobcards', filter=job_filter & Q(jobcards__status='Done'), distinct=True),
             pending_count=Count(
@@ -742,6 +753,42 @@ class TechnicianViewSet(BaseModelViewSet):
             'stats': stats,
             'technicians': serializer.data,
         })
+
+    @action(detail=False, methods=['get'], url_path='daily_type_report')
+    def daily_type_report(self, request):
+        """
+        Daily performing / non-performing report by technician type.
+
+        Query params:
+          - date (YYYY-MM-DD, default: today)
+          - technician_type: partner|priority|secondary|salaried
+            ("priority" is a product alias for partner)
+
+        Performing rule: completed ≥1 Done job on that date (lead or crew).
+        Also returns per-tech service counts and city-wise earnings.
+        """
+        from core.technician_daily_report import (
+            _normalize_type,
+            _parse_report_date,
+            build_daily_type_report,
+        )
+
+        try:
+            report_date = _parse_report_date(request.query_params.get('date'))
+            technician_type = _normalize_type(
+                request.query_params.get('technician_type')
+            )
+        except ValueError as exc:
+            return response.Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payload = build_daily_type_report(
+            report_date=report_date,
+            technician_type=technician_type,
+        )
+        return response.Response(payload)
 
     @action(detail=True, methods=['get'])
     def performance_detail(self, request, pk=None):

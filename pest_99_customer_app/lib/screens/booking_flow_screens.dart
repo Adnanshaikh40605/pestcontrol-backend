@@ -13,6 +13,7 @@ import '../providers/auth_provider.dart';
 import '../providers/booking_flow_provider.dart';
 import '../services/customer_services.dart';
 import '../shared/widgets/pc99_widgets.dart';
+import '../shared/widgets/service_guidelines_card.dart';
 import '../utils/catalog_pricing.dart';
 
 /// Website-matched single-screen booking form (Confirm Your Booking).
@@ -801,6 +802,16 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                                     ),
                                     const Spacer(),
                                     SizedBox(height: gap),
+                                    ServiceGuidelinesCard(
+                                      treatmentQuality: flow.showTreatmentQuality
+                                          ? (flow.treatmentQuality.isEmpty
+                                              ? 'standard'
+                                              : flow.treatmentQuality)
+                                          : null,
+                                      compact: true,
+                                      title: "Before you book — Do's & Don'ts",
+                                    ),
+                                    const SizedBox(height: 10),
                                     _priceBar(flow, q),
                                     const SizedBox(height: 7),
                                     SizedBox(
@@ -1533,6 +1544,11 @@ class BookingConfirmedScreen extends StatelessWidget {
                 Text('+91 $mobile', style: const TextStyle(fontWeight: FontWeight.w800)),
               ],
             ),
+          ),
+          const SizedBox(height: 16),
+          ServiceGuidelinesCard(
+            treatmentQuality: flow.treatmentQuality.isEmpty ? null : flow.treatmentQuality,
+            title: "After booking — Do's & Don'ts",
           ),
           const SizedBox(height: 20),
           Pc99PrimaryButton(label: 'Back to Home', onPressed: () => context.go('/home')),

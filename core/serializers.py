@@ -1455,7 +1455,8 @@ class TechnicianPerformanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Technician
         fields = [
-            'id', 'name', 'mobile', 'is_active', 'service_area', 'city', 'last_active',
+            'id', 'name', 'mobile', 'is_active', 'technician_type',
+            'service_area', 'city', 'last_active',
             'assigned_count', 'completed_count', 'pending_count', 'on_process_count',
             'service_calls_count', 'total_revenue', 'technician_share', 'avg_rating',
             'feedback_count', 'completion_rate'

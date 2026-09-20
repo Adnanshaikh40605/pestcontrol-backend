@@ -10,6 +10,7 @@ import '../core/theme/app_spacing.dart';
 import '../models/customer_models.dart';
 import '../services/customer_services.dart';
 import '../shared/widgets/section_card.dart';
+import '../shared/widgets/service_guidelines_card.dart';
 
 class BookingDetailScreen extends StatefulWidget {
   const BookingDetailScreen({super.key, required this.bookingId});
@@ -25,6 +26,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   Map<String, dynamic>? _invoice;
   bool _loading = true;
   bool _cancelling = false;
+  bool _feedbackPrompted = false;
   String? _error;
 
   @override
@@ -53,6 +55,13 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         _invoice = invoice;
         _loading = false;
       });
+      // Show feedback form immediately when the job is completed and unrated.
+      if (booking.canRate && !_feedbackPrompted) {
+        _feedbackPrompted = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _rate(force: true);
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -167,11 +176,12 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     }
   }
 
-  Future<void> _rate() async {
+  Future<void> _rate({bool force = false}) async {
     final rating = await showDialog<int>(
       context: context,
+      barrierDismissible: !force,
       builder: (ctx) => AlertDialog(
-        title: const Text('Rate your service'),
+        title: Text(force ? 'Service completed — rate your experience' : 'Rate your service'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -448,10 +458,15 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
                         ),
                       ),
+                    const SizedBox(height: 12),
+                    const ServiceGuidelinesCard(
+                      title: "Service Do's & Don'ts",
+                      compact: true,
+                    ),
                     if (b.canRate) ...[
                       const SizedBox(height: 12),
                       OutlinedButton.icon(
-                        onPressed: _rate,
+                        onPressed: () => _rate(),
                         icon: const Icon(Icons.star_outline),
                         label: const Text('Rate & review'),
                       ),

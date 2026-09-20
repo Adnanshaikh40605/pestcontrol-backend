@@ -9,6 +9,9 @@ def _inject_partner_money_fields(data, instance):
 
     Customer price stays inclusive on price / total_booking_amount.
     base_amount / gst_amount / total_amount / gst_percent support Cash/Online UI.
+
+    Also exposes a flat ``payment_breakdown`` object with clear labels for the
+    partner app: Total Service Amount, GST, Technician's Share, Company's Share.
     """
     from core.pricing.gst import (
         amount_excluding_gst,
@@ -25,6 +28,17 @@ def _inject_partner_money_fields(data, instance):
 
     inclusive = data.get('total_booking_amount')
     data.update(partner_customer_gst_fields(instance, inclusive_amount=inclusive))
+
+    data['payment_breakdown'] = {
+        'total_service_amount': data.get('total_amount') or data.get('base_amount') or '0.00',
+        'gst': data.get('gst_amount') or '0.00',
+        'gst_percent': data.get('gst_percent') or str(gst),
+        'base_amount': data.get('base_amount') or '0.00',
+        'technician_share': data.get('visit_payout_amount') or '0.00',
+        'company_share': data.get('company_share_amount') or '0.00',
+        'technician_share_percent': data.get('technician_share_percent'),
+        'company_share_percent': data.get('company_share_percent'),
+    }
     return data
 
 
