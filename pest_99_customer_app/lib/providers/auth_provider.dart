@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../core/api_client.dart';
@@ -106,13 +108,24 @@ class AuthProvider extends ChangeNotifier {
     pendingRegisterMobile = null;
   }
 
+  /// Mark bootstrap complete without network — used when splash times out.
+  void markReadyAsGuest() {
+    if (ready) return;
+    loggedIn = false;
+    profile = null;
+    ready = true;
+    notifyListeners();
+  }
+
   Future<void> bootstrap() async {
     loggedIn = await _api.hasSession();
     if (loggedIn) {
       try {
-        profile = await _auth.getProfile();
+        // Hard cap so a slow/unreachable API cannot trap splash forever.
+        profile = await _auth.getProfile().timeout(const Duration(seconds: 4));
       } catch (_) {
         loggedIn = false;
+        profile = null;
         await _api.clearTokens();
       }
     }

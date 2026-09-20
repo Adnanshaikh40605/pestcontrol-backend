@@ -10,6 +10,9 @@ import '../../core/theme/app_colors.dart';
 import '../../providers/app_update_provider.dart';
 import '../../providers/auth_provider.dart';
 
+/// Max time splash may block before navigating to home/login destination.
+const Duration _kSplashDeadline = Duration(seconds: 5);
+
 /// Matches native Android/iOS splash (white + official logo) so users never see
 /// a second, different splash design after launch.
 class SplashScreen extends StatefulWidget {
@@ -20,40 +23,46 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  bool _navigated = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FlutterNativeSplash.remove();
     });
-    _boot();
+    unawaited(_boot());
   }
 
   Future<void> _boot() async {
+    final auth = context.read<AuthProvider>();
+    final appUpdate = context.read<AppUpdateProvider>();
+
     try {
-      final auth = context.read<AuthProvider>();
-      final appUpdate = context.read<AppUpdateProvider>();
-
-      await Future.wait([
-        auth.bootstrap(),
-        appUpdate.checkForUpdate(),
-      ]);
-
-      if (!mounted) return;
-
-      if (!auth.loggedIn) {
-        context.go('/home');
-        return;
-      }
-      context.go(auth.takePendingRoute() ?? '/home');
+      // Auth restore only — never block splash on Play Store / network hangs.
+      await auth.bootstrap().timeout(_kSplashDeadline);
     } catch (e, stack) {
       debugPrint('[Splash] boot error: $e\n$stack');
-      if (!mounted) return;
-      final auth = context.read<AuthProvider>();
-      if (!auth.ready) await auth.bootstrap();
-      if (!mounted) return;
-      context.go('/home');
+      // Ensure router redirect can leave /splash even if bootstrap hung.
+      if (!auth.ready) {
+        auth.markReadyAsGuest();
+      }
     }
+
+    _goNext(auth);
+
+    // Play in-app update after navigation so a hung Play API never traps users.
+    unawaited(appUpdate.checkForUpdate(silent: true));
+  }
+
+  void _goNext(AuthProvider auth) {
+    if (!mounted || _navigated) return;
+    _navigated = true;
+    if (!auth.loggedIn) {
+      context.go('/home');
+      return;
+    }
+    context.go(auth.takePendingRoute() ?? '/home');
   }
 
   @override

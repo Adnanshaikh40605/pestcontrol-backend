@@ -22,7 +22,7 @@ class AppRouter {
       redirect: (context, state) {
         final loc = state.matchedLocation;
 
-        // Splash owns bootstrap + Play Store update check.
+        // Splash owns auth bootstrap; Play update runs after leave.
         if (loc == '/splash') return null;
 
         if (!_auth.ready) return '/splash';
