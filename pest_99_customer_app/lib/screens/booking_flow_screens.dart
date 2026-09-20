@@ -17,12 +17,20 @@ import '../services/customer_services.dart';
 import '../shared/widgets/pc99_widgets.dart';
 import '../shared/widgets/service_guidelines_card.dart';
 import '../utils/catalog_pricing.dart';
+import '../widgets/booking_address_field.dart';
 
 /// Website-matched single-screen booking form (Confirm Your Booking).
 class WebsiteBookingScreen extends StatefulWidget {
-  const WebsiteBookingScreen({super.key, this.initialServiceId});
+  const WebsiteBookingScreen({
+    super.key,
+    this.initialServiceId,
+    this.embeddedInShell = false,
+  });
 
   final String? initialServiceId;
+
+  /// When true (Home tab), hide the back button — bottom nav is the exit.
+  final bool embeddedInShell;
 
   @override
   State<WebsiteBookingScreen> createState() => _WebsiteBookingScreenState();
@@ -410,7 +418,13 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
         propertyType: flow.propertyTypeForApi,
         bhkSize: flow.bhkSizeForApi,
         address: flow.streetAddress.trim(),
-        city: _guessCity(flow.streetAddress),
+        fullAddress: flow.serviceFullAddress.isNotEmpty
+            ? flow.serviceFullAddress
+            : flow.streetAddress.trim(),
+        area: flow.serviceArea,
+        city: flow.serviceCity.trim().isNotEmpty
+            ? flow.serviceCity.trim()
+            : _guessCity(flow.streetAddress),
         bookingType: flow.bookingTypeForApi,
         otpVerificationToken: token,
         pricingRateId: q.pricingRateId,
@@ -419,6 +433,8 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
         bookingTime: flow.bookingTime24,
         timezone: BookingTimezone.id,
         timeSlot: flow.timeSlotLabel,
+        latitude: flow.serviceLatitude,
+        longitude: flow.serviceLongitude,
         notes:
             'App booking · ${flow.isCommercial ? 'Commercial' : 'Home (Residential)'} · '
             '${flow.bhkSizeForApi.isEmpty ? '—' : flow.bhkSizeForApi} · $qualityLabel · $planLabel · '
@@ -636,24 +652,15 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                                     ],
                                     SizedBox(height: gap),
                                     _label('SERVICE ADDRESS *'),
-                                    SizedBox(
+                                    BookingAddressField(
+                                      controller: _addressCtrl,
                                       height: fieldH,
-                                      child: TextField(
-                                        controller: _addressCtrl,
-                                        onChanged: flow.setStreetAddress,
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w700,
-                                          color: Color(0xFF1B2A22),
-                                        ),
-                                        decoration: _inputDeco(
-                                          'Area, building or full address',
-                                          error: _errors['streetAddress'] != null,
-                                        ),
+                                      decoration: _inputDeco(
+                                        'Area, building or full address',
+                                        error: _errors['streetAddress'] != null,
                                       ),
+                                      errorText: _errors['streetAddress'],
                                     ),
-                                    if (_errors['streetAddress'] != null)
-                                      _fieldError(_errors['streetAddress']!),
                                     SizedBox(height: gap),
                                     Row(
                                       children: [
@@ -861,6 +868,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
   }
 
   Widget _buildHeader(BuildContext context) {
+    final embedded = widget.embeddedInShell;
     return Container(
       height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -870,13 +878,16 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
       ),
       child: Row(
         children: [
-          IconButton(
-            onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: _navy),
-          ),
-          const Expanded(
+          if (!embedded)
+            IconButton(
+              onPressed: () => context.canPop() ? context.pop() : context.go('/home'),
+              icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: _navy),
+            )
+          else
+            const SizedBox(width: 8),
+          Expanded(
             child: Text.rich(
-              TextSpan(
+              const TextSpan(
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: -0.6),
                 children: [
                   TextSpan(text: 'PEST', style: TextStyle(color: _navy)),
@@ -884,10 +895,10 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                   TextSpan(text: '99', style: TextStyle(color: _navy)),
                 ],
               ),
-              textAlign: TextAlign.center,
+              textAlign: embedded ? TextAlign.left : TextAlign.center,
             ),
           ),
-          const SizedBox(width: 40),
+          if (!embedded) const SizedBox(width: 40) else const SizedBox(width: 8),
         ],
       ),
     );

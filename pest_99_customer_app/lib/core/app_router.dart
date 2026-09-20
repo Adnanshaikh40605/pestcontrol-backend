@@ -7,7 +7,6 @@ import '../screens/account_hub_screens.dart';
 import '../screens/booking_detail_screen.dart';
 import '../screens/booking_flow_screens.dart';
 import '../screens/bookings_screen.dart';
-import '../screens/home_dashboard_screen.dart';
 import '../screens/home_shell.dart';
 import '../screens/invoice_screen.dart';
 import '../screens/login_screen.dart';
@@ -100,7 +99,13 @@ class AppRouter {
           builder: (context, state, navigationShell) => HomeShell(shell: navigationShell),
           branches: [
             StatefulShellBranch(routes: [
-              GoRoute(path: '/home', builder: (_, _) => const HomeDashboardScreen()),
+              GoRoute(
+                path: '/home',
+                builder: (_, state) => WebsiteBookingScreen(
+                  initialServiceId: state.uri.queryParameters['service'],
+                  embeddedInShell: true,
+                ),
+              ),
             ]),
             StatefulShellBranch(routes: [
               GoRoute(path: '/bookings', builder: (_, _) => const BookingsScreen()),
@@ -115,11 +120,15 @@ class AppRouter {
         ),
         GoRoute(path: '/amc', builder: (_, _) => const AmcDashboardScreen()),
         GoRoute(path: '/payments', builder: (_, _) => const PaymentsScreen()),
+        // Deep links / CTAs → Home booking form (same website-style form).
         GoRoute(
           path: '/book',
-          builder: (_, state) => WebsiteBookingScreen(
-            initialServiceId: state.uri.queryParameters['service'],
-          ),
+          redirect: (context, state) {
+            final service = state.uri.queryParameters['service'];
+            return service == null || service.isEmpty
+                ? '/home'
+                : '/home?service=$service';
+          },
         ),
         // Legacy multi-step paths → single website-matched form.
         GoRoute(
@@ -127,12 +136,12 @@ class AppRouter {
           redirect: (context, state) {
             final service = state.uri.queryParameters['service'];
             return service == null || service.isEmpty
-                ? '/book'
-                : '/book?service=$service';
+                ? '/home'
+                : '/home?service=$service';
           },
         ),
-        GoRoute(path: '/book/datetime', redirect: (_, _) => '/book'),
-        GoRoute(path: '/book/summary', redirect: (_, _) => '/book'),
+        GoRoute(path: '/book/datetime', redirect: (_, _) => '/home'),
+        GoRoute(path: '/book/summary', redirect: (_, _) => '/home'),
         GoRoute(path: '/book/confirmed', builder: (_, _) => const BookingConfirmedScreen()),
         GoRoute(path: '/complaint', builder: (_, _) => const ComplaintScreen()),
         GoRoute(path: '/report', builder: (_, _) => const ServiceReportScreen()),
