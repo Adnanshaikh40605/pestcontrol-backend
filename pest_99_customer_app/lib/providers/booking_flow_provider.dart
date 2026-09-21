@@ -324,7 +324,11 @@ class BookingFlowProvider extends ChangeNotifier {
   }
 
   void setFullName(String value) {
-    fullName = value;
+    // Letters + spaces only — block digits and other symbols while typing.
+    fullName = value
+        .replaceAll(RegExp(r'[0-9]'), '')
+        .replaceAll(RegExp(r'[^\p{L}\s]', unicode: true), '')
+        .replaceAll(RegExp(r'\s{2,}'), ' ');
     notifyListeners();
   }
 
@@ -503,6 +507,10 @@ class BookingFlowProvider extends ChangeNotifier {
     }
     if (fullName.trim().isEmpty) {
       errors['name'] = 'Name is required';
+    } else if (RegExp(r'\d').hasMatch(fullName)) {
+      errors['name'] = 'Name can only contain letters and spaces';
+    } else if (!RegExp(r'^[\p{L}\s]+$', unicode: true).hasMatch(fullName.trim())) {
+      errors['name'] = 'Name can only contain letters and spaces';
     } else if (fullName.trim().length < 2) {
       // Backend WebsiteBookSerializer requires ≥2 chars.
       errors['name'] = 'Name must be at least 2 characters long';

@@ -306,9 +306,19 @@ class WebsiteBookSerializer(CustomerBookSerializer):
     inquiry_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
 
     def validate_full_name(self, value):
+        import re
+        import unicodedata
+
         name = (value or '').strip()
         if len(name) < 2:
             raise serializers.ValidationError('Name must be at least 2 characters.')
+        if re.search(r'\d', name):
+            raise serializers.ValidationError('Name can only contain letters and spaces.')
+        if any(
+            not (ch.isspace() or unicodedata.category(ch).startswith('L'))
+            for ch in name
+        ):
+            raise serializers.ValidationError('Name can only contain letters and spaces.')
         return name
 
     def validate_mobile(self, value):

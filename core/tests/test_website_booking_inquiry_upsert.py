@@ -154,6 +154,15 @@ class WebsiteBookingInquiryUpsertTests(TestCase):
         tg_mock.assert_called_once()
 
     @patch('core.services.notify_new_inquiry', return_value=True)
+    def test_name_with_digits_sanitized_on_upsert(self, tg_mock):
+        """Digits in name are stripped; silent lead still creates + notifies."""
+        res = self._upsert(mobile='9876502020', name='Ravi123 Kumar')
+        self.assertEqual(res.status_code, 201, res.data)
+        lead = Inquiry.objects.get(pk=res.data['id'])
+        self.assertEqual(lead.name, 'Ravi Kumar')
+        tg_mock.assert_called_once()
+
+    @patch('core.services.notify_new_inquiry', return_value=True)
     def test_mobile_only_create_notifies_once_per_session(self, tg_mock):
         """Debounced re-upserts with the same mobile must not spam Telegram."""
         first = self._upsert(mobile='9876501010', name='')

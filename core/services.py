@@ -644,6 +644,17 @@ class InquiryService:
         return inquiry
 
     @staticmethod
+    def _sanitize_person_name(raw) -> str:
+        """Letters + spaces only; strip digits and other symbols for lead capture."""
+        import unicodedata
+
+        text = str(raw or '')
+        return ''.join(
+            ch for ch in text
+            if ch.isspace() or unicodedata.category(ch).startswith('L')
+        ).strip()
+
+    @staticmethod
     def _normalize_inquiry_mobile(raw) -> str:
         import re
         digits = re.sub(r'\D', '', str(raw or ''))
@@ -659,7 +670,8 @@ class InquiryService:
         import re
 
         mobile = InquiryService._normalize_inquiry_mobile(data.get('mobile'))
-        name = (data.get('name') or '').strip() or InquiryService.WEBSITE_LEAD_PLACEHOLDER
+        # Sanitize so digits never stick on Website Leads; empty → placeholder.
+        name = InquiryService._sanitize_person_name(data.get('name')) or InquiryService.WEBSITE_LEAD_PLACEHOLDER
         city = (data.get('city') or '').strip() or 'Mumbai'
         state = (data.get('state') or '').strip() or None
         service_interest = (data.get('service_interest') or '').strip() or 'General Pest Control'

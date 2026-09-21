@@ -750,6 +750,13 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                                                 child: TextField(
                                                   controller: _nameCtrl,
                                                   onChanged: flow.setFullName,
+                                                  keyboardType: TextInputType.name,
+                                                  textCapitalization: TextCapitalization.words,
+                                                  inputFormatters: [
+                                                    FilteringTextInputFormatter.allow(
+                                                      RegExp(r'[\p{L}\s]', unicode: true),
+                                                    ),
+                                                  ],
                                                   style: const TextStyle(
                                                     fontSize: 13,
                                                     fontWeight: FontWeight.w700,
