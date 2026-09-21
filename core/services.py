@@ -760,6 +760,7 @@ class InquiryService:
 
             # Keep Contacted/New status; refresh captured details only.
             update_fields = []
+            previous_mobile = existing.mobile
             for key, value in fields.items():
                 if key in ('status', 'booking_session_id'):
                     continue
@@ -778,12 +779,23 @@ class InquiryService:
                 if getattr(existing, key) != value:
                     setattr(existing, key, value)
                     update_fields.append(key)
+            mobile_changed = (
+                'mobile' in update_fields and previous_mobile != existing.mobile
+            )
             if update_fields:
+                # Surface the lead again in CRM unread / recent activity.
+                if existing.is_read:
+                    existing.is_read = False
+                    update_fields.append('is_read')
                 existing.full_clean()
                 update_fields.append('updated_at')
                 existing.save(update_fields=update_fields)
 
-            # Name may later upgrade off "Website Lead"; create already notified once.
+            # Same session, different mobile (user corrected / replaced number) —
+            # staff need a fresh Telegram. Same-mobile name upgrades stay quiet.
+            if mobile_changed:
+                InquiryService._notify_inquiry_channels(existing)
+
             return existing, False
 
         create_payload = dict(fields)

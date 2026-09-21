@@ -62,9 +62,10 @@ class WebsiteBookingInquiryUpsertTests(TestCase):
         self.assertEqual(tg_mock.call_args.kwargs['mobile'], '9876501111')
 
     @patch('core.services.notify_new_inquiry', return_value=True)
-    def test_4_change_number_updates_same_session_no_duplicate(self, _tg):
+    def test_4_change_number_updates_same_session_no_duplicate(self, tg_mock):
         first = self._upsert(mobile='9876502222')
         self.assertEqual(first.status_code, 201, first.data)
+        tg_mock.assert_called_once()
         second = self._upsert(mobile='9876503333', name='Updated Name')
         self.assertEqual(second.status_code, 200, second.data)
         self.assertEqual(first.data['id'], second.data['id'])
@@ -72,6 +73,9 @@ class WebsiteBookingInquiryUpsertTests(TestCase):
         lead = Inquiry.objects.get(pk=first.data['id'])
         self.assertEqual(lead.mobile, '9876503333')
         self.assertEqual(lead.name, 'Updated Name')
+        # Mobile changed on the same session — staff get a fresh Telegram.
+        self.assertEqual(tg_mock.call_count, 2)
+        self.assertEqual(tg_mock.call_args.kwargs['mobile'], '9876503333')
 
     def test_5_invalid_mobile_rejected(self):
         res = self._upsert(mobile='12345')
