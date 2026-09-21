@@ -23,7 +23,14 @@ AMC_INTERVAL_MONTHS: dict[int, int] = {
     3: 4,
     4: 3,
     6: 2,
-    12: 1,
+}
+
+# Day-based AMC packages (commercial intensive + mosquito high-frequency).
+# 12 → every 15 days (2 services/month pattern); 9 → ~40 days; 24 → every 15 days.
+AMC_INTERVAL_DAYS: dict[int, int] = {
+    9: 40,
+    12: 15,
+    24: 15,
 }
 
 # High-frequency mosquito packages (days between visits).
@@ -110,6 +117,8 @@ def resolve_recurring_spec(
         svc = (service or '').lower()
         if 'mosquito' in svc and visit_count in MOSQUITO_INTERVAL_DAYS:
             unit, step = 'days', MOSQUITO_INTERVAL_DAYS[visit_count]
+        elif visit_count in AMC_INTERVAL_DAYS:
+            unit, step = 'days', AMC_INTERVAL_DAYS[visit_count]
         else:
             unit, step = 'months', AMC_INTERVAL_MONTHS.get(visit_count, 4)
         return RecurringSpec(
@@ -538,11 +547,15 @@ def interval_months_for_package(visit_count: int) -> int:
 def amc_interval_spec(service: str, visit_count: int) -> tuple[str, int]:
     """
     Return ('months', n) or ('days', n) spacing for an AMC package.
-    Mosquito 24/48 use day-based intervals; all other packages use months.
+
+    Day-based: 9 (40d), 12 (15d / 2× month), 24 (15d), mosquito 48 (7d).
+    Month-based: 3 / 4 / 6 (and any other count falls back to 4 months).
     """
     svc = (service or '').lower()
     if 'mosquito' in svc and visit_count in MOSQUITO_INTERVAL_DAYS:
         return 'days', MOSQUITO_INTERVAL_DAYS[visit_count]
+    if visit_count in AMC_INTERVAL_DAYS:
+        return 'days', AMC_INTERVAL_DAYS[visit_count]
     return 'months', interval_months_for_package(visit_count)
 
 

@@ -25,15 +25,25 @@ class VisitPlanTests(TestCase):
         self.assertEqual(plans[1].visit_date, date(2026, 10, 15))
         self.assertEqual(plans[0].visit_type, 'COCKROACH AMC')
 
-    def test_rodent_amc_12_monthly(self):
+    def test_rodent_amc_12_every_fifteen_days(self):
         plans = build_visit_plans('Rodent', 'AMC 12 Services', date(2026, 1, 10))
         self.assertEqual(len(plans), 12)
-        self.assertEqual(plans[1].visit_date, date(2026, 2, 10))
+        self.assertEqual(plans[1].visit_date, date(2026, 1, 25))
 
-    def test_cockroach_amc_12_monthly(self):
+    def test_cockroach_amc_12_every_fifteen_days(self):
         plans = build_visit_plans('Cockroach / Ants', 'AMC 12 Services', date(2026, 1, 10))
         self.assertEqual(len(plans), 12)
+        self.assertEqual(plans[1].visit_date, date(2026, 1, 25))
+
+    def test_cockroach_amc_9_every_forty_days(self):
+        plans = build_visit_plans('Cockroach Standard', 'AMC 9 Services', date(2026, 1, 1))
+        self.assertEqual(len(plans), 9)
         self.assertEqual(plans[1].visit_date, date(2026, 2, 10))
+
+    def test_cockroach_amc_24_every_fifteen_days(self):
+        plans = build_visit_plans('Cockroach Standard', 'AMC 24 Services', date(2026, 6, 1))
+        self.assertEqual(len(plans), 24)
+        self.assertEqual(plans[1].visit_date, date(2026, 6, 16))
 
     def test_mosquito_amc_24_every_fifteen_days(self):
         plans = build_visit_plans('Mosquito', 'AMC 24 Services', date(2026, 6, 1))
@@ -102,7 +112,7 @@ class VisitPlanTests(TestCase):
             ('Quarterly', 4, date(2026, 10, 1)),
             ('Half Yearly', 2, date(2027, 1, 1)),
             ('Yearly', 2, date(2027, 7, 1)),
-            ('12 Services', 12, date(2026, 8, 1)),
+            ('12 Services', 12, date(2026, 7, 16)),
             ('6 Services', 6, date(2026, 9, 1)),
             ('3 Services', 3, date(2026, 11, 1)),
             ('AMC', 12, date(2026, 8, 1)),
