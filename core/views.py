@@ -8,6 +8,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets, filters, permissions, decorators, response, status, views
 from rest_framework.decorators import action
 from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
+
+from core.auth import WebsiteInquiryUpsertThrottle
 from django.views.decorators.cache import cache_page
 from django.utils.decorators import method_decorator
 from django.views.decorators.vary import vary_on_headers
@@ -1852,7 +1854,7 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
         detail=False,
         methods=['post'],
         url_path='upsert',
-        throttle_classes=[AnonRateThrottle],
+        throttle_classes=[WebsiteInquiryUpsertThrottle],
     )
     def upsert(self, request):
         """Create or update inquiry by booking_session_id (website booking form)."""
@@ -1862,6 +1864,13 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
                 request.data,
                 user=user,
             )
+            if created:
+                logger.info(
+                    'Website inquiry upsert created id=%s mobile=%s session=%s',
+                    inquiry.id,
+                    inquiry.mobile,
+                    inquiry.booking_session_id,
+                )
             serializer = self.get_serializer(inquiry)
             return response.Response(
                 serializer.data,

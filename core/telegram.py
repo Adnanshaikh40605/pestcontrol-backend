@@ -47,19 +47,32 @@ def send_telegram_message(text: str) -> bool:
         "disable_web_page_preview": True,
     }
 
-    try:
-        response = requests.post(url, json=payload, timeout=10)
-        if response.ok:
-            return True
+    last_error = None
+    # One quick retry — transient Telegram / egress blips should not drop leads.
+    for attempt in (1, 2):
+        try:
+            response = requests.post(url, json=payload, timeout=8)
+            if response.ok:
+                if attempt > 1:
+                    logger.info("Telegram notification succeeded on retry")
+                return True
 
-        logger.warning(
-            "Telegram notification failed with status %s: %s",
-            response.status_code,
-            response.text,
-        )
-    except requests.RequestException as exc:
-        logger.error("Telegram notification error: %s", exc, exc_info=True)
+            last_error = f"status={response.status_code} body={response.text[:300]}"
+            logger.warning(
+                "Telegram notification failed attempt=%s %s",
+                attempt,
+                last_error,
+            )
+        except requests.RequestException as exc:
+            last_error = str(exc)
+            logger.error(
+                "Telegram notification error attempt=%s: %s",
+                attempt,
+                exc,
+                exc_info=True,
+            )
 
+    logger.error("Telegram notification gave up after retries: %s", last_error)
     return False
 
 

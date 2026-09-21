@@ -18,6 +18,18 @@ class LoginRateThrottle(AnonRateThrottle):
     scope = 'login'
 
 
+class WebsiteInquiryUpsertThrottle(AnonRateThrottle):
+    """
+    Dedicated bucket for silent Website Booking Form upserts.
+
+    Must NOT share the global `anon` 100/hour budget with catalog / Places
+    autocomplete — those burn the shared quota and then silent mobile-only
+    leads fail with 429 (swallowed by the website).
+    """
+
+    scope = 'website_inquiry_upsert'
+
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """Enhanced JWT token serializer with additional user information."""
     

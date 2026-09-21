@@ -377,6 +377,8 @@ REST_FRAMEWORK = {
         'anon': '100/hour',
         'user': '1000/hour',
         'login': '30/min' if DEBUG else '5/min',
+        # Silent home-booking lead capture — separate from shared anon budget.
+        'website_inquiry_upsert': '300/hour',
         'blog_view_track': '60/hour',
         # Partner app: per technician (see partner.throttling.PartnerRateThrottle)
         'partner': '3000/hour',

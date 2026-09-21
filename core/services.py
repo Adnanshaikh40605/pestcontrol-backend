@@ -568,8 +568,14 @@ class InquiryService:
     @staticmethod
     def _notify_inquiry_channels(inquiry: Inquiry) -> None:
         """Telegram + staff WhatsApp for a lead (soft-fail each channel)."""
+        logger.info(
+            "Notifying inquiry channels id=%s mobile=%s name=%s",
+            inquiry.id,
+            inquiry.mobile,
+            inquiry.name,
+        )
         try:
-            notify_new_inquiry(
+            sent = notify_new_inquiry(
                 name=inquiry.name,
                 mobile=inquiry.mobile,
                 city=inquiry.city,
@@ -580,6 +586,12 @@ class InquiryService:
                 premise_size=inquiry.premise_size,
                 estimated_price=str(inquiry.estimated_price) if inquiry.estimated_price else None,
                 service_frequency=inquiry.service_frequency,
+            )
+            logger.info(
+                "Telegram inquiry notify id=%s mobile=%s ok=%s",
+                inquiry.id,
+                inquiry.mobile,
+                bool(sent),
             )
         except Exception as exc:
             logger.error(
