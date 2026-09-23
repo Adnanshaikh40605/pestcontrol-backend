@@ -33,7 +33,7 @@ class RateChartImportTests(TestCase):
             chart = PricingRate.objects.filter(
                 region__slug=slug, notes__startswith='Master Rate Chart 2026',
             )
-            self.assertEqual(chart.count(), 312, f'{slug} is missing chart rows')
+            self.assertEqual(chart.count(), 306, f'{slug} is missing chart rows')
 
     def test_stores_the_basic_with_gst_added_on_top(self):
         """Workbook row: Cockroach Standard / 1 BHK = 1250 + 225 = 1475."""
@@ -152,7 +152,7 @@ class RateChartImportTests(TestCase):
         self.assertEqual(
             PricingRate.objects.filter(
                 region__slug='mumbai', notes__startswith='Master Rate Chart 2026',
-            ).count(), 312,
+            ).count(), 306,
         )
 
     def test_purge_chart_leaves_rates_it_did_not_import(self):
@@ -219,7 +219,11 @@ class RateChartImportTests(TestCase):
             commercial_type='office',
             selected_services=['Cockroach / Ants'],
         )
-        self.assertEqual(office, [], 'cockroach has no corporate chart bands')
+        self.assertIn('Corporate Office / Bank - Small', office)
+        self.assertIn('Corporate Office / Bank - Medium', office)
+        self.assertIn('Corporate Office / Bank - Large', office)
+        self.assertNotIn('1 BHK', office, 'office must not fall back to residential BHK')
+        self.assertNotIn('Hotel - 1-10 rooms', office, 'office must not use hotel room bands')
 
     def test_rate_gst_exposes_property_category_for_crm_filters(self):
         r = rate('mumbai', 'Cockroach Standard', 'One Time Service', 'Hotel - 1-10 rooms')

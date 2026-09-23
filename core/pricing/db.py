@@ -305,7 +305,18 @@ def _service_area_queryset(qs, service: str, commercial_type: str):
         if commercial_type == 'hotel':
             return service_qs.filter(property_category='hotel')
         if commercial_type == 'office':
-            return service_qs.filter(property_category__in=['corporate', 'corporate_monthly'])
+            corporate_qs = service_qs.filter(
+                property_category__in=['corporate', 'corporate_monthly'],
+            )
+            # 2026 chart historically priced offices under Integrated IPM only.
+            # When Cockroach Standard/Premium lack corporate bands, fall back to
+            # Integrated IPM office sizes so CRM staff can still book.
+            if corporate_qs.exists():
+                return corporate_qs
+            return qs.filter(
+                service_package='Integrated IPM',
+                property_category__in=['corporate', 'corporate_monthly'],
+            )
         if commercial_type == 'society':
             return service_qs.filter(property_category='society')
         # other / unknown commercial: chart commercial segments only (no BHK).
