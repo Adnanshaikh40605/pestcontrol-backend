@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/models/booking.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../models/booking.dart' as api;
 import '../../providers/bookings_provider.dart';
 import '../../shared/widgets/profile_aware_top_bar.dart';
 import '../../shared/booking_workflow.dart';
@@ -11,6 +13,7 @@ import '../../shared/widgets/async_error_view.dart';
 import '../../shared/widgets/no_internet_view.dart';
 import '../../shared/widgets/booking_cards.dart';
 import '../../shared/widgets/booking_day_sections.dart';
+import '../../shared/widgets/segmented_tabs.dart';
 
 class BookingsScreen extends StatefulWidget {
   const BookingsScreen({super.key});
@@ -21,6 +24,8 @@ class BookingsScreen extends StatefulWidget {
 
 class _BookingsScreenState extends State<BookingsScreen> {
   Timer? _syncTimer;
+  /// 0 = Today, 1 = Tomorrow
+  int _dayTabIndex = 0;
 
   @override
   void initState() {
@@ -35,6 +40,21 @@ class _BookingsScreenState extends State<BookingsScreen> {
   void dispose() {
     _syncTimer?.cancel();
     super.dispose();
+  }
+
+  String _emptyMessage(BookingsProvider bookings, {required bool isToday}) {
+    if (bookings.isSuspended) {
+      return 'No bookings available while suspended';
+    }
+    if (bookings.isOnLeave) {
+      return 'No bookings available while you are on leave';
+    }
+    if (bookings.manualAssignOnly) {
+      return 'Nothing assigned to you yet';
+    }
+    return isToday
+        ? 'No bookings for today'
+        : 'No bookings for tomorrow';
   }
 
   @override
@@ -74,7 +94,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
       );
     }
 
-    final list = bookings.available;
+    final sections = BookingDaySections.from(bookings.available);
+    final isTodayTab = _dayTabIndex == 0;
+    final dayList = isTodayTab ? sections.today : sections.tomorrow;
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -138,34 +160,58 @@ class _BookingsScreenState extends State<BookingsScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          "Today's and Tomorrow's jobs are listed in separate sections.",
+          "Switch between Today and Tomorrow to see that day's jobs.",
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: const Color(0xFF6B7280),
               ),
         ),
         const SizedBox(height: AppSpacing.sectionGap),
-        ...buildDaySectionedBookingChildren(
-          bookings: list,
-          emptyMessage: bookings.isSuspended
-              ? 'No bookings available while suspended'
-              : bookings.isOnLeave
-                  ? 'No bookings available while you are on leave'
-                  : bookings.manualAssignOnly
-                      ? 'Nothing assigned to you yet'
-                      : 'No new bookings right now',
-          cardBuilder: (b, ui) => AvailableBookingCard(
-            booking: ui,
-            isAcceptLoading: bookings.isProcessing(b.id),
-            isRejectLoading: bookings.isProcessing(b.id),
-            onAccept: bookings.isProcessing(b.id)
-                ? null
-                : () => BookingWorkflow.accept(context, b.id),
-            onReject: bookings.isProcessing(b.id)
-                ? null
-                : () => BookingWorkflow.reject(context, b.id),
-          ),
+        SegmentedTabs(
+          labels: [
+            'Today (${sections.today.length})',
+            'Tomorrow (${sections.tomorrow.length})',
+          ],
+          selectedIndex: _dayTabIndex,
+          onChanged: (index) {
+            if (index == _dayTabIndex) return;
+            setState(() => _dayTabIndex = index);
+          },
         ),
+        const SizedBox(height: AppSpacing.sectionGap),
+        ...buildSingleDayBookingChildren(
+          bookings: dayList,
+          emptyMessage: _emptyMessage(bookings, isToday: isTodayTab),
+          cardBuilder: (b, ui) => _availableCard(context, bookings, b, ui),
+        ),
+        // Keep beyond-tomorrow jobs visible, but outside the two day tabs.
+        if (sections.later.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.sectionGap),
+          BookingSectionHeader(
+            title: 'Later',
+            count: sections.later.length,
+          ),
+          ...buildSingleDayBookingChildren(
+            bookings: sections.later,
+            cardBuilder: (b, ui) => _availableCard(context, bookings, b, ui),
+          ),
+        ],
       ],
+    );
+  }
+
+  Widget _availableCard(
+    BuildContext context,
+    BookingsProvider bookings,
+    api.PartnerBooking b,
+    Booking ui,
+  ) {
+    final processing = bookings.isProcessing(b.id);
+    return AvailableBookingCard(
+      booking: ui,
+      isAcceptLoading: processing,
+      isRejectLoading: processing,
+      onAccept: processing ? null : () => BookingWorkflow.accept(context, b.id),
+      onReject: processing ? null : () => BookingWorkflow.reject(context, b.id),
     );
   }
 }

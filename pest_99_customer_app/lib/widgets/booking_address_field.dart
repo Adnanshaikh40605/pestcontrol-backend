@@ -179,9 +179,11 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
 
   @override
   Widget build(BuildContext context) {
+    final compact = widget.height < 36;
+    final iconBox = compact ? 30.0 : 36.0;
     final deco = widget.decoration.copyWith(
       // Room for the GPS button on the right.
-      contentPadding: const EdgeInsets.fromLTRB(10, 0, 44, 0),
+      contentPadding: EdgeInsets.fromLTRB(compact ? 8 : 10, 0, iconBox + 6, 0),
       suffixIcon: null,
     );
 
@@ -197,37 +199,37 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
                 controller: widget.controller,
                 focusNode: _focus,
                 textInputAction: TextInputAction.search,
-                style: const TextStyle(
-                  fontSize: 13,
+                style: TextStyle(
+                  fontSize: compact ? 11.5 : 12.5,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF1B2A22),
+                  color: const Color(0xFF1B2A22),
                 ),
                 decoration: deco,
               ),
               Positioned(
-                right: 4,
+                right: 2,
                 child: Material(
                   color: Colors.transparent,
                   child: InkWell(
                     onTap: _locating ? null : _useCurrentLocation,
                     borderRadius: BorderRadius.circular(8),
                     child: SizedBox(
-                      width: 36,
-                      height: 36,
+                      width: iconBox,
+                      height: iconBox,
                       child: Center(
                         child: _locating
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
+                            ? SizedBox(
+                                width: compact ? 14 : 16,
+                                height: compact ? 14 : 16,
+                                child: const CircularProgressIndicator(
                                   strokeWidth: 2,
                                   color: Color(0xFF087B3D),
                                 ),
                               )
-                            : const Icon(
+                            : Icon(
                                 Icons.my_location_rounded,
-                                size: 18,
-                                color: Color(0xFF087B3D),
+                                size: compact ? 16 : 18,
+                                color: const Color(0xFF087B3D),
                               ),
                       ),
                     ),

@@ -120,3 +120,27 @@ List<Widget> buildDaySectionedBookingChildren({
   addSection('Later', sections.later);
   return out;
 }
+
+/// Builds list children for a single day bucket (no section header).
+List<Widget> buildSingleDayBookingChildren({
+  required List<api.PartnerBooking> bookings,
+  required Widget Function(api.PartnerBooking raw, Booking ui) cardBuilder,
+  String emptyMessage = 'No bookings',
+}) {
+  if (bookings.isEmpty) {
+    return [
+      Padding(
+        padding: const EdgeInsets.only(top: 48),
+        child: Center(child: Text(emptyMessage)),
+      ),
+    ];
+  }
+
+  return [
+    for (final raw in bookings)
+      Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.elementGap),
+        child: cardBuilder(raw, BookingMapper.fromPartner(raw)),
+      ),
+  ];
+}
