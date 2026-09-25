@@ -738,6 +738,161 @@ def is_multi_service_package_shell(job) -> bool:
     return JobCard.objects.filter(parent_job_id=job.id, service_cycle=1).exists()
 
 
+def service_cycle_already_exists(main_job, service: str, cycle: int) -> bool:
+    """True when this parent already has that visit, including a renamed alias.
+
+    ``Cockroach / Ants`` and ``Cockroach Standard`` are the same line, so a
+    chart rename must not insert a second day-1 or a second AMC series.
+    Cancelled rows still count — the unique key includes them.
+    """
+    from core.models import JobCard
+    from core.pricing.aliases import same_service_line
+
+    rows = JobCard.objects.filter(parent_job=main_job, service_cycle=cycle)
+    for child in rows:
+        label = child.source_service or child.service_type or ''
+        if same_service_line(label, service):
+            return True
+    return False
+
+
+def retire_duplicate_package_visits(main_job) -> list:
+    """Cancel extra rows created when a service was renamed, plus blob follow-ups.
+
+    Keeps the visit that was actually done (or the oldest row). Does not touch
+    payouts that are already approved or paid.
+    """
+    from core.models import JobCard
+    from core.pricing.aliases import canonical_service_line, is_package_blob_label
+
+    children = list(
+        JobCard.objects.filter(parent_job=main_job).exclude(status=JobCard.JobStatus.CANCELLED)
+    )
+    if not children:
+        return []
+
+    locked = {JobCard.PayoutStatus.APPROVED, JobCard.PayoutStatus.PAID}
+    retired: list = []
+
+    def _cancel(child) -> None:
+        if child.payout_status in locked:
+            return
+        if child.settlement_line_items.exists():
+            return
+        child.status = JobCard.JobStatus.CANCELLED
+        child.cancellation_reason = (
+            child.cancellation_reason
+            or 'Duplicate package visit after a service rename.'
+        )
+        child.visit_revenue_amount = Decimal('0.00')
+        child.technician_pool_amount = Decimal('0.00')
+        child.company_share_amount = Decimal('0.00')
+        child.visit_payout_amount = Decimal('0.00')
+        if child.payout_status not in locked:
+            child.payout_status = JobCard.PayoutStatus.CANCELLED
+        child.hidden_from_technician_ledger = True
+        child.save(update_fields=[
+            'status', 'cancellation_reason', 'visit_revenue_amount',
+            'technician_pool_amount', 'company_share_amount', 'visit_payout_amount',
+            'payout_status', 'hidden_from_technician_ledger', 'updated_at',
+        ])
+        retired.append(child)
+
+    groups: dict[tuple, list] = {}
+    for child in children:
+        label = child.source_service or child.service_type or ''
+        if is_package_blob_label(label):
+            continue
+        key = (canonical_service_line(label).casefold(), int(child.service_cycle or 1))
+        groups.setdefault(key, []).append(child)
+
+    for rows in groups.values():
+        if len(rows) < 2:
+            continue
+        rows.sort(key=lambda c: (
+            0 if c.status == JobCard.JobStatus.DONE else 1,
+            0 if (c.visit_revenue_amount or 0) > 0 else 1,
+            c.id,
+        ))
+        for extra in rows[1:]:
+            _cancel(extra)
+
+    still = [c for c in children if c.status != JobCard.JobStatus.CANCELLED and c not in retired]
+    has_real_line = any(
+        not is_package_blob_label(c.source_service or c.service_type or '')
+        for c in still
+    )
+    if has_real_line:
+        for child in still:
+            label = child.source_service or child.service_type or ''
+            if not is_package_blob_label(label):
+                continue
+            if child.status == JobCard.JobStatus.DONE:
+                continue
+            _cancel(child)
+    return retired
+
+
+def align_uniform_day1_technicians_to_shell(main_job) -> list:
+    """Move day-1 lines still on the previous shell lead onto the current one.
+
+    Only when every assigned day-1 visit shares that same previous technician
+    and the shell's lead row is newer. Different technicians on different
+    services are a real crew split and are left alone.
+    """
+    from core.models import JobCard, JobCardTechnicianParticipation
+    from core.payout_engine import reassign_job_technician
+
+    if not is_multi_service_booking(main_job) or main_job.parent_job_id:
+        return []
+    if not main_job.technician_id:
+        return []
+
+    shell_lead = (
+        main_job.technician_participations
+        .filter(
+            role=JobCardTechnicianParticipation.Role.LEAD,
+            technician_id=main_job.technician_id,
+        )
+        .order_by('-created_at')
+        .first()
+    )
+    if shell_lead is None:
+        return []
+
+    children = list(
+        JobCard.objects.filter(parent_job=main_job, service_cycle=1)
+        .exclude(status=JobCard.JobStatus.CANCELLED)
+        .select_related('technician')
+    )
+    assigned = [c for c in children if c.technician_id]
+    if len(assigned) < 2:
+        return []
+    tech_ids = {c.technician_id for c in assigned}
+    if len(tech_ids) != 1:
+        return []
+    old_id = next(iter(tech_ids))
+    if old_id == main_job.technician_id:
+        return []
+
+    locked = {JobCard.PayoutStatus.APPROVED, JobCard.PayoutStatus.PAID}
+    moved = []
+    for child in assigned:
+        if child.payout_status in locked:
+            continue
+        child_lead = (
+            child.technician_participations
+            .filter(role=JobCardTechnicianParticipation.Role.LEAD)
+            .order_by('-created_at')
+            .first()
+        )
+        if child_lead is not None and child_lead.created_at >= shell_lead.created_at:
+            continue
+        reassign_job_technician(child, main_job.technician)
+        moved.append(child)
+    return moved
+
+
 def is_day1_package_service_line(job) -> bool:
     """
     Auto day-1 child under a multi-service package (Cockroach line, Bed Bugs line).
@@ -873,6 +1028,9 @@ class BookingScheduleEngine:
 
         if not is_multi_service_booking(main_job):
             return []
+
+        retire_duplicate_package_visits(main_job)
+        align_uniform_day1_technicians_to_shell(main_job)
 
         # Legacy multi packages often only generated follow-up cycles (2+) —
         # create missing day-1 rows first so ledger can split per service.
@@ -1030,11 +1188,7 @@ class BookingScheduleEngine:
             # UniqueConstraint(parent, source_service, service_cycle) applies
             # even when the existing day-1 row is Cancelled — never insert a
             # second row for the same key (that poisoned partner End Service).
-            if JobCard.objects.filter(
-                parent_job=main_job,
-                source_service=service,
-                service_cycle=1,
-            ).exists():
+            if service_cycle_already_exists(main_job, service, 1):
                 continue
 
             preferred = None
@@ -1286,11 +1440,7 @@ class BookingScheduleEngine:
             for spec in specs:
                 if locked is not None and spec.cycle > locked:
                     break
-                if JobCard.objects.filter(
-                    parent_job=main_job,
-                    source_service=service,
-                    service_cycle=spec.cycle,
-                ).exists():
+                if service_cycle_already_exists(main_job, service, spec.cycle):
                     continue
 
                 sched_dt = schedule_datetime_from_service_date(

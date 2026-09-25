@@ -598,20 +598,50 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
         net = quantize_money(max(tech_share + bonus - penalty, Decimal('0.00')))
         pending = quantize_money(max(net - paid, Decimal('0.00')))
 
-    # Display base is excl-GST. JobCard.price / payout snapshots are GST-inclusive
-    # (customer payable). Strip tax here only — do not change accounting double-entry
-    # or stored PartnerEarning / settlement rows used for actual payouts.
-    from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
+    # Ledger money is the stored/configured service base, never GST and never
+    # the customer total. One ratio is applied to the booking and its 40/60
+    # split so a visit slice is not peeled a second time. Incentives stay as
+    # absolute rupees. Stored payout rows are not rewritten here.
+    from core.pricing.gst import (
+        _close_money,
+        amount_excluding_gst,
+        chart_quote_for_job,
+        explicit_service_base_total,
+        ledger_base_ratio,
+        resolve_job_gst_percent,
+    )
 
-    gst_percent = resolve_job_gst_percent(job)
-    booking_amount = amount_excluding_gst(booking_amount, gst_percent)
-    visit_revenue = amount_excluding_gst(visit_revenue, gst_percent)
-    tech_share = amount_excluding_gst(tech_share, gst_percent)
-    company_share = amount_excluding_gst(company_share, gst_percent)
+    reference = booking_amount if booking_amount > 0 else visit_revenue
+    stored_base = explicit_service_base_total(job)
+    chart = chart_quote_for_job(job)
+    chart_total = Decimal(str(chart['total_with_gst'])) if chart is not None else None
+    ratio = ledger_base_ratio(job, reference)
+    replaces_customer_total = bool(
+        chart_total
+        and reference > 0
+        and (
+            _close_money(reference, chart_total)
+            or (stored_base and _close_money(stored_base, chart_total))
+        )
+    )
+    if stored_base or replaces_customer_total:
+        booking_amount = quantize_money(booking_amount * ratio)
+        visit_revenue = quantize_money(visit_revenue * ratio)
+        tech_share = quantize_money(tech_share * ratio)
+        company_share = quantize_money(company_share * ratio)
+        if not is_legacy:
+            paid_revenue = quantize_money(paid_revenue * ratio)
+    else:
+        gst_percent = resolve_job_gst_percent(job)
+        booking_amount = amount_excluding_gst(booking_amount, gst_percent)
+        visit_revenue = amount_excluding_gst(visit_revenue, gst_percent)
+        tech_share = amount_excluding_gst(tech_share, gst_percent)
+        company_share = amount_excluding_gst(company_share, gst_percent)
+        if not is_legacy:
+            paid_revenue = amount_excluding_gst(paid_revenue, gst_percent)
     if not is_legacy:
-        paid_revenue_excl = amount_excluding_gst(paid_revenue, gst_percent)
         paid = quantize_money(
-            max(paid_revenue_excl + paid_incentive - paid_deduction, Decimal('0.00'))
+            max(paid_revenue + paid_incentive - paid_deduction, Decimal('0.00'))
         )
         net = quantize_money(max(tech_share + bonus - penalty, Decimal('0.00')))
         pending = quantize_money(max(net - paid, Decimal('0.00')))

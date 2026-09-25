@@ -235,3 +235,45 @@ def is_cockroach_family(service: str) -> bool:
         return True
     lower = name.casefold()
     return 'cockroach' in lower or lower in {'ants', 'ant'}
+
+
+def clean_service_label(service: str) -> str:
+    """Drop emoji and extra spacing from a stored service label."""
+    raw = re.sub(r'[^\w\s/&+\-]', ' ', service or '', flags=re.UNICODE)
+    return _norm(raw)
+
+
+def canonical_service_line(service: str) -> str:
+    """One key for legacy and 2026 names of the same package line.
+
+    ``Cockroach / Ants`` and ``Cockroach Standard`` compare equal.
+    ``Cockroach Premium`` stays distinct from Standard.
+    """
+    name = clean_service_label(service)
+    if not name:
+        return ''
+    return resolve_service_package(name) or name
+
+
+def same_service_line(left: str, right: str) -> bool:
+    a = canonical_service_line(left)
+    b = canonical_service_line(right)
+    return bool(a) and a.casefold() == b.casefold()
+
+
+def is_package_blob_label(service: str) -> bool:
+    """Combined marketing label, not one service line (e.g. Cockroach + Bed Bugs)."""
+    name = clean_service_label(service)
+    if not name:
+        return False
+    folded = name.casefold()
+    if 'multiple pest' in folded:
+        return True
+    parts = [p.strip() for p in name.split(',') if p.strip()]
+    if len(parts) < 2:
+        return False
+    # "Cockroach Control, Ant Control" is one cockroach package, not a multi blob.
+    legacy_pair = {'cockroach control', 'ant control'}
+    if {p.casefold() for p in parts} <= legacy_pair:
+        return False
+    return True

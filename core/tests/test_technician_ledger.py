@@ -747,9 +747,11 @@ class TechnicianLedgerTests(TestCase):
         res = self._ledger({'settlement_status': 'unsettled'})
         self.assertEqual(res.status_code, 200, res.data)
         row = next(r for r in res.data['results'] if r['job_id'] == job.id)
-        self.assertEqual(Decimal(row['booking_amount']), amount_excluding_gst('1000.00'))
-        self.assertEqual(Decimal(row['visit_revenue']), amount_excluding_gst('1000.00'))
-        self.assertEqual(Decimal(row['technician_share']), amount_excluding_gst('400.00'))
+        # Staff edited the price to ₹1000 and the heal stores that as base_amount.
+        # Ledger uses that stored base. It does not peel GST off it again.
+        self.assertEqual(Decimal(row['booking_amount']), Decimal('1000.00'))
+        self.assertEqual(Decimal(row['visit_revenue']), Decimal('1000.00'))
+        self.assertEqual(Decimal(row['technician_share']), Decimal('400.00'))
 
         job.refresh_from_db()
         self.assertEqual(parse_jobcard_price(job.service_items[0]['amount']), Decimal('1000.00'))
