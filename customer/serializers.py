@@ -304,6 +304,14 @@ class WebsiteBookSerializer(CustomerBookSerializer):
         write_only=True,
     )
     inquiry_id = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    # Omitted by the website (stays a website lead). Customer app sends APP.
+    booking_source = serializers.CharField(
+        max_length=32,
+        required=False,
+        allow_blank=True,
+        default='',
+        write_only=True,
+    )
 
     def validate_full_name(self, value):
         import re
@@ -329,6 +337,9 @@ class WebsiteBookSerializer(CustomerBookSerializer):
         if not token:
             raise serializers.ValidationError('OTP verification is required.')
         return token
+
+    def validate_booking_source(self, value):
+        return (value or '').strip().upper()
 
     def validate_booking_session_id(self, value):
         session_id = (value or '').strip()

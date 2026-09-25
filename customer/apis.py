@@ -722,8 +722,13 @@ class WebsiteBookingCreateAPIView(CustomerPublicAPIView):
         otp_token = data.pop('otp_verification_token')
         booking_session_id = (data.pop('booking_session_id', None) or '').strip()
         inquiry_id = data.pop('inquiry_id', None)
-        data['reference'] = 'Website'
-        data['creation_source'] = JobCard.CreationSource.API
+        booking_source = (data.pop('booking_source', None) or '').strip().upper()
+        if booking_source in {'APP', 'CUSTOMER_APP'}:
+            data['reference'] = 'Customer App'
+            data['creation_source'] = JobCard.CreationSource.CUSTOMER_APP
+        else:
+            data['reference'] = 'Website'
+            data['creation_source'] = JobCard.CreationSource.API
 
         try:
             consume_website_booking_verification_token(otp_token, mobile)

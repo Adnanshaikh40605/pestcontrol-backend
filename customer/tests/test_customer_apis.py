@@ -577,6 +577,21 @@ class CustomerApiTests(TestCase):
         self.assertEqual(job.partner_status, JobCard.PartnerStatus.PENDING)
         self.assertTrue(CustomerAccount.objects.filter(mobile='9111222333').exists())
 
+    def test_website_booking_app_source_marks_customer_app(self):
+        res = self.api.post(
+            '/api/customer/website-bookings/',
+            self._website_booking_payload(
+                mobile='9111222444',
+                booking_source='APP',
+            ),
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        job = JobCard.objects.get(id=res.data['booking']['id'])
+        self.assertEqual(job.reference, 'Customer App')
+        self.assertEqual(job.creation_source, JobCard.CreationSource.CUSTOMER_APP)
+        self.assertEqual(job.client.mobile, '9111222444')
+
     def test_website_booking_rewrites_legacy_cockroach_label_to_catalog_package(self):
         """Marketing label must not land on JobCard — CRM would show two RETIRED boxes."""
         cockroach = PricingRate.objects.create(
