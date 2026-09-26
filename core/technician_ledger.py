@@ -602,43 +602,15 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
     # the customer total. One ratio is applied to the booking and its 40/60
     # split so a visit slice is not peeled a second time. Incentives stay as
     # absolute rupees. Stored payout rows are not rewritten here.
-    from core.pricing.gst import (
-        _close_money,
-        amount_excluding_gst,
-        chart_quote_for_job,
-        explicit_service_base_total,
-        ledger_base_ratio,
-        resolve_job_gst_percent,
-    )
+    from core.pricing.gst import apply_ledger_base
 
     reference = booking_amount if booking_amount > 0 else visit_revenue
-    stored_base = explicit_service_base_total(job)
-    chart = chart_quote_for_job(job)
-    chart_total = Decimal(str(chart['total_with_gst'])) if chart is not None else None
-    ratio = ledger_base_ratio(job, reference)
-    replaces_customer_total = bool(
-        chart_total
-        and reference > 0
-        and (
-            _close_money(reference, chart_total)
-            or (stored_base and _close_money(stored_base, chart_total))
-        )
-    )
-    if stored_base or replaces_customer_total:
-        booking_amount = quantize_money(booking_amount * ratio)
-        visit_revenue = quantize_money(visit_revenue * ratio)
-        tech_share = quantize_money(tech_share * ratio)
-        company_share = quantize_money(company_share * ratio)
-        if not is_legacy:
-            paid_revenue = quantize_money(paid_revenue * ratio)
-    else:
-        gst_percent = resolve_job_gst_percent(job)
-        booking_amount = amount_excluding_gst(booking_amount, gst_percent)
-        visit_revenue = amount_excluding_gst(visit_revenue, gst_percent)
-        tech_share = amount_excluding_gst(tech_share, gst_percent)
-        company_share = amount_excluding_gst(company_share, gst_percent)
-        if not is_legacy:
-            paid_revenue = amount_excluding_gst(paid_revenue, gst_percent)
+    booking_amount = apply_ledger_base(job, booking_amount, reference)
+    visit_revenue = apply_ledger_base(job, visit_revenue, reference)
+    tech_share = apply_ledger_base(job, tech_share, reference)
+    company_share = apply_ledger_base(job, company_share, reference)
+    if not is_legacy:
+        paid_revenue = apply_ledger_base(job, paid_revenue, reference)
     if not is_legacy:
         paid = quantize_money(
             max(paid_revenue + paid_incentive - paid_deduction, Decimal('0.00'))

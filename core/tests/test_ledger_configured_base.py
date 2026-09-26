@@ -229,3 +229,57 @@ class ConfiguredBaseLedgerTests(TestCase):
         online_row = serialize_ledger_row(online, self.tech)
         self.assertEqual(cash_row['booking_amount'], online_row['booking_amount'])
         self.assertEqual(Decimal(online_row['booking_amount']), Decimal('1600.00'))
+
+    def test_partner_shares_use_the_same_base_as_the_ledger(self):
+        """Partner app and daily report must not peel GST off a chart base."""
+        from core.pricing.gst import apply_ledger_base, partner_customer_gst_fields
+
+        inclusive = self._done(
+            price='1470.00',
+            tech='588.00',
+            company='882.00',
+            service_type='Cockroach / Ants',
+            bhk_size='1 BHK',
+            service_items=[{
+                'service': 'Cockroach / Ants',
+                'plan': 'One Time Service',
+                'area': '1 BHK',
+                'amount': 1470.0,
+                'base_amount': 1470.0,
+            }],
+        )
+        cash = self._done(
+            price='1600.00',
+            tech='640.00',
+            company='960.00',
+            payment_mode=JobCard.PaymentMode.CASH,
+            service_type='Cockroach Standard',
+            bhk_size='2 BHK',
+            service_items=[{
+                'service': 'Cockroach Standard',
+                'plan': 'One Time Service',
+                'area': '2 BHK',
+                'amount': 1600.0,
+                'base_amount': 1600.0,
+            }],
+        )
+
+        self.assertEqual(apply_ledger_base(inclusive, Decimal('588.00')), Decimal('500.00'))
+        self.assertEqual(apply_ledger_base(inclusive, Decimal('882.00')), Decimal('750.00'))
+        self.assertEqual(apply_ledger_base(cash, Decimal('640.00')), Decimal('640.00'))
+        self.assertEqual(apply_ledger_base(cash, Decimal('1600.00')), Decimal('1600.00'))
+        self.assertNotEqual(apply_ledger_base(cash, Decimal('1600.00')), Decimal('1355.93'))
+
+        customer = partner_customer_gst_fields(inclusive, inclusive_amount='1470.00')
+        self.assertEqual(customer['base_amount'], '1250.00')
+        self.assertEqual(customer['gst_amount'], '225.00')
+        self.assertEqual(customer['total_amount'], '1475.00')
+
+        cash_customer = partner_customer_gst_fields(cash, inclusive_amount='1600.00')
+        self.assertEqual(cash_customer['base_amount'], '1600.00')
+        self.assertEqual(cash_customer['gst_amount'], '288.00')
+        self.assertEqual(cash_customer['total_amount'], '1888.00')
+        self.assertEqual(
+            Decimal(cash_customer['base_amount']) + Decimal(cash_customer['gst_amount']),
+            Decimal(cash_customer['total_amount']),
+        )

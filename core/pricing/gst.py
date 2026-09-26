@@ -253,6 +253,58 @@ def ledger_base_ratio(job, amount) -> Decimal:
     return (base / figure) if figure else Decimal('1')
 
 
+def ledger_reference_amount(job) -> Decimal:
+    """Booking figure the ledger ratio is taken from (staff price, else visit revenue)."""
+    if job is None:
+        return Decimal('0.00')
+    try:
+        from core.payment_utils import parse_jobcard_price
+    except Exception:
+        parse_jobcard_price = None
+    price = (
+        parse_jobcard_price(getattr(job, 'price', None))
+        if parse_jobcard_price is not None
+        else _money(getattr(job, 'price', None))
+    )
+    if price > 0:
+        return price
+    return _money(getattr(job, 'visit_revenue_amount', None))
+
+
+def apply_ledger_base(job, amount, reference=None) -> Decimal:
+    """Map one stored rupee figure onto the technician-ledger base.
+
+    Uses the same ratio as the ledger (stored/chart base, or one GST peel for
+    legacy inclusive totals). Shares are scaled from the booking reference so a
+    40% slice is not peeled a second time.
+    """
+    figure = _money(amount)
+    if figure <= 0 or job is None:
+        if figure <= 0:
+            return figure
+        return amount_excluding_gst(figure)
+
+    ref = _money(reference) if reference is not None else ledger_reference_amount(job)
+    if ref <= 0:
+        ref = figure
+
+    stored = explicit_service_base_total(job)
+    chart = chart_quote_for_job(job)
+    chart_total = _money(chart['total_with_gst']) if chart is not None else None
+    replaces_customer_total = bool(
+        chart_total
+        and ref > 0
+        and (
+            _close_money(ref, chart_total)
+            or (stored and _close_money(stored, chart_total))
+        )
+    )
+    if stored or replaces_customer_total:
+        ratio = ledger_base_ratio(job, ref)
+        return (figure * ratio).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
+    return amount_excluding_gst(figure, resolve_job_gst_percent(job))
+
+
 def amount_excluding_gst(amount, gst_percent=DEFAULT_GST_PERCENT) -> Decimal:
     """
     Convert a GST-inclusive rupee amount to the excl-GST base.
@@ -279,12 +331,46 @@ def partner_customer_gst_fields(job, inclusive_amount=None) -> dict[str, str]:
         from core.payment_utils import partner_booking_display_amount
 
         inclusive_amount = partner_booking_display_amount(job)
-    gst_percent = resolve_job_gst_percent(job)
-    bd = gst_breakdown(
-        inclusive_amount,
-        gst_percent=gst_percent,
-        price_includes_gst=True,
-    )
+    figure = _money(inclusive_amount)
+    chart = chart_quote_for_job(job) if job is not None else None
+    stored = explicit_service_base_total(job) if job is not None else None
+    if chart is not None and figure > 0:
+        chart_base = _money(chart['base_amount'])
+        chart_total = _money(chart['total_with_gst'])
+        chart_gst = _money(chart['gst_amount'])
+        # Price is already the configured base (cash / rate-card basic).
+        if chart_base > 0 and (
+            _close_money(figure, chart_base)
+            or (stored and _close_money(stored, chart_base) and _visit_slice_matches(figure, stored))
+        ):
+            bd = {
+                'gst_percent': chart['gst_percent'],
+                'base_amount': chart_base,
+                'gst_amount': chart_gst,
+                'total_with_gst': chart_total,
+            }
+        # Price is the customer total (or within a rupee of the chart total).
+        elif chart_total > 0 and chart_base > 0 and (
+            _close_money(figure, chart_total)
+            or (stored and _close_money(stored, chart_total))
+        ):
+            bd = {
+                'gst_percent': chart['gst_percent'],
+                'base_amount': chart_base,
+                'gst_amount': chart_gst,
+                'total_with_gst': chart_total,
+            }
+        else:
+            bd = None
+    else:
+        bd = None
+    if bd is None:
+        gst_percent = resolve_job_gst_percent(job)
+        bd = gst_breakdown(
+            inclusive_amount,
+            gst_percent=gst_percent,
+            price_includes_gst=True,
+        )
     return {
         'gst_percent': str(bd['gst_percent']),
         'base_amount': str(bd['base_amount']),
@@ -353,4 +439,6 @@ def earning_amount_excluding_gst(amount, *, earning_type: str | None = None, job
     et = (earning_type or '').strip().lower()
     if et in ('incentive', 'deduction'):
         return _money(amount)
+    if job is not None:
+        return apply_ledger_base(job, amount)
     return amount_excluding_gst(amount, resolve_job_gst_percent(job))

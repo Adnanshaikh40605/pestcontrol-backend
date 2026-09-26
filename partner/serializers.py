@@ -13,20 +13,16 @@ def _inject_partner_money_fields(data, instance):
     Also exposes a flat ``payment_breakdown`` object with clear labels for the
     partner app: Total Service Amount, GST, Technician's Share, Company's Share.
     """
-    from core.pricing.gst import (
-        amount_excluding_gst,
-        partner_customer_gst_fields,
-        resolve_job_gst_percent,
-    )
+    from core.pricing.gst import apply_ledger_base, partner_customer_gst_fields, resolve_job_gst_percent
 
     gst = resolve_job_gst_percent(instance)
+    inclusive = data.get('total_booking_amount')
     for key in ('visit_payout_amount', 'visit_revenue_amount', 'company_share_amount'):
         raw = data.get(key)
         if raw is None or raw == '':
             continue
-        data[key] = str(amount_excluding_gst(raw, gst))
+        data[key] = str(apply_ledger_base(instance, raw, inclusive))
 
-    inclusive = data.get('total_booking_amount')
     data.update(partner_customer_gst_fields(instance, inclusive_amount=inclusive))
 
     def _money_str(value, fallback='0.00'):
@@ -530,12 +526,12 @@ class PartnerEarningSerializer(serializers.ModelSerializer):
         )
 
     def get_visit_payout_amount(self, obj):
-        from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
+        from core.pricing.gst import apply_ledger_base
 
         raw = getattr(obj.job, 'visit_payout_amount', None) if obj.job_id else None
         if raw is None:
             return None
-        return str(amount_excluding_gst(raw, resolve_job_gst_percent(obj.job)))
+        return str(apply_ledger_base(obj.job, raw))
 
     def get_settlement_status(self, obj):
         line = getattr(obj, 'settlement_line', None)

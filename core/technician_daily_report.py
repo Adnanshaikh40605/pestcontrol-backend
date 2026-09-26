@@ -22,7 +22,6 @@ from django.db.models import Q
 from django.utils import timezone
 
 from core.models import JobCard, JobCardTechnicianParticipation, Technician
-from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
 
 # CRM product labels — Priority == partner (broadcast pool).
 TYPE_DISPLAY = {
@@ -91,11 +90,13 @@ def _job_service_label(job: JobCard) -> str:
 
 def _payout_for_tech(job: JobCard, technician_id: int, participation_map: dict) -> Decimal:
     """Prefer immutable participation snapshot; fall back to lead visit payout."""
+    from core.pricing.gst import apply_ledger_base
+
     part = participation_map.get((job.id, technician_id))
     if part is not None and part.payout_amount_snapshot is not None:
         snap = _money(part.payout_amount_snapshot)
         if snap > 0:
-            return amount_excluding_gst(snap, resolve_job_gst_percent(job))
+            return apply_ledger_base(job, snap)
 
     tech = getattr(job, 'technician', None)
     if tech is not None and tech.id == technician_id:
@@ -103,11 +104,11 @@ def _payout_for_tech(job: JobCard, technician_id: int, participation_map: dict) 
             return Decimal('0.00')
         raw = job.visit_payout_amount
         if raw is not None and _money(raw) > 0:
-            return amount_excluding_gst(raw, resolve_job_gst_percent(job))
-        # Legacy: 40% of excl-GST price when snapshots missing
+            return apply_ledger_base(job, raw)
+        # Legacy: 40% of the ledger base when snapshots are missing.
         price = _money(job.price or job.total_amount or 0)
         if price > 0:
-            base = amount_excluding_gst(price, resolve_job_gst_percent(job))
+            base = apply_ledger_base(job, price)
             return (base * Decimal('0.40')).quantize(Decimal('0.01'))
     return Decimal('0.00')
 

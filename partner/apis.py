@@ -791,7 +791,7 @@ class CompleteBookingAPIView(PartnerAPIView):
             f"Partner {partner.full_name} completed booking #{job.id} via {payment_mode}"
         )
 
-        from core.pricing.gst import amount_excluding_gst, resolve_job_gst_percent
+        from core.pricing.gst import apply_ledger_base
 
         return Response({
             "message": f"Service completed! Payment recorded as {payment_mode}.",
@@ -801,7 +801,7 @@ class CompleteBookingAPIView(PartnerAPIView):
             "payment_status": job.payment_status,
             "payment_model": job.payment_model,
             "visit_payout_amount": (
-                str(amount_excluding_gst(job.visit_payout_amount, resolve_job_gst_percent(job)))
+                str(apply_ledger_base(job, job.visit_payout_amount))
                 if job.visit_payout_amount is not None
                 else None
             ),
