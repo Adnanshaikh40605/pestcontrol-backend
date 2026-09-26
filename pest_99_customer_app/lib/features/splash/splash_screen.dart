@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -33,7 +34,10 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      FlutterNativeSplash.remove();
+      // Native splash plugin is mobile-only; skip on web previews.
+      if (!kIsWeb) {
+        FlutterNativeSplash.remove();
+      }
     });
     // Hard timer: leave splash even if every await hangs forever.
     _hardDeadline = Timer(_kSplashHardDeadline, _forceLeave);

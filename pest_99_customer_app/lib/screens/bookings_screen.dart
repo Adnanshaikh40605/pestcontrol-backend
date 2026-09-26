@@ -7,6 +7,8 @@ import '../core/booking_timezone.dart';
 import '../core/theme/app_colors.dart';
 import '../core/theme/app_spacing.dart';
 import '../models/customer_models.dart';
+import '../providers/auth_provider.dart';
+import '../providers/booking_flow_provider.dart';
 import '../services/customer_services.dart';
 import '../shared/widgets/pc99_widgets.dart';
 import '../shared/widgets/section_card.dart';
@@ -25,10 +27,37 @@ class _BookingsScreenState extends State<BookingsScreen> {
   List<AmcScheduleGroup> _amcGroups = [];
   bool _loading = true;
   String? _error;
+  BookingFlowProvider? _flow;
+  int? _seenBookingId;
 
   @override
   void initState() {
     super.initState();
+    _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final flow = context.read<BookingFlowProvider>();
+    if (!identical(_flow, flow)) {
+      _flow?.removeListener(_onBookingConfirmed);
+      _flow = flow;
+      _flow!.addListener(_onBookingConfirmed);
+    }
+  }
+
+  @override
+  void dispose() {
+    _flow?.removeListener(_onBookingConfirmed);
+    super.dispose();
+  }
+
+  void _onBookingConfirmed() {
+    final booking = _flow?.confirmedBooking;
+    if (booking == null || booking.id == _seenBookingId) return;
+    if (!context.read<AuthProvider>().loggedIn) return;
+    _seenBookingId = booking.id;
     _load();
   }
 

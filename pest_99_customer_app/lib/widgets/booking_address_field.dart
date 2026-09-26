@@ -8,6 +8,9 @@ import '../services/places_service.dart';
 
 /// Website-style address field: Google Places suggestions + inline GPS locate.
 /// Uses the backend Places proxy (`/api/customer/places/…`) — same as ServiceAddressSection.
+///
+/// Height/chrome match `.booking-address-input` + `.booking-gps-btn` in globals.css:
+/// fixed height, 1.5px `#dbe8df` border, 8px radius, 28×28 soft-green locate button.
 class BookingAddressField extends StatefulWidget {
   const BookingAddressField({
     super.key,
@@ -15,18 +18,24 @@ class BookingAddressField extends StatefulWidget {
     required this.height,
     required this.decoration,
     this.errorText,
+    this.errorBorder = false,
   });
 
   final TextEditingController controller;
   final double height;
   final InputDecoration decoration;
   final String? errorText;
+  final bool errorBorder;
 
   @override
   State<BookingAddressField> createState() => _BookingAddressFieldState();
 }
 
 class _BookingAddressFieldState extends State<BookingAddressField> {
+  static const _green = Color(0xFF087B3D);
+  static const _line = Color(0xFFDBE8DF);
+  static const _soft = Color(0xFFEFFAF3);
+
   final _focus = FocusNode();
   final _debouncer = Debouncer(milliseconds: 300);
   PlacesService? _places;
@@ -179,19 +188,26 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
 
   @override
   Widget build(BuildContext context) {
-    final compact = widget.height < 36;
-    final iconBox = compact ? 30.0 : 36.0;
+    // Website `.booking-gps-btn`: 28×28, right 4, soft green.
+    const gpsSize = 28.0;
     final deco = widget.decoration.copyWith(
-      // Room for the GPS button on the right.
-      contentPadding: EdgeInsets.fromLTRB(compact ? 8 : 10, 0, iconBox + 6, 0),
+      contentPadding: const EdgeInsets.fromLTRB(10, 0, gpsSize + 10, 0),
       suffixIcon: null,
     );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(
+        Container(
           height: widget.height,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: widget.errorBorder ? Colors.red.shade400 : _line,
+              width: 1.5,
+            ),
+          ),
           child: Stack(
             alignment: Alignment.centerRight,
             children: [
@@ -199,37 +215,40 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
                 controller: widget.controller,
                 focusNode: _focus,
                 textInputAction: TextInputAction.search,
+                textAlignVertical: TextAlignVertical.center,
                 style: TextStyle(
-                  fontSize: compact ? 11.5 : 12.5,
+                  fontSize: widget.height < 36 ? 12 : 13,
                   fontWeight: FontWeight.w700,
+                  height: 1.2,
                   color: const Color(0xFF1B2A22),
                 ),
                 decoration: deco,
               ),
               Positioned(
-                right: 2,
+                right: 4,
                 child: Material(
-                  color: Colors.transparent,
+                  color: _soft,
+                  borderRadius: BorderRadius.circular(7),
                   child: InkWell(
                     onTap: _locating ? null : _useCurrentLocation,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(7),
                     child: SizedBox(
-                      width: iconBox,
-                      height: iconBox,
+                      width: gpsSize,
+                      height: gpsSize,
                       child: Center(
                         child: _locating
-                            ? SizedBox(
-                                width: compact ? 14 : 16,
-                                height: compact ? 14 : 16,
-                                child: const CircularProgressIndicator(
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  color: Color(0xFF087B3D),
+                                  color: _green,
                                 ),
                               )
-                            : Icon(
+                            : const Icon(
                                 Icons.my_location_rounded,
-                                size: compact ? 16 : 18,
-                                color: const Color(0xFF087B3D),
+                                size: 16,
+                                color: _green,
                               ),
                       ),
                     ),
@@ -247,7 +266,7 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
                 SizedBox(
                   width: 12,
                   height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF087B3D)),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: _green),
                 ),
                 SizedBox(width: 6),
                 Text(
@@ -265,7 +284,10 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
               style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.red),
             ),
           ),
-        if (_placesHint != null && _suggestions.isEmpty && !_loadingSuggestions && widget.errorText == null)
+        if (_placesHint != null &&
+            _suggestions.isEmpty &&
+            !_loadingSuggestions &&
+            widget.errorText == null)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
@@ -280,7 +302,7 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFDBE8DF)),
+              border: Border.all(color: _line),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.06),
@@ -302,7 +324,7 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     child: Row(
                       children: [
-                        const Icon(Icons.place_rounded, size: 16, color: Color(0xFF087B3D)),
+                        const Icon(Icons.place_rounded, size: 16, color: _green),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Column(

@@ -44,7 +44,7 @@ class HomeShell extends StatelessWidget {
           backgroundColor: AppColors.surface,
           indicatorColor: AppColors.successBg,
           elevation: 0,
-          height: 56,
+          height: 48,
           labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
           destinations: const [
             NavigationDestination(

@@ -238,6 +238,8 @@ class BookingService {
     String? timeSlot,
     double? latitude,
     double? longitude,
+    String bookingSessionId = '',
+    String bookingSource = 'APP',
   }) async {
     final body = <String, dynamic>{
       'full_name': fullName,
@@ -252,7 +254,9 @@ class BookingService {
       'booking_type': bookingType,
       'otp_verification_token': otpVerificationToken,
       'price_confirmation_pending': priceConfirmationPending,
+      'booking_source': bookingSource,
       if (pricingRateId != null && pricingRateId > 0) 'pricing_rate_id': pricingRateId,
+      if (bookingSessionId.isNotEmpty) 'booking_session_id': bookingSessionId,
       if (area.isNotEmpty) 'area': area,
       if (notes.isNotEmpty) 'notes': notes,
       if (bookingDate != null && bookingDate.isNotEmpty) 'booking_date': bookingDate,

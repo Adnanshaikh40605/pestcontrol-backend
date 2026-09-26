@@ -44,6 +44,21 @@ void main() {
       expect(flow.bookingTime24, isNotNull);
     });
 
+    test('default preferred time stays inside service window (never midnight)', () {
+      final flow = BookingFlowProvider();
+      final parts = flow.preferredTimeParts;
+      expect(parts, isNotNull);
+      final (hour, minute) = parts!;
+      expect(
+        BookingTimezone.isWithinServiceWindow(hour, minute),
+        isTrue,
+        reason: 'got ${flow.preferredTime} — must be 10:00–19:30 IST',
+      );
+      // Friendly label must not look like an overnight bug (e.g. "12:50 am").
+      final friendly = BookingFlowProvider.formatFriendlyTime(flow.preferredTime).toLowerCase();
+      expect(friendly.contains('am') && hour < 10, isFalse);
+    });
+
     test('setPreferredTime updates 12h label and 24h payload', () {
       final flow = BookingFlowProvider();
       flow.setPreferredTime(14, 30);

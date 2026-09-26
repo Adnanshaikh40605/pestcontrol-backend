@@ -108,14 +108,32 @@ class BookingFlowProvider extends ChangeNotifier {
   }
 
   void _applyDefaultSchedule() {
+    // Match website: IST now + 1h, rounded up to 5-min clock step.
     final now = BookingTimezone.now();
     var target = now.add(const Duration(hours: 1));
-    // Round minute up to 5-min step (website ClockTimePicker).
     final rem = target.minute % 5;
     if (rem != 0) {
       target = target.add(Duration(minutes: 5 - rem));
     }
     target = DateTime(target.year, target.month, target.day, target.hour, target.minute);
+
+    // Never default outside the bookable window (10:00–19:30 IST).
+    // Late-evening IST (common when testing from US daytime) used to show
+    // odd times like "12:50 am" after midnight rollover.
+    final day = DateTime(target.year, target.month, target.day);
+    if (!BookingTimezone.isWithinServiceWindow(target.hour, target.minute) ||
+        !BookingTimezone.isNotInPast(day, target.hour, target.minute)) {
+      var (h, m) = BookingTimezone.defaultTimeFor(day);
+      var resolvedDay = day;
+      if (!BookingTimezone.isWithinServiceWindow(h, m) ||
+          !BookingTimezone.isNotInPast(resolvedDay, h, m)) {
+        resolvedDay = BookingTimezone.today().add(const Duration(days: 1));
+        h = BookingTimezone.minHour;
+        m = BookingTimezone.minMinute;
+      }
+      target = DateTime(resolvedDay.year, resolvedDay.month, resolvedDay.day, h, m);
+    }
+
     preferredDate = DateFormat('yyyy-MM-dd').format(target);
     preferredTime = _format12h(target.hour, target.minute);
   }

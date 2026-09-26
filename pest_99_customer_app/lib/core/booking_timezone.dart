@@ -41,10 +41,15 @@ class BookingTimezone {
 
   /// Default start time: next 30-min slot at/after now within service window,
   /// or 10:00 when booking a future day / before window opens.
+  /// If today's window is closed, returns tomorrow 10:00.
   static (int hour, int minute) defaultTimeFor(DateTime date) {
     final day = DateTime(date.year, date.month, date.day);
     final todayDay = today();
     if (day.isAfter(todayDay)) {
+      return (minHour, minMinute);
+    }
+    if (day.isBefore(todayDay)) {
+      // Past calendar day — caller should roll forward; still return window start.
       return (minHour, minMinute);
     }
     final n = now();
@@ -63,7 +68,8 @@ class BookingTimezone {
       return (minHour, minMinute);
     }
     if (hour > maxHour || (hour == maxHour && minute > maxMinute)) {
-      // Past last slot today — still default to window start; UI will block Continue.
+      // Past last slot today — signal via returning minHour; callers that check
+      // isNotInPast will roll the date to tomorrow.
       return (minHour, minMinute);
     }
     return (hour, minute);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../config/api_config.dart';
 import '../core/api_client.dart';
+import '../core/booking_form_density.dart';
 import '../core/booking_timezone.dart';
 import '../core/theme/app_colors.dart';
 import '../providers/auth_provider.dart';
@@ -46,6 +48,8 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
   final _mobileCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
   final _otpCtrl = TextEditingController();
+  final _otpFocus = FocusNode();
+  final String _bookingSessionId = _newBookingSessionId();
 
   Map<String, String> _errors = {};
   String? _submitMessage;
@@ -101,7 +105,9 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
       flow.setRates(rates);
     } catch (e) {
       if (!mounted) return;
-      flow.setRatesError('$e');
+      flow.setRatesError(
+        '$e'.contains('DioException') ? ApiClient.offlineMessage : '$e',
+      );
     }
   }
 
@@ -111,6 +117,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     _mobileCtrl.dispose();
     _addressCtrl.dispose();
     _otpCtrl.dispose();
+    _otpFocus.dispose();
     super.dispose();
   }
 
@@ -270,7 +277,22 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     );
   }
 
+  static String _newBookingSessionId() {
+    final rand = math.Random();
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    return List.generate(24, (_) => chars[rand.nextInt(chars.length)]).join();
+  }
+
+  String _customerMessage(Object error) {
+    final text = '$error';
+    if (text.contains('DioException') || text.contains('SocketException')) {
+      return ApiClient.offlineMessage;
+    }
+    return text;
+  }
+
   Future<void> _onConfirm() async {
+    if (_busy || _otpSending || _otpVerifying) return;
     final flow = context.read<BookingFlowProvider>();
     if (flow.isOtherPremiseSize) {
       setState(() {
@@ -316,9 +338,12 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
         _resendCooldown = (res['resend_after'] is num) ? (res['resend_after'] as num).toInt() : 2;
       });
       _tickResend();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _otpFocus.requestFocus();
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _submitMessage = '$e');
+      setState(() => _submitMessage = _customerMessage(e));
     } finally {
       if (mounted) {
         setState(() {
@@ -361,13 +386,14 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
       _tickResend();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _otpError = '$e');
+      setState(() => _otpError = _customerMessage(e));
     } finally {
       if (mounted) setState(() => _otpSending = false);
     }
   }
 
   Future<void> _verifyAndCreate() async {
+    if (_otpVerifying || _otpSending) return;
     final flow = _draft ?? context.read<BookingFlowProvider>();
     final otp = _otpCtrl.text.replaceAll(RegExp(r'\D'), '');
     if (otp.length != 4) {
@@ -435,6 +461,8 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
         timeSlot: flow.timeSlotLabel,
         latitude: flow.serviceLatitude,
         longitude: flow.serviceLongitude,
+        bookingSessionId: _bookingSessionId,
+        bookingSource: 'APP',
         notes:
             'App booking · ${flow.isCommercial ? 'Commercial' : 'Home (Residential)'} · '
             '${flow.bhkSizeForApi.isEmpty ? '—' : flow.bhkSizeForApi} · $qualityLabel · $planLabel · '
@@ -446,7 +474,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
       context.go('/book/confirmed');
     } catch (e) {
       if (!mounted) return;
-      setState(() => _otpError = '$e');
+      setState(() => _otpError = _customerMessage(e));
     } finally {
       if (mounted) setState(() => _otpVerifying = false);
     }
@@ -464,79 +492,17 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     return 'Pune';
   }
 
-  /// Density tokens matched to pestcontrol99.com home booking CSS.
-  /// Uses available body height (below header, above bottom nav) — not full screen height.
-  _FormDensity _densityFor(double bodyHeight) {
-    // Shell nav (~56–68) already shrinks body vs website; stay dense by default.
-    if (bodyHeight < 620) {
-      return const _FormDensity(
-        gap: 4,
-        colGap: 5,
-        fieldH: 32,
-        choiceH: 32,
-        propH: 24,
-        priceH: 30,
-        ctaH: 36,
-        headerH: 42,
-        formPadH: 8,
-        formPadV: 4,
-        titleSize: 14,
-        warrantySize: 9,
-        labelSize: 8.5,
-        fieldFont: 11,
-        choiceTitle: 10.5,
-        choiceSub: 7.5,
-        ctaFont: 13,
-        showTrust: false,
-        heroPadV: 5,
-        heroTitle: 16,
-      );
-    }
-    if (bodyHeight < 700) {
-      return const _FormDensity(
-        gap: 5,
-        colGap: 6,
-        fieldH: 34,
-        choiceH: 36,
-        propH: 26,
-        priceH: 34,
-        ctaH: 40,
-        headerH: 44,
-        formPadH: 10,
-        formPadV: 6,
-        titleSize: 14,
-        warrantySize: 9.5,
-        labelSize: 8.5,
-        fieldFont: 11.5,
-        choiceTitle: 11,
-        choiceSub: 8,
-        ctaFont: 14,
-        showTrust: false,
-        heroPadV: 6,
-        heroTitle: 17,
-      );
-    }
-    return const _FormDensity(
-      gap: 6,
-      colGap: 7,
-      fieldH: 36,
-      choiceH: 38,
-      propH: 28,
-      priceH: 36,
-      ctaH: 42,
-      headerH: 46,
-      formPadH: 10,
-      formPadV: 8,
-      titleSize: 15,
-      warrantySize: 10,
-      labelSize: 9,
-      fieldFont: 12,
-      choiceTitle: 11,
-      choiceSub: 8,
-      ctaFont: 14.5,
-      showTrust: true,
-      heroPadV: 8,
-      heroTitle: 18,
+  BookingFormDensity _densityFor({
+    required double bodyHeight,
+    required double contentWidth,
+    required BookingFormShape shape,
+    required double bottomPad,
+  }) {
+    return BookingFormDensity.fit(
+      bodyHeight: bodyHeight,
+      contentWidth: contentWidth,
+      shape: shape,
+      bottomPad: bottomPad,
     );
   }
 
@@ -561,417 +527,392 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
         bottom: false,
         child: Column(
           children: [
-            _buildHeader(context, height: widget.embeddedInShell ? 44 : 46),
+            _buildHeader(
+              context,
+              height: widget.embeddedInShell ? 48 : 52,
+            ),
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final dens = _densityFor(constraints.maxHeight);
+                  final view = View.of(context);
+                  final dpr = view.devicePixelRatio == 0
+                      ? 1.0
+                      : view.devicePixelRatio;
+                  final rawKeyboard = view.viewInsets.bottom / dpr;
+                  final mqKeyboard = MediaQuery.viewInsetsOf(context).bottom;
+                  // Scaffold consumes viewInsets when it resizes. Add the raw
+                  // inset back so density stays on the full page and the form
+                  // scrolls instead of crushing while the keyboard is open.
+                  final fitHeight = constraints.maxHeight +
+                      (mqKeyboard == 0 ? rawKeyboard : 0);
+                  final bottomPad = widget.embeddedInShell ? 2.0 : 4.0;
+                  final contentWidth = constraints.maxWidth -
+                      20 -
+                      BookingFormDensity.sheet.formPadH * 2;
+                  final residentialQuote =
+                      flow.isResidential && !flow.isInspectionQuote;
+                  final shape = BookingFormShape(
+                    showTreatment:
+                        residentialQuote && flow.showTreatmentQuality,
+                    showPlan: residentialQuote,
+                    planTaller:
+                        flow.isBedBugsPrimaryPlan || !flow.amcAvailable,
+                    banners: (flow.ratesError != null ? 1 : 0) +
+                        (_submitMessage != null ? 1 : 0),
+                  );
+                  final dens = _densityFor(
+                    bodyHeight: fitHeight,
+                    contentWidth: contentWidth,
+                    shape: shape,
+                    bottomPad: bottomPad,
+                  );
                   final gap = dens.gap;
-                  final fieldH = dens.fieldH;
+                  final inputH = dens.inputH;
                   final choiceH = dens.choiceH;
-                  final planH = flow.isBedBugsPrimaryPlan || !flow.amcAvailable
-                      ? choiceH + 4
-                      : choiceH;
-                  final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+                  final planH = dens.planHeight(shape);
 
-                  return SingleChildScrollView(
-                        // Scroll only as overflow safety (keyboard / very short phones).
-                        physics: keyboardOpen || constraints.maxHeight < 560
-                            ? const AlwaysScrollableScrollPhysics()
-                            : const ClampingScrollPhysics(),
-                        padding: EdgeInsets.fromLTRB(10, 0, 10, keyboardOpen ? 12 : 6),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(minHeight: constraints.maxHeight - 2),
-                          child: IntrinsicHeight(
-                            child: Column(
+                  List<Widget> formFields() => [
+                        _titleRow(dens),
+                        if (flow.ratesError != null) ...[
+                          SizedBox(height: gap),
+                          _banner(
+                            flow.ratesError!,
+                            Colors.amber.shade50,
+                            Colors.amber.shade900,
+                          ),
+                        ],
+                        if (_submitMessage != null) ...[
+                          SizedBox(height: gap),
+                          _banner(
+                            _submitMessage!,
+                            Colors.red.shade50,
+                            Colors.red.shade800,
+                          ),
+                        ],
+                        SizedBox(height: gap),
+                        _propToggle(flow, dens),
+                        SizedBox(height: gap),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: _pestSelect(flow, dens)),
+                            SizedBox(width: dens.colGap),
+                            Expanded(
+                              child: flow.isResidential && flow.pestTypes.isNotEmpty
+                                  ? _premiseSelect(flow, dens)
+                                  : const SizedBox.shrink(),
+                            ),
+                          ],
+                        ),
+                        if (flow.isResidential && !flow.isInspectionQuote) ...[
+                          if (flow.showTreatmentQuality) ...[
+                            SizedBox(height: gap),
+                            _label('TREATMENT QUALITY *', dens),
+                            _choiceRow(
+                              dens: dens,
                               children: [
-                                _buildHero(dens),
-                                Expanded(
-                                  child: Container(
-                                    width: double.infinity,
-                                    padding: EdgeInsets.fromLTRB(
-                                      dens.formPadH,
-                                      dens.formPadV,
-                                      dens.formPadH,
-                                      dens.formPadV,
-                                    ),
-                                    decoration: const BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.vertical(bottom: Radius.circular(18)),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Color(0x17173B24),
-                                          blurRadius: 30,
-                                          offset: Offset(0, 12),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                                      children: [
-                                        Row(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    'Confirm Your Booking',
-                                                    style: TextStyle(
-                                                      fontSize: dens.titleSize,
-                                                      fontWeight: FontWeight.w800,
-                                                      color: _navy,
-                                                      height: 1.15,
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    '100% Service Warranty',
-                                                    style: TextStyle(
-                                                      fontSize: dens.warrantySize,
-                                                      fontWeight: FontWeight.w700,
-                                                      color: _navy.withValues(alpha: 0.85),
-                                                      height: 1.15,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            Padding(
-                                              padding: const EdgeInsets.only(top: 2),
-                                              child: Text(
-                                                '* Required',
-                                                style: TextStyle(
-                                                  fontSize: dens.labelSize,
-                                                  color: const Color(0xFF668071),
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        if (flow.ratesError != null) ...[
-                                          SizedBox(height: gap),
-                                          _banner(
-                                            flow.ratesError!,
-                                            Colors.amber.shade50,
-                                            Colors.amber.shade900,
-                                          ),
-                                        ],
-                                        if (_submitMessage != null) ...[
-                                          SizedBox(height: gap),
-                                          _banner(
-                                            _submitMessage!,
-                                            Colors.red.shade50,
-                                            Colors.red.shade800,
-                                          ),
-                                        ],
-                                        SizedBox(height: gap),
-                                        _propToggle(flow, dens),
-                                        SizedBox(height: gap),
-                                        Row(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Expanded(child: _pestSelect(flow, dens)),
-                                            SizedBox(width: dens.colGap),
-                                            Expanded(
-                                              child: flow.isResidential && flow.pestTypes.isNotEmpty
-                                                  ? _premiseSelect(flow, dens)
-                                                  : const SizedBox.shrink(),
-                                            ),
-                                          ],
-                                        ),
-                                        if (flow.isResidential && !flow.isInspectionQuote) ...[
-                                          if (flow.showTreatmentQuality) ...[
-                                            SizedBox(height: gap),
-                                            _label('TREATMENT QUALITY *', dens),
-                                            _choiceRow(
-                                              dens: dens,
-                                              children: [
-                                                _choiceCard(
-                                                  dens: dens,
-                                                  title: 'Standard',
-                                                  sub: 'Gel + spray',
-                                                  selected: flow.treatmentQuality == 'standard',
-                                                  height: choiceH,
-                                                  onTap: () => flow.setTreatmentQuality('standard'),
-                                                  onInfo: () => _showTreatmentInfo('standard'),
-                                                ),
-                                                _choiceCard(
-                                                  dens: dens,
-                                                  title: 'Premium',
-                                                  sub: 'No-smell treatment',
-                                                  selected: flow.treatmentQuality == 'premium',
-                                                  recommended: true,
-                                                  height: choiceH,
-                                                  onTap: () => flow.setTreatmentQuality('premium'),
-                                                  onInfo: () => _showTreatmentInfo('premium'),
-                                                ),
-                                              ],
-                                            ),
-                                            if (_errors['treatmentQuality'] != null)
-                                              _fieldError(_errors['treatmentQuality']!),
-                                          ],
-                                          SizedBox(height: gap),
-                                          _label('SERVICE PLAN *', dens),
-                                          _choiceRow(
-                                            dens: dens,
-                                            children: [
-                                              _choiceCard(
-                                                dens: dens,
-                                                title: flow.oneTimePlanTitle,
-                                                sub: flow.oneTimePlanSub,
-                                                selected: flow.serviceType == 'one-time',
-                                                height: planH,
-                                                onTap: () => flow.setServiceType('one-time'),
-                                              ),
-                                              _choiceCard(
-                                                dens: dens,
-                                                title: 'AMC — 3 Visits',
-                                                sub: flow.amcAvailable
-                                                    ? '12-month protection'
-                                                    : BookingFlowProvider.amcUnavailableLabel,
-                                                selected: flow.serviceType == 'amc',
-                                                recommended: flow.amcAvailable,
-                                                disabled: !flow.amcAvailable,
-                                                unavailable: !flow.amcAvailable,
-                                                showLock: !flow.amcAvailable,
-                                                height: planH,
-                                                onTap: () => flow.setServiceType('amc'),
-                                              ),
-                                            ],
-                                          ),
-                                          if (_errors['serviceType'] != null)
-                                            _fieldError(_errors['serviceType']!),
-                                        ],
-                                        SizedBox(height: gap),
-                                        _label('SERVICE ADDRESS *', dens),
-                                        BookingAddressField(
-                                          controller: _addressCtrl,
-                                          height: fieldH,
-                                          decoration: _inputDeco(
-                                            'Area, building or full address',
-                                            dens: dens,
-                                            error: _errors['streetAddress'] != null,
-                                          ),
-                                          errorText: _errors['streetAddress'],
-                                        ),
-                                        SizedBox(height: gap),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  _label('PREFERRED DATE *', dens),
-                                                  SizedBox(
-                                                    height: fieldH,
-                                                    child: InkWell(
-                                                      onTap: _pickDate,
-                                                      borderRadius: BorderRadius.circular(8),
-                                                      child: InputDecorator(
-                                                        decoration: _inputDeco('', dens: dens),
-                                                        child: Text(
-                                                          flow.friendlyPreferredDate.isEmpty
-                                                              ? 'Select date'
-                                                              : flow.friendlyPreferredDate,
-                                                          style: TextStyle(
-                                                            fontSize: dens.fieldFont,
-                                                            fontWeight: FontWeight.w700,
-                                                            color: flow.friendlyPreferredDate.isEmpty
-                                                                ? AppColors.textHint
-                                                                : const Color(0xFF1B2A22),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            SizedBox(width: dens.colGap),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  _label('PREFERRED TIME *', dens),
-                                                  SizedBox(
-                                                    height: fieldH,
-                                                    child: InkWell(
-                                                      onTap: _pickTime,
-                                                      borderRadius: BorderRadius.circular(8),
-                                                      child: InputDecorator(
-                                                        decoration: _inputDeco('', dens: dens).copyWith(
-                                                          prefixIcon: Icon(
-                                                            Icons.access_time,
-                                                            size: dens.fieldH < 34 ? 14 : 15,
-                                                            color: _green,
-                                                          ),
-                                                          prefixIconConstraints: BoxConstraints(
-                                                            minWidth: dens.fieldH < 34 ? 28 : 30,
-                                                            minHeight: dens.fieldH,
-                                                          ),
-                                                        ),
-                                                        child: Text(
-                                                          flow.preferredTime.isEmpty
-                                                              ? 'Select time'
-                                                              : BookingFlowProvider.formatFriendlyTime(
-                                                                  flow.preferredTime,
-                                                                ),
-                                                          style: TextStyle(
-                                                            fontSize: dens.fieldFont,
-                                                            fontWeight: FontWeight.w700,
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        SizedBox(height: gap),
-                                        Row(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Expanded(
-                                              flex: 9,
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  _label('YOUR NAME *', dens),
-                                                  SizedBox(
-                                                    height: fieldH,
-                                                    child: TextField(
-                                                      controller: _nameCtrl,
-                                                      onChanged: (value) {
-                                                        flow.setFullName(value);
-                                                        // setFullName collapses spaces / strips symbols —
-                                                        // keep the field text aligned (website sanitize).
-                                                        if (_nameCtrl.text != flow.fullName) {
-                                                          _nameCtrl.value = TextEditingValue(
-                                                            text: flow.fullName,
-                                                            selection: TextSelection.collapsed(
-                                                              offset: flow.fullName.length,
-                                                            ),
-                                                          );
-                                                        }
-                                                      },
-                                                      keyboardType: TextInputType.name,
-                                                      textCapitalization: TextCapitalization.words,
-                                                      inputFormatters: [
-                                                        FilteringTextInputFormatter.allow(
-                                                          RegExp(r'[\p{L}\s]', unicode: true),
-                                                        ),
-                                                      ],
-                                                      style: TextStyle(
-                                                        fontSize: dens.fieldFont,
-                                                        fontWeight: FontWeight.w700,
-                                                      ),
-                                                      decoration: _inputDeco(
-                                                        'Full name',
-                                                        dens: dens,
-                                                        error: _errors['name'] != null,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  if (_errors['name'] != null)
-                                                    _fieldError(_errors['name']!),
-                                                ],
-                                              ),
-                                            ),
-                                            SizedBox(width: dens.colGap),
-                                            Expanded(
-                                              flex: 11,
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  _label('MOBILE NUMBER *', dens),
-                                                  SizedBox(
-                                                    height: fieldH,
-                                                    child: TextField(
-                                                      controller: _mobileCtrl,
-                                                      onChanged: flow.setMobile,
-                                                      keyboardType: TextInputType.phone,
-                                                      inputFormatters: [
-                                                        FilteringTextInputFormatter.digitsOnly,
-                                                        LengthLimitingTextInputFormatter(10),
-                                                      ],
-                                                      style: TextStyle(
-                                                        fontSize: dens.fieldFont,
-                                                        fontWeight: FontWeight.w700,
-                                                      ),
-                                                      decoration: _inputDeco(
-                                                        '10 digits',
-                                                        dens: dens,
-                                                        error: _errors['phone'] != null,
-                                                      ).copyWith(
-                                                        prefixIcon: Padding(
-                                                          padding: const EdgeInsets.only(
-                                                            left: 6,
-                                                            right: 2,
-                                                          ),
-                                                          child: Text(
-                                                            '🇮🇳 +91',
-                                                            style: TextStyle(
-                                                              fontSize: dens.fieldFont - 0.5,
-                                                              fontWeight: FontWeight.w800,
-                                                            ),
-                                                          ),
-                                                        ),
-                                                        prefixIconConstraints: BoxConstraints(
-                                                          minWidth: dens.fieldH < 34 ? 48 : 52,
-                                                          minHeight: dens.fieldH,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  if (_errors['phone'] != null)
-                                                    _fieldError(_errors['phone']!),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const Spacer(),
-                                        SizedBox(height: gap),
-                                        // Guidelines live on success screen — keep form = website one-viewport CTA.
-                                        _priceBar(flow, q, dens),
-                                        SizedBox(height: dens.gap > 5 ? 6 : 5),
-                                        SizedBox(
-                                          height: dens.ctaH,
-                                          child: FilledButton(
-                                            style: FilledButton.styleFrom(
-                                              backgroundColor: _green,
-                                              foregroundColor: Colors.white,
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(11),
-                                              ),
-                                            ),
-                                            onPressed: _busy || _otpSending ? null : _onConfirm,
-                                            child: Text(
-                                              _busy || _otpSending
-                                                  ? 'Sending OTP…'
-                                                  : flow.isOtherPremiseSize
-                                                      ? 'Call / WhatsApp for Quote →'
-                                                      : 'Confirm Booking →',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w900,
-                                                fontSize: dens.ctaFont,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                _choiceCard(
+                                  dens: dens,
+                                  title: 'Standard',
+                                  sub: 'Gel + spray',
+                                  selected: flow.treatmentQuality == 'standard',
+                                  height: choiceH,
+                                  onTap: () => flow.setTreatmentQuality('standard'),
+                                  onInfo: () => _showTreatmentInfo('standard'),
+                                ),
+                                _choiceCard(
+                                  dens: dens,
+                                  title: 'Premium',
+                                  sub: 'No-smell treatment',
+                                  selected: flow.treatmentQuality == 'premium',
+                                  recommended: true,
+                                  height: choiceH,
+                                  onTap: () => flow.setTreatmentQuality('premium'),
+                                  onInfo: () => _showTreatmentInfo('premium'),
                                 ),
                               ],
                             ),
+                            if (_errors['treatmentQuality'] != null)
+                              _fieldError(_errors['treatmentQuality']!),
+                          ],
+                          SizedBox(height: gap),
+                          _label('SERVICE PLAN *', dens),
+                          _choiceRow(
+                            dens: dens,
+                            children: [
+                              _choiceCard(
+                                dens: dens,
+                                title: flow.oneTimePlanTitle,
+                                sub: flow.oneTimePlanSub,
+                                selected: flow.serviceType == 'one-time',
+                                height: planH,
+                                onTap: () => flow.setServiceType('one-time'),
+                              ),
+                              _choiceCard(
+                                dens: dens,
+                                title: 'AMC — 3 Visits',
+                                sub: flow.amcAvailable
+                                    ? '12-month protection'
+                                    : BookingFlowProvider.amcUnavailableLabel,
+                                selected: flow.serviceType == 'amc',
+                                recommended: flow.amcAvailable,
+                                disabled: !flow.amcAvailable,
+                                unavailable: !flow.amcAvailable,
+                                showLock: !flow.amcAvailable,
+                                height: planH,
+                                onTap: () => flow.setServiceType('amc'),
+                              ),
+                            ],
+                          ),
+                          if (_errors['serviceType'] != null)
+                            _fieldError(_errors['serviceType']!),
+                        ],
+                        SizedBox(height: gap),
+                        _label('SERVICE ADDRESS *', dens),
+                        BookingAddressField(
+                          controller: _addressCtrl,
+                          height: inputH,
+                          decoration: _borderlessDeco(
+                            'Area, building or full address',
+                            dens: dens,
+                          ),
+                          errorText: _errors['streetAddress'],
+                          errorBorder: _errors['streetAddress'] != null,
+                        ),
+                        SizedBox(height: gap),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _label('PREFERRED DATE *', dens),
+                                  _scheduleTapField(
+                                    dens: dens,
+                                    height: inputH,
+                                    onTap: _pickDate,
+                                    child: Text(
+                                      flow.friendlyPreferredDate.isEmpty
+                                          ? 'Select date'
+                                          : flow.friendlyPreferredDate,
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      style: TextStyle(
+                                        fontSize: dens.inputFont,
+                                        fontWeight: FontWeight.w700,
+                                        color: flow.friendlyPreferredDate.isEmpty
+                                            ? const Color(0xFF9DAAA3)
+                                            : const Color(0xFF1B2A22),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            SizedBox(width: dens.colGap),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _label('PREFERRED TIME *', dens),
+                                  _scheduleTapField(
+                                    dens: dens,
+                                    height: inputH,
+                                    onTap: _pickTime,
+                                    prefix: Icon(
+                                      Icons.access_time,
+                                      size: inputH < 36 ? 14 : 16,
+                                      color: _green,
+                                    ),
+                                    child: Text(
+                                      flow.preferredTime.isEmpty
+                                          ? 'Select time'
+                                          : BookingFlowProvider.formatFriendlyTime(
+                                              flow.preferredTime,
+                                            ),
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      style: TextStyle(
+                                        fontSize: dens.inputFont,
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFF1B2A22),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: gap),
+                        // Website `.booking-grid-phone`: 0.9fr / 1.1fr — equal HEIGHT.
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              flex: 8,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _label('YOUR NAME *', dens),
+                                  _boxedInput(
+                                    height: inputH,
+                                    error: _errors['name'] != null,
+                                    child: TextField(
+                                      controller: _nameCtrl,
+                                      onChanged: (value) {
+                                        flow.setFullName(value);
+                                        if (_nameCtrl.text != flow.fullName) {
+                                          _nameCtrl.value = TextEditingValue(
+                                            text: flow.fullName,
+                                            selection: TextSelection.collapsed(
+                                              offset: flow.fullName.length,
+                                            ),
+                                          );
+                                        }
+                                      },
+                                      keyboardType: TextInputType.name,
+                                      textCapitalization: TextCapitalization.words,
+                                      textAlignVertical: TextAlignVertical.center,
+                                      inputFormatters: [
+                                        FilteringTextInputFormatter.allow(
+                                          RegExp(r'[\p{L}\s]', unicode: true),
+                                        ),
+                                      ],
+                                      style: TextStyle(
+                                        fontSize: dens.inputFont,
+                                        fontWeight: FontWeight.w700,
+                                        height: 1.2,
+                                        color: const Color(0xFF1B2A22),
+                                      ),
+                                      decoration: _borderlessDeco(
+                                        'Full name',
+                                        dens: dens,
+                                      ),
+                                    ),
+                                  ),
+                                  if (_errors['name'] != null)
+                                    _fieldError(_errors['name']!),
+                                ],
+                              ),
+                            ),
+                            SizedBox(width: dens.colGap),
+                            Expanded(
+                              flex: 12,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _label('MOBILE NUMBER *', dens),
+                                  _phoneField(
+                                    dens: dens,
+                                    height: inputH,
+                                    error: _errors['phone'] != null,
+                                    onChanged: flow.setMobile,
+                                  ),
+                                  if (_errors['phone'] != null)
+                                    _fieldError(_errors['phone']!),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ];
+
+                  Widget priceAndCta() => Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(height: dens.ctaGap),
+                          _priceBar(flow, q, dens),
+                          SizedBox(height: dens.ctaGap),
+                          SizedBox(
+                            height: dens.ctaH,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(11),
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF087B3D), Color(0xFF15984E)],
+                                ),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x38087B3D),
+                                    blurRadius: 14,
+                                    offset: Offset(0, 6),
+                                  ),
+                                ],
+                              ),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: _busy || _otpSending || _otpVerifying
+                                      ? null
+                                      : _onConfirm,
+                                  borderRadius: BorderRadius.circular(11),
+                                  child: Center(
+                                    child: Text(
+                                      _busy || _otpSending
+                                          ? 'Sending OTP...'
+                                          : flow.isOtherPremiseSize
+                                              ? 'Call / WhatsApp for Quote →'
+                                              : 'Confirm Booking →',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: dens.ctaFont,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+
+                  return Padding(
+                    padding: EdgeInsets.fromLTRB(10, 0, 10, bottomPad),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildHero(dens),
+                        Expanded(
+                          child: Container(
+                            width: double.infinity,
+                            padding: EdgeInsets.fromLTRB(
+                              dens.formPadH,
+                              dens.formPadV,
+                              dens.formPadH,
+                              dens.cardBottom,
+                            ),
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.vertical(bottom: Radius.circular(18)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Color(0x17173B24),
+                                  blurRadius: 30,
+                                  offset: Offset(0, 12),
+                                ),
+                              ],
+                            ),
+                            // Scroll is only a safety valve (very short screens, keyboard,
+                            // or a validation banner). A fitted page does not move.
+                            child: SingleChildScrollView(
+                              physics: const ClampingScrollPhysics(),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  ...formFields(),
+                                  priceAndCta(),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                      );
+                      ],
+                    ),
+                  );
                 },
               ),
             ),
@@ -985,6 +926,8 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
 
   Widget _buildHeader(BuildContext context, {required double height}) {
     final embedded = widget.embeddedInShell;
+    // Website `.site-header-logo`: left, ~36px mobile / ~48px desktop, contain.
+    final logoHeight = embedded ? 36.0 : 40.0;
     return Container(
       height: height,
       padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1001,40 +944,15 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
               visualDensity: VisualDensity.compact,
             )
           else
-            const SizedBox(width: 4),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                style: TextStyle(
-                  fontSize: height < 46 ? 14.5 : 15.5,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: -0.6,
-                ),
-                children: const [
-                  TextSpan(text: 'PEST', style: TextStyle(color: _navy)),
-                  TextSpan(text: 'CONTROL', style: TextStyle(color: _green)),
-                  TextSpan(text: '99', style: TextStyle(color: _navy)),
-                  TextSpan(
-                    text: '.COM',
-                    style: TextStyle(
-                      color: _navy,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ],
-              ),
-              textAlign: embedded ? TextAlign.left : TextAlign.center,
-            ),
-          ),
-          if (!embedded) const SizedBox(width: 40) else const SizedBox(width: 4),
+            const SizedBox(width: 2),
+          Pc99Logo(height: logoHeight),
+          const Spacer(),
         ],
       ),
     );
   }
 
-  Widget _buildHero(_FormDensity dens) {
+  Widget _buildHero(BookingFormDensity dens) {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(12, dens.heroPadV, 12, dens.heroPadV),
@@ -1045,48 +963,69 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
         ),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-            decoration: BoxDecoration(
-              color: _green,
-              borderRadius: BorderRadius.circular(5),
-            ),
-            child: const Text(
-              'LICENSED PEST CONTROL',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 8,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.5,
+          Align(
+            alignment: Alignment.centerLeft,
+            heightFactor: 1,
+            child: Container(
+              height: BookingFormDensity.badgeH,
+              padding: const EdgeInsets.symmetric(horizontal: 7),
+              decoration: BoxDecoration(
+                color: _green,
+                borderRadius: BorderRadius.circular(5),
+              ),
+              alignment: Alignment.center,
+              child: const Text(
+                'LICENSED PEST CONTROL',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 8,
+                  height: 1,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
               ),
             ),
           ),
-          SizedBox(height: dens.gap > 5 ? 4 : 3),
-          Text.rich(
-            TextSpan(
-              style: TextStyle(
-                fontSize: dens.heroTitle,
-                fontWeight: FontWeight.w800,
-                height: 1.05,
-                letterSpacing: -0.8,
-                color: _navy,
+          const SizedBox(height: BookingFormDensity.afterBadge),
+          SizedBox(
+            height: dens.heroTitle * 1.05,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text.rich(
+                TextSpan(
+                  style: TextStyle(
+                    fontSize: dens.heroTitle,
+                    fontWeight: FontWeight.w800,
+                    height: 1.05,
+                    letterSpacing: -0.8,
+                    color: _navy,
+                  ),
+                  children: const [
+                    TextSpan(text: 'Book Pest Control '),
+                    TextSpan(text: 'in 60 Seconds', style: TextStyle(color: _green)),
+                  ],
+                ),
+                maxLines: 1,
               ),
-              children: const [
-                TextSpan(text: 'Book Pest Control '),
-                TextSpan(text: 'in 60 Seconds', style: TextStyle(color: _green)),
-              ],
             ),
           ),
           if (dens.showTrust) ...[
-            const SizedBox(height: 3),
-            const Text(
-              'Verified Experts • Branded Chemicals • Invoice',
-              style: TextStyle(
-                fontSize: 9.5,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF365244),
+            const SizedBox(height: BookingFormDensity.trustGap),
+            const SizedBox(
+              height: BookingFormDensity.trustH,
+              child: Text(
+                'Verified Experts • Branded Chemicals • Invoice',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 9.5,
+                  height: 1,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF365244),
+                ),
               ),
             ),
           ],
@@ -1095,7 +1034,66 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     );
   }
 
-  Widget _propToggle(BookingFlowProvider flow, _FormDensity dens) {
+  /// Title and warranty stay on one line. Warranty scales down on narrow
+  /// phones instead of wrapping "Confirm Your Booking".
+  Widget _titleRow(BookingFormDensity dens) {
+    return SizedBox(
+      height: dens.titleLine,
+      child: Row(
+        children: [
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Confirm Your Booking',
+                    maxLines: 1,
+                    softWrap: false,
+                    style: TextStyle(
+                      fontSize: dens.titleSize,
+                      fontWeight: FontWeight.w800,
+                      color: _navy,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '100% Service Warranty',
+                    maxLines: 1,
+                    softWrap: false,
+                    style: TextStyle(
+                      fontSize: dens.warrantySize,
+                      fontWeight: FontWeight.w700,
+                      color: _navy.withValues(alpha: 0.85),
+                      height: 1.15,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '* Required',
+            maxLines: 1,
+            softWrap: false,
+            style: TextStyle(
+              fontSize: dens.labelSize,
+              color: const Color(0xFF668071),
+              fontWeight: FontWeight.w600,
+              height: 1.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _propToggle(BookingFlowProvider flow, BookingFormDensity dens) {
+    // Website `.booking-prop-toggle` padding 2 + `.booking-prop-btn` height.
     return Container(
       height: dens.propH + 4,
       padding: const EdgeInsets.all(2),
@@ -1110,7 +1108,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
               label: '🏠 Residential',
               active: flow.isResidential,
               height: dens.propH,
-              fontSize: dens.fieldH < 34 ? 10 : 11,
+              fontSize: 11,
               onTap: () => flow.setPremiseType('residential'),
             ),
           ),
@@ -1119,7 +1117,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
               label: '🏢 Commercial',
               active: flow.isCommercial,
               height: dens.propH,
-              fontSize: dens.fieldH < 34 ? 10 : 11,
+              fontSize: 11,
               onTap: () => flow.setPremiseType('commercial'),
             ),
           ),
@@ -1158,7 +1156,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     );
   }
 
-  Widget _pestSelect(BookingFlowProvider flow, _FormDensity dens) {
+  Widget _pestSelect(BookingFlowProvider flow, BookingFormDensity dens) {
     final label = flow.pestTypes.isEmpty
         ? 'Select service'
         : flow.pestTypes.length == 1
@@ -1173,7 +1171,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
       children: [
         _label('SELECT SERVICE *', dens),
         SizedBox(
-          height: dens.fieldH,
+          height: dens.selectH,
           child: PopupMenuButton<String>(
             onSelected: (v) {
               if (flow.pestTypes.contains(v)) {
@@ -1191,23 +1189,28 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                   ),
                 )
                 .toList(),
-            child: InputDecorator(
-              decoration: _inputDeco('', dens: dens),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      label,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: dens.fieldFont,
-                        fontWeight: FontWeight.w700,
-                        color: flow.pestTypes.isEmpty ? AppColors.textHint : const Color(0xFF1B2A22),
+            child: _boxedShell(
+              height: dens.selectH,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: dens.selectFont,
+                          fontWeight: FontWeight.w800,
+                          color: flow.pestTypes.isEmpty
+                              ? const Color(0xFF9DAAA3)
+                              : const Color(0xFF1B2A22),
+                        ),
                       ),
                     ),
-                  ),
-                  Icon(Icons.keyboard_arrow_down, size: dens.fieldH < 34 ? 16 : 18, color: _green),
-                ],
+                    const Icon(Icons.keyboard_arrow_down, size: 14, color: _green),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1217,7 +1220,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     );
   }
 
-  Widget _premiseSelect(BookingFlowProvider flow, _FormDensity dens) {
+  Widget _premiseSelect(BookingFlowProvider flow, BookingFormDensity dens) {
     final selected = BookingFlowProvider.premiseSizeOptions
         .where((o) => o.value == flow.premiseSize)
         .map((o) => o.label)
@@ -1227,7 +1230,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
       children: [
         _label('PREMISE SIZE *', dens),
         SizedBox(
-          height: dens.fieldH,
+          height: dens.selectH,
           child: PopupMenuButton<String>(
             onSelected: (v) {
               flow.setPremiseSize(v);
@@ -1236,23 +1239,29 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
             itemBuilder: (_) => BookingFlowProvider.premiseSizeOptions
                 .map((o) => PopupMenuItem(value: o.value, child: Text(o.label)))
                 .toList(),
-            child: InputDecorator(
-              decoration: _inputDeco('', dens: dens, error: _errors['premiseSize'] != null),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      selected ?? 'Select size',
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: dens.fieldFont,
-                        fontWeight: FontWeight.w700,
-                        color: selected == null ? AppColors.textHint : const Color(0xFF1B2A22),
+            child: _boxedShell(
+              height: dens.selectH,
+              error: _errors['premiseSize'] != null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 7),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        selected ?? 'Select size',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: dens.selectFont,
+                          fontWeight: FontWeight.w800,
+                          color: selected == null
+                              ? const Color(0xFF9DAAA3)
+                              : const Color(0xFF1B2A22),
+                        ),
                       ),
                     ),
-                  ),
-                  Icon(Icons.keyboard_arrow_down, size: dens.fieldH < 34 ? 16 : 18, color: _green),
-                ],
+                    const Icon(Icons.keyboard_arrow_down, size: 14, color: _green),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1262,7 +1271,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     );
   }
 
-  Widget _choiceRow({required _FormDensity dens, required List<Widget> children}) {
+  Widget _choiceRow({required BookingFormDensity dens, required List<Widget> children}) {
     return Row(
       children: [
         for (var i = 0; i < children.length; i++) ...[
@@ -1274,7 +1283,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
   }
 
   Widget _choiceCard({
-    required _FormDensity dens,
+    required BookingFormDensity dens,
     required String title,
     required String sub,
     required bool selected,
@@ -1298,17 +1307,19 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
           borderRadius: BorderRadius.circular(8),
           child: Container(
             height: height,
-            padding: EdgeInsets.fromLTRB(dens.fieldH < 34 ? 6 : 7, 2, dens.fieldH < 34 ? 6 : 7, 2),
+            padding: const EdgeInsets.fromLTRB(7, 3, 7, 3),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
                 color: selected
                     ? _green
                     : (disabled ? const Color(0xFFD5DDD8) : _line),
-                width: 1.5,
+                // Website: 1.5px + inset ring when selected.
+                width: selected ? 2 : 1.5,
               ),
             ),
             child: Stack(
+              clipBehavior: Clip.none,
               children: [
                 if (recommended && !disabled)
                   Positioned(
@@ -1327,6 +1338,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                           fontSize: 6,
                           fontWeight: FontWeight.w900,
                           height: 1.1,
+                          letterSpacing: 0.02,
                         ),
                       ),
                     ),
@@ -1396,18 +1408,18 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                     child: GestureDetector(
                       onTap: onInfo,
                       child: Container(
-                        width: dens.fieldH < 34 ? 14 : 16,
-                        height: dens.fieldH < 34 ? 14 : 16,
+                        width: 16,
+                        height: 16,
                         decoration: const BoxDecoration(
                           color: Color(0xFFDFF3E6),
                           shape: BoxShape.circle,
                         ),
                         alignment: Alignment.center,
-                        child: Text(
+                        child: const Text(
                           'i',
                           style: TextStyle(
                             color: _green,
-                            fontSize: dens.fieldH < 34 ? 9 : 10,
+                            fontSize: 10,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
@@ -1422,7 +1434,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     );
   }
 
-  Widget _priceBar(BookingFlowProvider flow, QuotePriceResult q, _FormDensity dens) {
+  Widget _priceBar(BookingFlowProvider flow, QuotePriceResult q, BookingFormDensity dens) {
     final showPromo = flow.selectionsComplete &&
         !flow.isInspectionQuote &&
         !q.pricePending &&
@@ -1431,7 +1443,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
         q.listPrice > q.offerPrice &&
         q.discountPercent > 0;
 
-    final amountSize = dens.priceH < 34 ? 16.0 : 17.0;
+    final amountSize = 17.0;
 
     Widget amount;
     if (flow.ratesLoading) {
@@ -1506,9 +1518,10 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 10,
+                    fontSize: 9,
                     color: Color(0xFF537060),
                     fontWeight: FontWeight.w600,
+                    height: 1.15,
                   ),
                 ),
                 if (flow.selectionsComplete &&
@@ -1517,12 +1530,12 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                     q.offerPrice > 0)
                   const Text(
                     'Price (Excluding GST)',
-                    style: TextStyle(fontSize: 8.5, color: Color(0xFFE06A13), fontWeight: FontWeight.w800),
+                    style: TextStyle(fontSize: 9, color: Color(0xFFE06A13), fontWeight: FontWeight.w800),
                   )
                 else if (flow.selectionsComplete && q.pricePending && !flow.isInspectionQuote)
                   const Text(
                     'Price confirmation pending',
-                    style: TextStyle(fontSize: 8.5, color: Color(0xFFE06A13), fontWeight: FontWeight.w800),
+                    style: TextStyle(fontSize: 9, color: Color(0xFFE06A13), fontWeight: FontWeight.w800),
                   ),
               ],
             ),
@@ -1568,65 +1581,22 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
               ],
             ),
             Text(
-              'OTP sent to +91 ${_otpMobile.isNotEmpty ? _otpMobile : context.read<BookingFlowProvider>().mobile} to confirm your booking.',
-              style: const TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.35),
+              _otpSending
+                  ? 'Sending OTP...'
+                  : 'OTP sent to your WhatsApp number.',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, height: 1.35),
             ),
-            const SizedBox(height: 6),
-            const Text(
-              'OTP will be sent to your WhatsApp number. Please check WhatsApp only.',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFC62828)),
+            const SizedBox(height: 4),
+            Text(
+              'Sent to +91 ${_otpMobile.isNotEmpty ? _otpMobile : context.read<BookingFlowProvider>().mobile}. Check WhatsApp only.',
+              style: const TextStyle(fontSize: 13, color: AppColors.textMuted, height: 1.35),
             ),
             if (_otpHint.isNotEmpty) ...[
               const SizedBox(height: 6),
               Text(_otpHint, style: const TextStyle(fontSize: 12, color: _green, fontWeight: FontWeight.w700)),
             ],
-            const SizedBox(height: 12),
-            TextField(
-              controller: _otpCtrl,
-              keyboardType: TextInputType.number,
-              maxLength: 4,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: 8),
-              decoration: _inputDeco(
-                'OTP',
-                dens: const _FormDensity(
-                  gap: 6,
-                  colGap: 7,
-                  fieldH: 40,
-                  choiceH: 38,
-                  propH: 28,
-                  priceH: 36,
-                  ctaH: 42,
-                  headerH: 46,
-                  formPadH: 10,
-                  formPadV: 8,
-                  titleSize: 15,
-                  warrantySize: 10,
-                  labelSize: 9,
-                  fieldFont: 14,
-                  choiceTitle: 11,
-                  choiceSub: 8,
-                  ctaFont: 14.5,
-                  showTrust: true,
-                  heroPadV: 8,
-                  heroTitle: 18,
-                ),
-              ).copyWith(counterText: ''),
-              enabled: !_otpVerifying,
-              onChanged: (_) {
-                if (_otpError.isNotEmpty) {
-                  setState(() => _otpError = '');
-                } else {
-                  setState(() {});
-                }
-              },
-              onSubmitted: (_) {
-                if (_otpCtrl.text.replaceAll(RegExp(r'\D'), '').length == 4) {
-                  _verifyAndCreate();
-                }
-              },
-            ),
+            const SizedBox(height: 14),
+            _otpDigitBoxes(),
             if (_otpError.isNotEmpty) _fieldError(_otpError),
             const SizedBox(height: 10),
             FilledButton(
@@ -1637,16 +1607,16 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
               onPressed: _otpVerifying || _otpSending || _otpCtrl.text.replaceAll(RegExp(r'\D'), '').length != 4
                   ? null
                   : _verifyAndCreate,
-              child: Text(_otpVerifying ? 'Confirming booking…' : 'Verify & Confirm Booking'),
+              child: Text(_otpVerifying ? 'Confirming booking…' : 'Verify'),
             ),
             TextButton(
               onPressed: _resendCooldown > 0 || _otpSending || _otpVerifying ? null : _resendOtp,
               child: Text(
                 _otpSending
-                    ? 'Sending…'
+                    ? 'Sending OTP...'
                     : _resendCooldown > 0
-                        ? 'Resend OTP in ${_resendCooldown}s'
-                        : 'Resend OTP',
+                        ? 'Resend in ${_resendCooldown}s'
+                        : 'Resend',
               ),
             ),
           ],
@@ -1655,18 +1625,93 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     );
   }
 
-  InputDecoration _inputDeco(String hint, {required _FormDensity dens, bool error = false}) {
+  Widget _otpDigitBoxes() {
+    final digits = _otpCtrl.text.replaceAll(RegExp(r'\D'), '');
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        Row(
+          children: [
+            for (var i = 0; i < 4; i++)
+              Expanded(
+                child: Container(
+                  height: 52,
+                  margin: EdgeInsets.only(left: i == 0 ? 0 : 8),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _otpError.isNotEmpty ? Colors.red.shade400 : _line,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Text(
+                    i < digits.length ? digits[i] : '',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1B2A22),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+        TextField(
+          controller: _otpCtrl,
+          focusNode: _otpFocus,
+          keyboardType: TextInputType.number,
+          maxLength: 4,
+          enabled: !_otpVerifying,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          showCursor: false,
+          style: const TextStyle(color: Colors.transparent, fontSize: 1),
+          // Theme InputDecoration fills and outlines the focused field.
+          // That paint covers the four digit boxes and draws one bar.
+          decoration: const InputDecoration(
+            counterText: '',
+            filled: false,
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            disabledBorder: InputBorder.none,
+            errorBorder: InputBorder.none,
+            focusedErrorBorder: InputBorder.none,
+            contentPadding: EdgeInsets.zero,
+            isCollapsed: true,
+          ),
+          onChanged: (_) {
+            if (_otpError.isNotEmpty) {
+              setState(() => _otpError = '');
+            } else {
+              setState(() {});
+            }
+          },
+          onSubmitted: (_) {
+            if (_otpCtrl.text.replaceAll(RegExp(r'\D'), '').length == 4) {
+              _verifyAndCreate();
+            }
+          },
+        ),
+      ],
+    );
+  }
+
+  /// Outlined field chrome for OTP sheet (keeps Material outline borders).
+  InputDecoration _inputDeco(String hint, {required BookingFormDensity dens, bool error = false}) {
     return InputDecoration(
       hintText: hint.isEmpty ? null : hint,
       hintStyle: TextStyle(
-        fontSize: dens.fieldFont,
+        fontSize: dens.inputFont,
         fontWeight: FontWeight.w500,
         color: const Color(0xFF9DAAA3),
+        height: 1.2,
       ),
       filled: true,
       fillColor: Colors.white,
       isDense: true,
-      contentPadding: EdgeInsets.symmetric(horizontal: dens.fieldH < 34 ? 8 : 9, vertical: 0),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(8),
         borderSide: BorderSide(color: error ? Colors.red.shade400 : _line, width: 1.5),
@@ -1682,16 +1727,164 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     );
   }
 
-  Widget _label(String text, _FormDensity dens) => Padding(
-        padding: EdgeInsets.only(bottom: dens.gap > 5 ? 2 : 1),
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: dens.labelSize,
-            fontWeight: FontWeight.w800,
-            color: const Color(0xFF4B6255),
-            letterSpacing: 0.02,
-            height: 1.1,
+  /// Borderless deco for TextFields hosted inside `_boxedInput` / address shell.
+  InputDecoration _borderlessDeco(String hint, {required BookingFormDensity dens}) {
+    return InputDecoration(
+      hintText: hint.isEmpty ? null : hint,
+      hintStyle: TextStyle(
+        fontSize: dens.inputFont,
+        fontWeight: FontWeight.w500,
+        color: const Color(0xFF9DAAA3),
+        height: 1.2,
+      ),
+      isDense: true,
+      filled: true,
+      fillColor: Colors.transparent,
+      border: InputBorder.none,
+      enabledBorder: InputBorder.none,
+      focusedBorder: InputBorder.none,
+      errorBorder: InputBorder.none,
+      disabledBorder: InputBorder.none,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+    );
+  }
+
+  /// Website `.booking-input` shell — fixed height, 1.5px `#dbe8df`, 8px radius.
+  Widget _boxedShell({
+    required double height,
+    required Widget child,
+    bool error = false,
+  }) {
+    return Container(
+      height: height,
+      width: double.infinity,
+      alignment: Alignment.centerLeft,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: error ? Colors.red.shade400 : _line,
+          width: 1.5,
+        ),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _boxedInput({
+    required double height,
+    required Widget child,
+    bool error = false,
+  }) {
+    return _boxedShell(height: height, error: error, child: child);
+  }
+
+  /// Website `.booking-phone-field` — compact prefix so 10 digits stay visible.
+  Widget _phoneField({
+    required BookingFormDensity dens,
+    required double height,
+    required ValueChanged<String> onChanged,
+    bool error = false,
+  }) {
+    final digitSize = math.max(dens.inputFont, 13).toDouble();
+    return _boxedShell(
+      height: height,
+      error: error,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const _PhonePrefix(),
+          Expanded(
+            child: TextField(
+              controller: _mobileCtrl,
+              onChanged: onChanged,
+              keyboardType: TextInputType.phone,
+              textAlignVertical: TextAlignVertical.center,
+              maxLines: 1,
+              scrollPhysics: const ClampingScrollPhysics(),
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(10),
+              ],
+              style: TextStyle(
+                fontSize: digitSize,
+                fontWeight: FontWeight.w700,
+                height: 1.15,
+                letterSpacing: 0,
+                fontFeatures: const [FontFeature.tabularFigures()],
+                color: const Color(0xFF1B2A22),
+              ),
+              decoration: _borderlessDeco('10 digits', dens: dens).copyWith(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 6),
+                isCollapsed: false,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Fixed-height tap field so Preferred Date/Time share identical box height.
+  Widget _scheduleTapField({
+    required BookingFormDensity dens,
+    required double height,
+    required VoidCallback onTap,
+    required Widget child,
+    Widget? prefix,
+  }) {
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(color: _line, width: 1.5),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                if (prefix != null) ...[
+                  prefix,
+                  const SizedBox(width: 6),
+                ],
+                Expanded(
+                  // Scale one line down so "Tomorrow • 27 Sep" stays inside
+                  // the box on a 320px-wide phone instead of wrapping over Name.
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: child,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _label(String text, BookingFormDensity dens) => SizedBox(
+        height: dens.labelBlock,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: Text(
+            text.toUpperCase(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: dens.labelSize,
+              fontWeight: FontWeight.w800,
+              color: const Color(0xFF4B6255),
+              letterSpacing: 0.02 * dens.labelSize,
+              height: 1.1,
+            ),
           ),
         ),
       );
@@ -1701,61 +1894,85 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
         child: Text(text, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.red)),
       );
 
-  Widget _banner(String text, Color bg, Color fg) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(8),
+  Widget _banner(String text, Color bg, Color fg) => SizedBox(
+        height: BookingFormDensity.bannerH,
+        child: Container(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            text,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 11, height: 1.05, fontWeight: FontWeight.w700, color: fg),
+          ),
         ),
-        child: Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: fg)),
       );
 }
 
-/// Website-aligned spacing / type scale for the one-viewport booking form.
-class _FormDensity {
-  const _FormDensity({
-    required this.gap,
-    required this.colGap,
-    required this.fieldH,
-    required this.choiceH,
-    required this.propH,
-    required this.priceH,
-    required this.ctaH,
-    required this.headerH,
-    required this.formPadH,
-    required this.formPadV,
-    required this.titleSize,
-    required this.warrantySize,
-    required this.labelSize,
-    required this.fieldFont,
-    required this.choiceTitle,
-    required this.choiceSub,
-    required this.ctaFont,
-    required this.showTrust,
-    required this.heroPadV,
-    required this.heroTitle,
-  });
+/// Fixed-size India flag so the emoji width does not steal digit space.
+class _PhonePrefix extends StatelessWidget {
+  const _PhonePrefix();
 
-  final double gap;
-  final double colGap;
-  final double fieldH;
-  final double choiceH;
-  final double propH;
-  final double priceH;
-  final double ctaH;
-  final double headerH;
-  final double formPadH;
-  final double formPadV;
-  final double titleSize;
-  final double warrantySize;
-  final double labelSize;
-  final double fieldFont;
-  final double choiceTitle;
-  final double choiceSub;
-  final double ctaFont;
-  final bool showTrust;
-  final double heroPadV;
-  final double heroTitle;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: const BoxDecoration(
+        color: Color(0xFFF4FAF6),
+        border: Border(right: BorderSide(color: Color(0xFFDBE8DF), width: 1.5)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _IndiaFlag(),
+          SizedBox(width: 4),
+          Text(
+            '+91',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              height: 1,
+              color: Color(0xFF1B2A22),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _IndiaFlag extends StatelessWidget {
+  const _IndiaFlag();
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      width: 16,
+      height: 11,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.all(Radius.circular(1)),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color(0xFFFF9933),
+              Color(0xFFFF9933),
+              Color(0xFFFFFFFF),
+              Color(0xFFFFFFFF),
+              Color(0xFF138808),
+              Color(0xFF138808),
+            ],
+            stops: [0, 0.33, 0.33, 0.66, 0.66, 1],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Kept for route compatibility — redirects handled in router; this is the success screen.
