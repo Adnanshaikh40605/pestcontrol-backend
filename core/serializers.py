@@ -193,6 +193,8 @@ class TechnicianSerializer(serializers.ModelSerializer):
     is_available_for_work = serializers.BooleanField(read_only=True)
     remarks = TechnicianRemarkSerializer(many=True, read_only=True)
     latest_remark = serializers.SerializerMethodField()
+    service_eligible = serializers.SerializerMethodField()
+    service_ineligibility_reason = serializers.SerializerMethodField()
 
     class Meta:
         model = Technician
@@ -203,6 +205,9 @@ class TechnicianSerializer(serializers.ModelSerializer):
             'last_active', 'active_jobs', 'active_job_details',
             'lineup_bookings', 'assigned_service_lines',
             'has_partner_app', 'partner_app_approved', 'partner_id', 'partner_name',
+            'accepts_one_time_jobs', 'accepts_amc_jobs',
+            'accepts_standard_service', 'accepts_premium_service',
+            'service_eligible', 'service_ineligibility_reason',
             'technician_type', 'branch', 'aadhaar', 'pan', 'photo', 'agreement_file',
             'security_deposit_amount', 'security_deposit_status', 'star_rating',
             'presence_status', 'presence_label', 'is_available_for_work',
@@ -257,6 +262,20 @@ class TechnicianSerializer(serializers.ModelSerializer):
         if not newest:
             return None
         return TechnicianRemarkSerializer(newest[0], context=self.context).data
+
+    def get_service_eligible(self, obj):
+        """False when this technician must not be assigned the booking in context."""
+        bucket = self.context.get('service_eligibility')
+        if bucket is None:
+            return None
+        return bucket.get(obj.id) is None
+
+    def get_service_ineligibility_reason(self, obj):
+        bucket = self.context.get('service_eligibility')
+        if bucket is None:
+            return None
+        err = bucket.get(obj.id)
+        return err['error'] if err else None
 
     def validate_presence_status(self, value):
         allowed = dict(Technician.PresenceStatus.choices)
@@ -1092,7 +1111,26 @@ class JobCardSerializer(serializers.ModelSerializer):
                 data['has_extra_amount'] = False
                 data['extra_amount'] = Decimal('0.00')
 
+        self._reject_ineligible_technician(data)
         return data
+
+    def _reject_ineligible_technician(self, data):
+        """Refuse creating or reassigning a booking onto an ineligible technician."""
+        if 'technician' not in data or data.get('technician') is None:
+            return
+        technician = data['technician']
+        current_id = self.instance.technician_id if self.instance is not None else None
+        if current_id and getattr(technician, 'id', None) == current_id:
+            return
+        from core.technician_service_eligibility import (
+            preview_job_for_eligibility,
+            service_eligibility_error,
+        )
+
+        job = preview_job_for_eligibility(self.instance, data)
+        err = service_eligibility_error(technician, job)
+        if err:
+            raise serializers.ValidationError({'technician': err['error']})
 
     def update(self, instance, validated_data):
         payment_collection_type = validated_data.pop('payment_collection_type', None)

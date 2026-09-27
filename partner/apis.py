@@ -517,6 +517,18 @@ class BookingDetailAPIView(PartnerAPIView):
             except JobCard.DoesNotExist:
                 return Response({"error": "Booking not found or not assigned to you."}, status=404)
 
+        # Pending offers the technician is not eligible for are not their jobs.
+        # Accepted / in-service / completed work stays readable.
+        if job.partner_status == JobCard.PartnerStatus.PENDING:
+            from core.technician_service_eligibility import technician_eligible_for_job
+
+            tech = getattr(partner, 'core_technician', None)
+            if tech is not None and not technician_eligible_for_job(tech, job):
+                return Response(
+                    {"error": "Booking not found or not assigned to you."},
+                    status=404,
+                )
+
         serializer = PartnerBookingDetailSerializer(job, context={'request': request})
         return Response(serializer.data)
 
@@ -644,6 +656,8 @@ class RejectBookingAPIView(PartnerAPIView):
             return Response({'error': 'Booking not found.', 'code': 'not_found'}, status=404)
 
     def _reject_booking(self, job, partner, reason):
+        # Reject stays allowed for an offer the technician is no longer eligible
+        # for, so a card that is already on the phone can still be dismissed.
         if job.status != JobCard.JobStatus.PENDING:
             if job.status == JobCard.JobStatus.CANCELLED:
                 message = 'This booking was already cancelled from CRM.'

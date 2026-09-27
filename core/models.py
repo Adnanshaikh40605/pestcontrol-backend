@@ -362,6 +362,43 @@ class Technician(BaseModel):
             '(e.g. Termite, Cockroach / Ants). Exposed as base_services on the API.'
         ),
     )
+    # Service eligibility. All four default True so existing technicians keep
+    # every job they can already receive. New CRM technicians start the same
+    # way (form checks all four); staff uncheck the job types to withhold.
+    # API creates that omit these fields inherit the same True defaults.
+    accepts_one_time_jobs = models.BooleanField(
+        default=True,
+        verbose_name='One-Time Jobs',
+        help_text=(
+            'Eligible for One-Time Service bookings. '
+            'Existing technicians default to enabled.'
+        ),
+    )
+    accepts_amc_jobs = models.BooleanField(
+        default=True,
+        verbose_name='AMC Jobs',
+        help_text=(
+            'Eligible for AMC bookings. Existing technicians default to enabled.'
+        ),
+    )
+    accepts_standard_service = models.BooleanField(
+        default=True,
+        verbose_name='Standard Service',
+        help_text=(
+            'Eligible for Standard treatment jobs (Cockroach Standard, and any '
+            'service that carries an explicit standard flag). '
+            'Existing technicians default to enabled.'
+        ),
+    )
+    accepts_premium_service = models.BooleanField(
+        default=True,
+        verbose_name='Premium Service',
+        help_text=(
+            'Eligible for Premium treatment jobs (Cockroach Premium, and any '
+            'service that carries an explicit premium flag). '
+            'Existing technicians default to enabled.'
+        ),
+    )
     star_rating = models.DecimalField(
         max_digits=3,
         decimal_places=2,

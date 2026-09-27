@@ -240,9 +240,21 @@ def notify_partners_new_booking(
     collapse_key = f'booking_{job.id}'
 
     partner_ids = approved_partner_ids(technician_id)
-    partners_qs = Partner.objects.filter(pk__in=partner_ids)
+    partners_qs = Partner.objects.filter(pk__in=partner_ids).select_related('core_technician')
 
+    from core.technician_service_eligibility import technician_eligible_for_job
+
+    # Job offers only go to technicians whose One-Time/AMC and Standard/Premium
+    # flags match this booking. Unlinked partner accounts have no flags to check.
+    eligible_partners = []
     for partner in partners_qs:
+        tech = partner.core_technician
+        if tech is not None and not technician_eligible_for_job(tech, job):
+            continue
+        eligible_partners.append(partner)
+    partner_ids = [partner.id for partner in eligible_partners]
+
+    for partner in eligible_partners:
         if not force and should_skip_duplicate_notify(
             job.id,
             PartnerNotification.NotificationType.NEW_BOOKING,

@@ -565,9 +565,16 @@ class TechnicianViewSet(BaseModelViewSet):
             except (TypeError, ValueError, JobCard.DoesNotExist):
                 job = None
         from core.technician_lineup import build_assign_lineup_context
+        from core.technician_service_eligibility import service_eligibility_error
 
         context = self.get_serializer_context()
         context.update(build_assign_lineup_context(technicians, job))
+        if job is not None:
+            # Keep ineligible technicians in the list so the desk can see why
+            # they cannot be assigned. The assign action still rejects them.
+            context['service_eligibility'] = {
+                tech.id: service_eligibility_error(tech, job) for tech in technicians
+            }
         serializer = self.get_serializer(technicians, many=True, context=context)
         return response.Response(serializer.data)
 
@@ -2719,6 +2726,16 @@ class JobCardViewSet(BaseModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            if instance.technician_id != technician.id:
+                from core.technician_service_eligibility import service_eligibility_error
+
+                eligibility_error = service_eligibility_error(technician, instance)
+                if eligibility_error:
+                    return response.Response(
+                        eligibility_error,
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
             assigned_partner = getattr(technician, 'partner_account', None)
 
             # Idempotent — already on this technician.
@@ -2892,6 +2909,16 @@ class JobCardViewSet(BaseModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        if job.technician_id != technician.id:
+            from core.technician_service_eligibility import service_eligibility_error
+
+            eligibility_error = service_eligibility_error(technician, job)
+            if eligibility_error:
+                return response.Response(
+                    eligibility_error,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         partner = getattr(technician, 'partner_account', None)
         role = (request.data.get('role') or JobCardTechnicianParticipation.Role.CREW).strip().lower()

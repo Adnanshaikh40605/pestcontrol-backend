@@ -299,6 +299,15 @@ def partner_accept_booking(job: JobCard, partner: Partner) -> JobCard:
             code='manual_assign_only',
         )
 
+    from core.technician_service_eligibility import service_eligibility_error
+
+    eligibility_error = service_eligibility_error(tech, job)
+    if eligibility_error:
+        raise PartnerBookingError(
+            eligibility_error['error'],
+            code='technician_service_ineligible',
+        )
+
     job.partner = partner
     job.technician = tech
     job.assigned_to = tech.name
@@ -627,13 +636,21 @@ def apply_partner_pool_filters(
     never disappear from the Accepted tab.
 
     When ``available_only`` is True, also drop follow-ups, service calls, and
-    multi-service day-1 child rows so New Bookings shows one card per request.
+    multi-service day-1 child rows so New Bookings shows one card per request,
+    and drop offers the technician's One-Time/AMC and Standard/Premium
+    eligibility does not cover. Accepted work is not filtered that way — a job
+    already on the technician stays visible.
     """
     from core.technician_base_services import job_matches_partner_base_services
+    from core.technician_service_eligibility import technician_eligible_for_job
 
     scoped = filter_partner_pool_bookings(jobs) if available_only else dedupe_partner_pool_jobs(jobs)
     scoped = [j for j in scoped if job_matches_partner_service_area(j, partner)]
     scoped = [j for j in scoped if job_matches_partner_base_services(j, partner)]
+    if available_only:
+        tech = getattr(partner, 'core_technician', None)
+        if tech is not None:
+            scoped = [j for j in scoped if technician_eligible_for_job(tech, j)]
     if today_tomorrow_only:
         return filter_jobs_today_tomorrow(scoped)
     return scoped
