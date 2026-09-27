@@ -554,7 +554,21 @@ class TechnicianViewSet(BaseModelViewSet):
         ).strip().lower() in ('1', 'true', 'yes')
 
         qs = crm_assign_technicians_queryset(include_on_leave=include_on_leave)
-        serializer = self.get_serializer(qs, many=True)
+        technicians = list(qs)
+        job = None
+        raw_job = (request.query_params.get('job_id') or '').strip()
+        if raw_job:
+            try:
+                job = JobCard.objects.select_related(
+                    'master_city', 'master_location', 'client',
+                ).get(pk=int(raw_job))
+            except (TypeError, ValueError, JobCard.DoesNotExist):
+                job = None
+        from core.technician_lineup import build_assign_lineup_context
+
+        context = self.get_serializer_context()
+        context.update(build_assign_lineup_context(technicians, job))
+        serializer = self.get_serializer(technicians, many=True, context=context)
         return response.Response(serializer.data)
 
     @action(detail=True, methods=['get', 'put', 'patch'], url_path='service-areas')

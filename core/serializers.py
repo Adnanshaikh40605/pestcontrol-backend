@@ -161,6 +161,9 @@ class TechnicianRemarkSerializer(serializers.ModelSerializer):
 class TechnicianSerializer(serializers.ModelSerializer):
     active_jobs = serializers.IntegerField(read_only=True)
     active_job_details = serializers.SerializerMethodField()
+    # Filled by technicians/active/?job_id= for the assign popup. Empty otherwise.
+    lineup_bookings = serializers.SerializerMethodField()
+    assigned_service_lines = serializers.SerializerMethodField()
     phone = serializers.CharField(source='mobile', read_only=True)
     has_partner_app = serializers.SerializerMethodField()
     partner_app_approved = serializers.SerializerMethodField()
@@ -198,6 +201,7 @@ class TechnicianSerializer(serializers.ModelSerializer):
             'is_active', 'service_area', 'city', 'service_cities', 'service_city_ids',
             'base_services',
             'last_active', 'active_jobs', 'active_job_details',
+            'lineup_bookings', 'assigned_service_lines',
             'has_partner_app', 'partner_app_approved', 'partner_id', 'partner_name',
             'technician_type', 'branch', 'aadhaar', 'pan', 'photo', 'agreement_file',
             'security_deposit_amount', 'security_deposit_status', 'star_rating',
@@ -236,6 +240,16 @@ class TechnicianSerializer(serializers.ModelSerializer):
         return list(obj.jobcards.filter(status__iexact='On Process').values(
             'id', 'client__full_name', 'service_type'
         ))
+
+    def get_lineup_bookings(self, obj):
+        """Open bookings on the selected booking's calendar day, with time and place."""
+        bucket = self.context.get('lineup_bookings') or {}
+        return bucket.get(obj.id, [])
+
+    def get_assigned_service_lines(self, obj):
+        """Service lines of this booking family already assigned to the technician."""
+        bucket = self.context.get('assigned_service_lines') or {}
+        return bucket.get(obj.id, [])
 
     def get_latest_remark(self, obj):
         """Newest remark, so list views can show one without loading the history."""
