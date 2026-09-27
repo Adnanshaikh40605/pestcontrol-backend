@@ -1,9 +1,9 @@
 """Partner App New Bookings pool — dedupe, filtering, amounts."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -14,6 +14,7 @@ from partner.services import (
     auto_send_new_booking_to_partner_app,
     filter_partner_pool_bookings,
     is_partner_pool_booking,
+    partner_schedule_date,
 )
 from partner.utils import generate_partner_tokens
 
@@ -175,3 +176,18 @@ class PartnerPoolFilterTests(TestCase):
         self.assertFalse(sent)
         job.refresh_from_db()
         self.assertIsNone(job.sent_to_app_at)
+
+
+class PartnerScheduleDateTests(SimpleTestCase):
+    def test_late_utc_is_the_next_india_day(self):
+        # 27 Sep 2026 19:30 UTC == 28 Sep 2026 01:00 IST.
+        stamp = datetime(2026, 9, 27, 19, 30, tzinfo=dt_timezone.utc)
+        self.assertEqual(partner_schedule_date(stamp), datetime(2026, 9, 28).date())
+
+    def test_ist_midnight_is_not_the_previous_utc_date(self):
+        stamp = datetime(2026, 9, 27, 18, 30, tzinfo=dt_timezone.utc)
+        self.assertEqual(partner_schedule_date(stamp), datetime(2026, 9, 28).date())
+
+    def test_naive_utc_gets_the_india_date(self):
+        stamp = datetime(2026, 9, 26, 19, 0)
+        self.assertEqual(partner_schedule_date(stamp), datetime(2026, 9, 27).date())

@@ -21,6 +21,19 @@ from partner.push_service import (
 logger = logging.getLogger(__name__)
 
 
+def _booking_push_data(job: JobCard, notification_type: str) -> dict[str, str]:
+    """FCM data. `schedule_datetime` is the absolute instant the app buckets in IST."""
+    schedule = ''
+    if job.schedule_datetime:
+        schedule = job.schedule_datetime.isoformat()
+    return {
+        'type': notification_type,
+        'booking_id': str(job.id),
+        'job_code': job.code or '',
+        'schedule_datetime': schedule,
+    }
+
+
 def _booking_subtitle(job: JobCard) -> str:
     job = JobCard.objects.select_related('client', 'master_location', 'master_city').filter(pk=job.pk).first() or job
     service = job.service_type or 'Service'
@@ -223,11 +236,7 @@ def notify_partners_new_booking(
 
     title = 'New Booking Available'
     body = _booking_subtitle(job)
-    data = {
-        'type': PartnerNotification.NotificationType.NEW_BOOKING,
-        'booking_id': str(job.id),
-        'job_code': job.code or '',
-    }
+    data = _booking_push_data(job, PartnerNotification.NotificationType.NEW_BOOKING)
     collapse_key = f'booking_{job.id}'
 
     partner_ids = approved_partner_ids(technician_id)
@@ -310,11 +319,7 @@ def notify_partner_assigned(job: JobCard, partner: Partner) -> None:
         return
     title = 'Booking Assigned'
     body = _booking_subtitle(job)
-    data = {
-        'type': PartnerNotification.NotificationType.BOOKING_ASSIGNED,
-        'booking_id': str(job.id),
-        'job_code': job.code or '',
-    }
+    data = _booking_push_data(job, PartnerNotification.NotificationType.BOOKING_ASSIGNED)
     create_partner_notification(
         partner,
         notification_type=PartnerNotification.NotificationType.BOOKING_ASSIGNED,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Q
@@ -12,6 +14,9 @@ from core.models import JobCard, Technician
 from partner.models import Partner
 
 logger = logging.getLogger(__name__)
+
+# Partner Today/Tomorrow follow India, not the server's TIME_ZONE and not UTC.
+PARTNER_SCHEDULE_TZ = ZoneInfo('Asia/Kolkata')
 
 
 class PartnerBookingError(Exception):
@@ -532,17 +537,38 @@ def job_matches_partner_service_area(job: JobCard, partner: Partner) -> bool:
     return False
 
 
+def partner_schedule_date(stamp):
+    """Calendar date of a service instant in Asia/Kolkata.
+
+    A naive timestamp is treated as UTC. 19:30 UTC is 01:00 the next day in
+    India, so the UTC date must not decide Today vs Tomorrow.
+    """
+    if not stamp:
+        return None
+    if timezone.is_naive(stamp):
+        stamp = timezone.make_aware(stamp, timezone.utc)
+    return stamp.astimezone(PARTNER_SCHEDULE_TZ).date()
+
+
 def filter_jobs_today_tomorrow(jobs):
-    """Keep only bookings scheduled for today or tomorrow (local date)."""
-    today = timezone.localdate()
-    tomorrow = today + timezone.timedelta(days=1)
+    """Keep new-booking jobs the partner app can still show.
+
+    Today and tomorrow are Asia/Kolkata dates. Later dates stay in the app's
+    Later section. Yesterday stays too, so a job near the IST midnight edge
+    is not dropped when the stored instant is still the previous UTC date.
+    Older overdue pool jobs are left out. A missing schedule is kept so a
+    push for that booking does not point at an empty list.
+    """
+    today = datetime.now(PARTNER_SCHEDULE_TZ).date()
+    earliest = today - timezone.timedelta(days=1)
     kept = []
     for job in jobs:
         stamp = job.schedule_datetime
         if not stamp:
+            kept.append(job)
             continue
-        day = timezone.localtime(stamp).date()
-        if day in (today, tomorrow):
+        day = partner_schedule_date(stamp)
+        if day is not None and day >= earliest:
             kept.append(job)
     return kept
 
@@ -596,8 +622,9 @@ def apply_partner_pool_filters(
 ):
     """
     City/area + base-services filter for partner booking lists.
-    Available pool also limits to Today/Tomorrow; accepted work keeps all dates
-    so in-progress jobs never disappear from the Accepted tab.
+    The new-booking pool keeps yesterday onward (IST) so Today, Tomorrow, and
+    Later can all render. Accepted work keeps every date so in-progress jobs
+    never disappear from the Accepted tab.
 
     When ``available_only`` is True, also drop follow-ups, service calls, and
     multi-service day-1 child rows so New Bookings shows one card per request.
