@@ -27,6 +27,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
   Timer? _syncTimer;
   final NewBookingDayTab _dayTab = NewBookingDayTab();
   final Map<int, GlobalKey> _cardKeys = {};
+  final ScrollController _listController = ScrollController();
   int? _scrollQueuedFor;
   int _scrollAttempts = 0;
   int _focusListVersion = -1;
@@ -43,6 +44,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
   @override
   void dispose() {
     _syncTimer?.cancel();
+    _listController.dispose();
     super.dispose();
   }
 
@@ -80,6 +82,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
     if (target == null) {
       _scrollAttempts++;
       if (_scrollAttempts > 90) return;
+      // ListView only mounts children near the viewport. A Later card past
+      // that range never gets a context, so waiting cannot scroll to it.
+      _advanceListTowardUnbuiltCard();
       WidgetsBinding.instance.addPostFrameCallback((_) => _revealFocusedCard(id));
       return;
     }
@@ -90,6 +95,18 @@ class _BookingsScreenState extends State<BookingsScreen> {
       duration: const Duration(milliseconds: 280),
       curve: Curves.easeOut,
     );
+  }
+
+  /// Walk the list down until the focused card is built. Consecutive steps
+  /// overlap, so a card is not skipped between jumps.
+  void _advanceListTowardUnbuiltCard() {
+    if (!_listController.hasClients) return;
+    final position = _listController.position;
+    if (!position.hasContentDimensions) return;
+    final next = (position.pixels + position.viewportDimension * 0.6)
+        .clamp(0.0, position.maxScrollExtent);
+    if (next <= position.pixels + 1) return;
+    position.jumpTo(next);
   }
 
   @override
@@ -137,6 +154,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     _scheduleFocusScroll(bookings.focusBookingId, bookings.available.length);
 
     return ListView(
+      controller: _listController,
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.screenEdge,

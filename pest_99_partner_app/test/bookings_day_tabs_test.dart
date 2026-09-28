@@ -49,6 +49,70 @@ void main() {
     expect(find.text('No bookings for tomorrow'), findsOneWidget);
   });
 
+  testWidgets('Tomorrow stays selected when build reapplies the same hint', (tester) async {
+    final tabs = NewBookingDayTab();
+    const hint = 0;
+    const serial = 1;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            tabs.applyHint(hint, serial);
+            final today = tabs.index == 0;
+            return Scaffold(
+              body: Column(
+                children: [
+                  SegmentedTabs(
+                    labels: const ['Today (0)', 'Tomorrow (1)'],
+                    selectedIndex: tabs.index,
+                    onChanged: (index) {
+                      if (!tabs.select(index)) return;
+                      setState(() {});
+                    },
+                  ),
+                  Text(today ? 'No bookings for today' : 'No bookings for tomorrow'),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Tomorrow (1)'));
+    await tester.pump();
+    expect(tabs.index, 1);
+    expect(find.text('No bookings for tomorrow'), findsOneWidget);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            tabs.applyHint(hint, serial);
+            final today = tabs.index == 0;
+            return Scaffold(
+              body: Column(
+                children: [
+                  SegmentedTabs(
+                    labels: const ['Today (0)', 'Tomorrow (1)'],
+                    selectedIndex: tabs.index,
+                    onChanged: (index) {
+                      if (!tabs.select(index)) return;
+                      setState(() {});
+                    },
+                  ),
+                  Text(today ? 'No bookings for today' : 'No bookings for tomorrow'),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    expect(tabs.index, 1);
+    expect(find.text('No bookings for tomorrow'), findsOneWidget);
+  });
+
   testWidgets('empty today stays a short line when Later has a job', (tester) async {
     final job = PartnerBooking(
       id: 3860,
@@ -90,6 +154,11 @@ void main() {
 
     final empty = tester.widget<Padding>(find.byKey(const Key('single-day-empty')));
     expect(empty.padding, const EdgeInsets.only(top: 2, bottom: 2));
+    final emptySize = tester.getSize(find.byKey(const Key('single-day-empty')));
+    expect(emptySize.height, lessThan(40));
+    final emptyTop = tester.getTopLeft(find.text('No bookings for today'));
+    final laterTop = tester.getTopLeft(find.text('#3860'));
+    expect(laterTop.dy - emptyTop.dy, lessThan(80));
     expect(find.text('No bookings for today'), findsOneWidget);
     expect(find.text('Wed, 30 Sep'), findsOneWidget);
     expect(find.text('01:00 PM'), findsOneWidget);
