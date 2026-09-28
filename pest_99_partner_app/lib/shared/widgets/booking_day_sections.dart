@@ -17,12 +17,15 @@ class BookingDaySections {
   final List<api.PartnerBooking> tomorrow;
   final List<api.PartnerBooking> later;
 
-  factory BookingDaySections.from(List<api.PartnerBooking> raw) {
+  factory BookingDaySections.from(
+    List<api.PartnerBooking> raw, {
+    DateTime? now,
+  }) {
     final today = <api.PartnerBooking>[];
     final tomorrow = <api.PartnerBooking>[];
     final later = <api.PartnerBooking>[];
     for (final b in raw) {
-      final ui = BookingMapper.fromPartner(b);
+      final ui = BookingMapper.fromPartner(b, now: now);
       switch (ui.dayBucket) {
         case 'today':
           today.add(b);
@@ -122,16 +125,33 @@ List<Widget> buildDaySectionedBookingChildren({
 }
 
 /// Builds list children for a single day bucket (no section header).
+///
+/// [compactEmpty] is a single short line. Use it when another section (Later)
+/// still has jobs, so the empty Today message does not push those cards down.
 List<Widget> buildSingleDayBookingChildren({
   required List<api.PartnerBooking> bookings,
   required Widget Function(api.PartnerBooking raw, Booking ui) cardBuilder,
   String emptyMessage = 'No bookings',
+  bool compactEmpty = false,
+  Key? Function(api.PartnerBooking booking)? itemKey,
 }) {
   if (bookings.isEmpty) {
     return [
       Padding(
-        padding: const EdgeInsets.only(top: 48),
-        child: Center(child: Text(emptyMessage)),
+        key: const Key('single-day-empty'),
+        padding: EdgeInsets.only(
+          top: compactEmpty ? 2 : 48,
+          bottom: compactEmpty ? 2 : 0,
+        ),
+        child: Text(
+          emptyMessage,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: const Color(0xFF6B7280),
+            fontSize: compactEmpty ? 14 : null,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     ];
   }
@@ -139,6 +159,7 @@ List<Widget> buildSingleDayBookingChildren({
   return [
     for (final raw in bookings)
       Padding(
+        key: itemKey?.call(raw),
         padding: const EdgeInsets.only(bottom: AppSpacing.elementGap),
         child: cardBuilder(raw, BookingMapper.fromPartner(raw)),
       ),

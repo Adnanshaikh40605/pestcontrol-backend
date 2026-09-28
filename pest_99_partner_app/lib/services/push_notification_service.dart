@@ -1,5 +1,4 @@
 ﻿import 'dart:async';
-import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -41,9 +40,16 @@ class PushNotificationService {
   }) {
     _api = api;
     _onOpenBooking = onOpenBooking;
+    processPendingNavigation();
   }
 
   Future<void> initialize() async {
+    // Partner Firebase options are mobile-only; skip FCM on web local previews.
+    if (kIsWeb) {
+      _log('PushNotificationService skipped on web (Firebase not configured)');
+      return;
+    }
+
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
@@ -65,13 +71,21 @@ class PushNotificationService {
     FirebaseMessaging.onMessage.listen(_onForegroundMessage);
     FirebaseMessaging.onMessageOpenedApp.listen(_onMessageOpenedApp);
 
-    final initial = await messaging.getInitialMessage();
-    if (initial != null) {
-      _queueBookingFromPayload(initial.data);
+    // Data-only pushes are shown as local notifications. A tap that starts
+    // the app does not arrive via getInitialMessage.
+    await _captureLocalNotificationLaunch();
+    if (_pendingBookingId == null) {
+      final initial = await messaging.getInitialMessage();
+      if (initial != null) {
+        _queueBookingFromPayload(initial.data);
+      }
+    }
+    if (_pendingBookingId != null) {
       _log('Cold start notification queued: booking=$_pendingBookingId');
     }
 
     _log('PushNotificationService initialized');
+    processPendingNavigation();
   }
 
   /// Ensures Android notification permission before showing local alerts.
@@ -81,19 +95,27 @@ class PushNotificationService {
   }
 
   /// Call after auth + router are ready (splash / post-login).
+  ///
+  /// Leaves the queued booking in place until the router callback exists, so
+  /// a splash that wins the race does not throw the tap away.
   void processPendingNavigation() {
     final id = _pendingBookingId;
-    if (id == null) return;
+    if (id == null || _onOpenBooking == null) return;
     final data = Map<String, dynamic>.from(_pendingData);
     _pendingBookingId = null;
     _pendingData = {};
-    if (_onOpenBooking != null) {
-      _log('Processing pending navigation -> booking $id');
-      _onOpenBooking!(id, data);
-    }
+    _log('Processing pending navigation -> booking $id');
+    _onOpenBooking!(id, data);
+  }
+
+  /// Put a tap back in the queue when splash or login would replace the route.
+  void holdPending(int bookingId, Map<String, dynamic> data) {
+    _pendingBookingId = bookingId;
+    _pendingData = Map<String, dynamic>.from(data);
   }
 
   Future<bool> requestPermission() async {
+    if (kIsWeb) return false;
     await requestPartnerNotificationPermission();
     final settings = await FirebaseMessaging.instance.requestPermission(
       alert: true,
@@ -140,6 +162,7 @@ class PushNotificationService {
 
   /// Call after login / app resume — retries until token is saved on the server.
   Future<bool> ensureTokenSyncedWithBackend({int maxAttempts = 4}) async {
+    if (kIsWeb) return false;
     final api = _api;
     if (api == null) return false;
 
@@ -181,6 +204,7 @@ class PushNotificationService {
   }
 
   Future<bool> showLoginSuccessNotification() async {
+    if (kIsWeb) return false;
     await ensureDisplayPermission();
     // Brief delay so OEMs don't drop the alert during login screen transition.
     await Future<void>.delayed(const Duration(milliseconds: 400));
@@ -220,7 +244,7 @@ class PushNotificationService {
     }
 
     await ensureDisplayPermission();
-    final bookingId = int.tryParse(data['booking_id']?.toString() ?? '');
+    final bookingId = bookingIdFromNotificationData(data);
     final notifId = bookingId ?? message.hashCode;
     final newBooking = isNewBookingPush(data);
 
@@ -244,17 +268,25 @@ class PushNotificationService {
   }
 
   void _onLocalNotificationTap(NotificationResponse response) {
-    if (response.payload == null || response.payload!.isEmpty) return;
+    final parsed = notificationDataFromPayload(response.payload);
+    if (parsed == null) return;
+    _navigateFromPayload(parsed);
+  }
+
+  Future<void> _captureLocalNotificationLaunch() async {
     try {
-      final data = jsonDecode(response.payload!) as Map<String, dynamic>;
-      _navigateFromPayload(data.map((k, v) => MapEntry(k.toString(), v.toString())));
+      final details = await partnerLocalNotifications.getNotificationAppLaunchDetails();
+      if (details == null || !details.didNotificationLaunchApp) return;
+      final parsed = notificationDataFromPayload(details.notificationResponse?.payload);
+      if (parsed == null) return;
+      _queueBookingFromPayload(parsed);
     } catch (e) {
-      _log('Invalid notification payload: $e');
+      _log('Launch notification payload invalid: $e');
     }
   }
 
   void _queueBookingFromPayload(Map<String, dynamic> data) {
-    final bookingId = int.tryParse(data['booking_id']?.toString() ?? '');
+    final bookingId = bookingIdFromNotificationData(data);
     if (bookingId != null) {
       _pendingBookingId = bookingId;
       _pendingData = Map<String, dynamic>.from(data);
@@ -262,7 +294,7 @@ class PushNotificationService {
   }
 
   void _navigateFromPayload(Map<String, dynamic> data) {
-    final bookingId = int.tryParse(data['booking_id']?.toString() ?? '');
+    final bookingId = bookingIdFromNotificationData(data);
     if (bookingId == null) return;
     if (_onOpenBooking != null) {
       _onOpenBooking!(bookingId, data);

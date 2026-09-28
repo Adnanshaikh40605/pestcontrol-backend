@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'app.dart';
 import 'core/api_client.dart';
 import 'core/notification_navigation.dart';
+import 'core/notification_open_plan.dart';
 import 'core/routing/app_router.dart';
 import 'core/session_coordinator.dart';
 import 'debug/debug_bootstrap.dart';
@@ -30,7 +32,11 @@ Future<void> main() async {
 
 Future<void> _startApp() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
-  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+  // Native splash is mobile-only (web: false in pubspec). Calling preserve()
+  // defers the first frame forever on web because SplashScreen never remove()s.
+  if (!kIsWeb) {
+    FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+  }
 
   final sessionCoordinator = SessionCoordinator();
   final api = ApiClient(sessionCoordinator: sessionCoordinator);
@@ -42,13 +48,16 @@ Future<void> _startApp() async {
       api: notificationApi,
       onOpenBooking: (id, data) {
         final router = _routerHolder.router;
-        if (router != null) {
-          NotificationNavigation.openBookingFromPush(
-            id,
-            router: router,
-            data: data,
-          );
+        if (router == null || !_bookingRouteReady(router)) {
+          // Splash's go('/bookings') would replace a detail route pushed now.
+          PushNotificationService.instance.holdPending(id, data);
+          return;
         }
+        NotificationNavigation.openBookingFromPush(
+          id,
+          router: router,
+          data: data,
+        );
       },
     );
   }));
@@ -76,4 +85,9 @@ Future<void> _startApp() async {
 
 class _RouterHolder {
   GoRouter? router;
+}
+
+/// Home shell or an already-open detail page. Auth screens replace the stack.
+bool _bookingRouteReady(GoRouter router) {
+  return canPushBookingDetail(router.state.uri.path);
 }

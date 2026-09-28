@@ -1,7 +1,8 @@
 """Partner App New Bookings pool — dedupe, filtering, amounts."""
 
-from datetime import datetime, timedelta, timezone as dt_timezone
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
@@ -12,6 +13,7 @@ from core.services import JobCardService
 from partner.models import Partner
 from partner.services import (
     auto_send_new_booking_to_partner_app,
+    filter_jobs_today_tomorrow,
     filter_partner_pool_bookings,
     is_partner_pool_booking,
     partner_schedule_date,
@@ -191,3 +193,22 @@ class PartnerScheduleDateTests(SimpleTestCase):
     def test_naive_utc_gets_the_india_date(self):
         stamp = datetime(2026, 9, 26, 19, 0)
         self.assertEqual(partner_schedule_date(stamp), datetime(2026, 9, 27).date())
+
+    def test_job_3860_is_30_sep_ist_and_stays_in_the_list(self):
+        # Production row: schedule_datetime 2026-09-30T07:30:00Z, time_slot 01:00 PM.
+        # Created 2026-09-28T07:26:51Z. Screenshot ~15:28 IST the same day.
+        stamp = datetime(2026, 9, 30, 7, 30, tzinfo=dt_timezone.utc)
+        now = datetime(2026, 9, 28, 9, 58, tzinfo=dt_timezone.utc)
+        self.assertEqual(partner_schedule_date(stamp), date(2026, 9, 30))
+        overdue = datetime(2026, 9, 20, 7, 30, tzinfo=dt_timezone.utc)
+        kept = filter_jobs_today_tomorrow(
+            [
+                SimpleNamespace(schedule_datetime=stamp),
+                SimpleNamespace(schedule_datetime=overdue),
+                SimpleNamespace(schedule_datetime=None),
+            ],
+            now=now,
+        )
+        self.assertEqual(len(kept), 2)
+        self.assertIs(kept[0].schedule_datetime, stamp)
+        self.assertIsNone(kept[1].schedule_datetime)

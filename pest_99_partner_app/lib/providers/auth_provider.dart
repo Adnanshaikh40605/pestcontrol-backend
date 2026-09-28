@@ -99,13 +99,22 @@ class AuthProvider extends ChangeNotifier {
       _appApproved = data['is_app_approved'] == true;
       final partner = data['partner'];
       if (partner is Map) {
-        _partnerName = partner['full_name'] as String?;
+        final name = partner['full_name'];
+        _partnerName = name is String ? name : name?.toString();
       }
-      final fcmOk = await PushNotificationService.instance.ensureTokenSyncedWithBackend();
-      if (!fcmOk) {
-        debugPrint('FCM token not saved — enable notifications and try again');
+      // FCM is mobile-only; never let push setup fail a successful login.
+      if (!kIsWeb) {
+        try {
+          final fcmOk =
+              await PushNotificationService.instance.ensureTokenSyncedWithBackend();
+          if (!fcmOk) {
+            debugPrint('FCM token not saved — enable notifications and try again');
+          }
+          unawaited(PushNotificationService.instance.showLoginSuccessNotification());
+        } catch (e) {
+          debugPrint('[Auth] post-login FCM skipped: $e');
+        }
       }
-      unawaited(PushNotificationService.instance.showLoginSuccessNotification());
       return true;
     } on ApiException catch (e) {
       _error = userErrorMessage(e, fallback: 'Login failed. Please try again.');

@@ -559,7 +559,7 @@ def partner_schedule_date(stamp):
     return stamp.astimezone(PARTNER_SCHEDULE_TZ).date()
 
 
-def filter_jobs_today_tomorrow(jobs):
+def filter_jobs_today_tomorrow(jobs, *, now=None):
     """Keep new-booking jobs the partner app can still show.
 
     Today and tomorrow are Asia/Kolkata dates. Later dates stay in the app's
@@ -567,8 +567,15 @@ def filter_jobs_today_tomorrow(jobs):
     is not dropped when the stored instant is still the previous UTC date.
     Older overdue pool jobs are left out. A missing schedule is kept so a
     push for that booking does not point at an empty list.
+
+    ``now`` is only for tests. The available API uses the current IST date.
     """
-    today = datetime.now(PARTNER_SCHEDULE_TZ).date()
+    if now is None:
+        today = datetime.now(PARTNER_SCHEDULE_TZ).date()
+    else:
+        if timezone.is_naive(now):
+            now = timezone.make_aware(now, timezone.utc)
+        today = now.astimezone(PARTNER_SCHEDULE_TZ).date()
     earliest = today - timezone.timedelta(days=1)
     kept = []
     for job in jobs:

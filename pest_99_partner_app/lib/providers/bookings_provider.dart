@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/api_exception.dart';
+import '../core/mappers/booking_mapper.dart';
 import '../core/network_connectivity.dart';
 import '../core/user_error.dart';
 import '../models/booking.dart';
@@ -41,6 +42,26 @@ class BookingsProvider extends ChangeNotifier {
 
   final Map<int, String> _processingLabels = {};
   final Set<int> _processingIds = {};
+
+  /// Jobs opened from a push that the list endpoint omitted. Re-applied after
+  /// refresh so a 45s sync cannot make the tapped booking disappear again.
+  final Map<int, PartnerBooking> _pinnedAvailable = {};
+
+  /// 0 = Today, 1 = Tomorrow. Set when a notification booking is revealed.
+  ///
+  /// Null means the job is not on those tabs (Later, or the date is unknown).
+  int? notificationDayTab;
+
+  /// Bumps every time a notification asks the list to focus a booking.
+  /// The screen applies each serial once so a rebuild cannot undo a tab tap.
+  int notificationHintSerial = 0;
+
+  /// Card to scroll into view. Set for Later jobs so they are not left under
+  /// an empty Today tab.
+  int? focusBookingId;
+
+  /// True when the tapped booking is already accepted and belongs on that tab.
+  bool notificationOpensAccepted = false;
 
   bool isProcessing(int id) => _processingIds.contains(id);
 
@@ -121,6 +142,7 @@ class BookingsProvider extends ChangeNotifier {
       counts = results[0] as BookingCounts;
       final availableResult = results[1] as AvailableBookingsResult;
       available = _dedupeById(availableResult.bookings);
+      _mergePinnedAvailable();
       isSuspended = availableResult.isSuspended;
       isOnLeave = availableResult.isOnLeave;
       presenceStatus = availableResult.presenceStatus;
@@ -152,7 +174,130 @@ class BookingsProvider extends ChangeNotifier {
     }
   }
 
+  /// Drop the hint after the New Bookings screen has applied it.
+  ///
+  /// A newer reveal that already changed the tab is left alone.
+  void clearNotificationDayTab([int? applied]) {
+    if (applied != null && notificationDayTab != applied) return;
+    notificationDayTab = null;
+  }
+
+  /// Point Today/Tomorrow or the Later list at a notification before the
+  /// detail route opens. The payload schedule is enough; the API refresh
+  /// confirms it afterwards.
+  void showNotificationBooking({
+    required int id,
+    int? dayTab,
+    required bool scrollToCard,
+  }) {
+    notificationDayTab = dayTab;
+    notificationHintSerial++;
+    focusBookingId = scrollToCard ? id : null;
+    notifyListeners();
+  }
+
+  bool takeNotificationOpensAccepted() {
+    final open = notificationOpensAccepted;
+    notificationOpensAccepted = false;
+    return open;
+  }
+
+  /// Load lists, then make [id] visible on New Bookings or Accepted.
+  ///
+  /// A push is sent for every new booking, but the available list used to
+  /// drop anything outside today/tomorrow. Tapping that notification refreshed
+  /// into an empty Today and Tomorrow tab. This fetches the booking by id when
+  /// the list omits it and points the day tabs at its IST date.
+  Future<void> revealNotificationBooking(int id) async {
+    await refreshListsLight(force: true);
+    var booking = _findBooking(id);
+    if (booking == null) {
+      await refreshListsLight(force: true);
+      booking = _findBooking(id);
+    }
+    if (booking == null) {
+      try {
+        booking = await _service.getDetail(id);
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[Bookings] notification booking #$id not loaded: $e');
+        }
+        notificationOpensAccepted = false;
+        return;
+      }
+    }
+
+    final status = (booking.partnerStatus ?? '').toLowerCase();
+    final jobStatus = (booking.status ?? '').toLowerCase();
+    final accepted = status == 'accepted' || status == 'in_service';
+    final closed = status == 'completed' ||
+        status == 'rejected' ||
+        jobStatus == 'cancelled' ||
+        jobStatus == 'done';
+
+    notificationOpensAccepted = accepted && !closed;
+    if (closed) {
+      _pinnedAvailable.remove(id);
+      focusBookingId = null;
+      notifyListeners();
+      return;
+    }
+
+    if (accepted) {
+      _pinnedAvailable.remove(id);
+      if (!this.accepted.any((b) => b.id == id)) {
+        this.accepted = [booking, ...this.accepted];
+      }
+      notificationDayTab = null;
+      focusBookingId = null;
+    } else {
+      _pinnedAvailable[id] = booking;
+      if (!available.any((b) => b.id == id)) {
+        available = [booking, ...available];
+      }
+      final dayTab = _dayTabFor(booking);
+      notificationDayTab = dayTab;
+      notificationHintSerial++;
+      focusBookingId = dayTab == null ? id : null;
+    }
+    notifyListeners();
+  }
+
+  PartnerBooking? _findBooking(int id) {
+    for (final list in [available, accepted, completed]) {
+      for (final booking in list) {
+        if (booking.id == id) return booking;
+      }
+    }
+    return null;
+  }
+
+  int? _dayTabFor(PartnerBooking booking) {
+    switch (BookingMapper.fromPartner(booking).dayBucket) {
+      case 'today':
+        return 0;
+      case 'tomorrow':
+        return 1;
+      default:
+        return null;
+    }
+  }
+
+  void _mergePinnedAvailable() {
+    if (_pinnedAvailable.isEmpty) return;
+    final visible = {for (final booking in available) booking.id};
+    final extras = <PartnerBooking>[];
+    for (final entry in _pinnedAvailable.entries) {
+      if (accepted.any((b) => b.id == entry.key)) continue;
+      if (completed.any((b) => b.id == entry.key)) continue;
+      if (!visible.contains(entry.key)) extras.add(entry.value);
+    }
+    if (extras.isEmpty) return;
+    available = _dedupeById([...extras, ...available]);
+  }
+
   void removeFromAvailable(int id) {
+    _pinnedAvailable.remove(id);
     final next = available.where((b) => b.id != id).toList();
     if (next.length == available.length) return;
     available = next;
@@ -177,6 +322,7 @@ class BookingsProvider extends ChangeNotifier {
   }
 
   void applyAcceptedBooking(PartnerBooking booking) {
+    _pinnedAvailable.remove(booking.id);
     available = available.where((b) => b.id != booking.id).toList();
     final idx = accepted.indexWhere((b) => b.id == booking.id);
     if (idx >= 0) {

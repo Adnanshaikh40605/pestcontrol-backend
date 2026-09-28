@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/models/booking.dart';
+import '../../core/schedule_day.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../models/booking.dart' as api;
 import '../../providers/bookings_provider.dart';
@@ -24,8 +25,11 @@ class BookingsScreen extends StatefulWidget {
 
 class _BookingsScreenState extends State<BookingsScreen> {
   Timer? _syncTimer;
-  /// 0 = Today, 1 = Tomorrow
-  int _dayTabIndex = 0;
+  final NewBookingDayTab _dayTab = NewBookingDayTab();
+  final Map<int, GlobalKey> _cardKeys = {};
+  int? _scrollQueuedFor;
+  int _scrollAttempts = 0;
+  int _focusListVersion = -1;
 
   @override
   void initState() {
@@ -42,6 +46,8 @@ class _BookingsScreenState extends State<BookingsScreen> {
     super.dispose();
   }
 
+  GlobalKey _cardKey(int id) => _cardKeys.putIfAbsent(id, GlobalKey.new);
+
   String _emptyMessage(BookingsProvider bookings, {required bool isToday}) {
     if (bookings.isSuspended) {
       return 'No bookings available while suspended';
@@ -52,14 +58,44 @@ class _BookingsScreenState extends State<BookingsScreen> {
     if (bookings.manualAssignOnly) {
       return 'Nothing assigned to you yet';
     }
-    return isToday
-        ? 'No bookings for today'
-        : 'No bookings for tomorrow';
+    return isToday ? 'No bookings for today' : 'No bookings for tomorrow';
+  }
+
+  void _applyNotificationDayTab(BookingsProvider bookings) {
+    _dayTab.applyHint(bookings.notificationDayTab, bookings.notificationHintSerial);
+  }
+
+  void _scheduleFocusScroll(int? id, int listVersion) {
+    if (id == null) return;
+    if (_scrollQueuedFor == id && _focusListVersion == listVersion) return;
+    _scrollQueuedFor = id;
+    _focusListVersion = listVersion;
+    _scrollAttempts = 0;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _revealFocusedCard(id));
+  }
+
+  void _revealFocusedCard(int id) {
+    if (!mounted || _scrollQueuedFor != id) return;
+    final target = _cardKeys[id]?.currentContext;
+    if (target == null) {
+      _scrollAttempts++;
+      if (_scrollAttempts > 90) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _revealFocusedCard(id));
+      return;
+    }
+    _scrollAttempts = 0;
+    Scrollable.ensureVisible(
+      target,
+      alignment: 0.08,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOut,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final bookings = context.watch<BookingsProvider>();
+    _applyNotificationDayTab(bookings);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
@@ -95,8 +131,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
     }
 
     final sections = BookingDaySections.from(bookings.available);
-    final isTodayTab = _dayTabIndex == 0;
+    final isTodayTab = _dayTab.index == 0;
     final dayList = isTodayTab ? sections.today : sections.tomorrow;
+    final laterHasJobs = sections.later.isNotEmpty;
+    _scheduleFocusScroll(bookings.focusBookingId, bookings.available.length);
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -158,40 +196,36 @@ class _BookingsScreenState extends State<BookingsScreen> {
                 color: const Color(0xFF111827),
               ),
         ),
-        const SizedBox(height: 6),
-        Text(
-          "Switch between Today and Tomorrow to see that day's jobs.",
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF6B7280),
-              ),
-        ),
-        const SizedBox(height: AppSpacing.sectionGap),
+        const SizedBox(height: AppSpacing.elementGap),
         SegmentedTabs(
           labels: [
             'Today (${sections.today.length})',
             'Tomorrow (${sections.tomorrow.length})',
           ],
-          selectedIndex: _dayTabIndex,
+          selectedIndex: _dayTab.index,
           onChanged: (index) {
-            if (index == _dayTabIndex) return;
-            setState(() => _dayTabIndex = index);
+            if (!_dayTab.select(index)) return;
+            setState(() {});
           },
         ),
-        const SizedBox(height: AppSpacing.sectionGap),
+        const SizedBox(height: AppSpacing.elementGap),
         ...buildSingleDayBookingChildren(
           bookings: dayList,
           emptyMessage: _emptyMessage(bookings, isToday: isTodayTab),
+          compactEmpty: dayList.isEmpty && laterHasJobs,
+          itemKey: (b) => _cardKey(b.id),
           cardBuilder: (b, ui) => _availableCard(context, bookings, b, ui),
         ),
         // Keep beyond-tomorrow jobs visible, but outside the two day tabs.
-        if (sections.later.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.sectionGap),
+        if (laterHasJobs) ...[
+          SizedBox(height: dayList.isEmpty ? 4 : AppSpacing.sectionGap),
           BookingSectionHeader(
             title: 'Later',
             count: sections.later.length,
           ),
           ...buildSingleDayBookingChildren(
             bookings: sections.later,
+            itemKey: (b) => _cardKey(b.id),
             cardBuilder: (b, ui) => _availableCard(context, bookings, b, ui),
           ),
         ],

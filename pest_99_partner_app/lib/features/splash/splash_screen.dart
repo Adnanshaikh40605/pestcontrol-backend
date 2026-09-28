@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
@@ -28,7 +29,10 @@ class _SplashScreenState extends State<SplashScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      FlutterNativeSplash.remove();
+      // Native splash plugin is mobile-only; skip on web previews.
+      if (!kIsWeb) {
+        FlutterNativeSplash.remove();
+      }
     });
     _boot();
   }
@@ -36,8 +40,10 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _boot() async {
     try {
       // Native Play Store update prompt when a newer release is live.
-      await context.read<AppUpdateProvider>().checkForUpdate();
-      if (!mounted) return;
+      if (!kIsWeb) {
+        await context.read<AppUpdateProvider>().checkForUpdate();
+        if (!mounted) return;
+      }
 
       final auth = context.read<AuthProvider>();
       await auth.init();
@@ -66,6 +72,9 @@ class _SplashScreenState extends State<SplashScreen> {
     }
     context.go('/bookings');
     PushNotificationService.instance.processPendingNavigation();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      PushNotificationService.instance.processPendingNavigation();
+    });
   }
 
   Future<void> _warmSessionInBackground(AuthProvider auth) async {

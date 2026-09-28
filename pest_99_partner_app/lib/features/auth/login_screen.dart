@@ -57,6 +57,9 @@ class _LoginScreenState extends State<LoginScreen> {
       if (approved) {
         context.go('/bookings');
         PushNotificationService.instance.processPendingNavigation();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          PushNotificationService.instance.processPendingNavigation();
+        });
       } else {
         context.go('/pending-approval');
       }

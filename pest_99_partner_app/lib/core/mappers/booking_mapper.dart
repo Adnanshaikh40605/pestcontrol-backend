@@ -3,10 +3,11 @@ import 'package:intl/intl.dart';
 import '../../models/booking.dart' as api;
 import '../models/booking.dart';
 import '../models/booking_type.dart';
+import '../schedule_day.dart';
 
 class BookingMapper {
-  static Booking fromPartner(api.PartnerBooking b) {
-    final schedule = _parseSchedule(b.scheduleDatetime);
+  static Booking fromPartner(api.PartnerBooking b, {DateTime? now}) {
+    final schedule = _parseSchedule(b.scheduleDatetime, now: now);
     final started = _startedLabels(b.startedAt);
     final amount = b.totalBookingAmount ?? b.priceDisplay ?? b.price;
     final completionDate = _formatCompletionDate(b.completedAt) ?? schedule.dateLabel;
@@ -147,36 +148,34 @@ class BookingMapper {
     return null;
   }
 
-  static _ScheduleParts _parseSchedule(String? iso) {
+  static _ScheduleParts _parseSchedule(String? iso, {DateTime? now}) {
     if (iso == null || iso.isEmpty) {
       return const _ScheduleParts(dateLabel: '—', timeLabel: '—', dayBucket: null);
     }
-    try {
-      final dt = DateTime.parse(iso).toLocal();
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final day = DateTime(dt.year, dt.month, dt.day);
-      final diff = day.difference(today).inDays;
-      String? bucket;
-      String dateLabel;
-      if (diff == 0) {
-        bucket = 'today';
-        dateLabel = 'Today';
-      } else if (diff == 1) {
-        bucket = 'tomorrow';
-        dateLabel = 'Tomorrow';
-      } else {
-        bucket = 'later';
-        dateLabel = DateFormat('EEE, d MMM').format(dt);
-      }
-      return _ScheduleParts(
-        dateLabel: dateLabel,
-        timeLabel: DateFormat('h:mm a').format(dt),
-        dayBucket: bucket,
-      );
-    } catch (_) {
+    final instant = ScheduleDay.tryParse(iso);
+    if (instant == null) {
       return _ScheduleParts(dateLabel: iso, timeLabel: '—', dayBucket: null);
     }
+    final diff = ScheduleDay.dayOffset(instant, now ?? DateTime.now());
+    final wall = ScheduleDay.istWallClock(instant);
+    String bucket;
+    String dateLabel;
+    if (diff == 0) {
+      bucket = 'today';
+      dateLabel = 'Today';
+    } else if (diff == 1) {
+      bucket = 'tomorrow';
+      dateLabel = 'Tomorrow';
+    } else {
+      // Past and further-future jobs stay visible in Later. They are not dropped.
+      bucket = 'later';
+      dateLabel = DateFormat('EEE, d MMM').format(wall);
+    }
+    return _ScheduleParts(
+      dateLabel: dateLabel,
+      timeLabel: DateFormat('h:mm a').format(wall),
+      dayBucket: bucket,
+    );
   }
 
   /// Returns (startedAtLabel, runningForLabel).
