@@ -108,3 +108,82 @@ class TechnicianCreateUpdateTests(TestCase):
             format='json',
         )
         self.assertEqual(second.status_code, 400, second.data)
+
+    def test_address_location_and_alt_mobile_persist(self):
+        res = self.api.post(
+            '/api/v1/technicians/',
+            {
+                'name': 'Based Tech',
+                'mobile': '9111000091',
+                'alternative_mobile': '92220 00091',
+                'address': '  Flat 4, Lane 2, Baner  ',
+                'location': '  Baner, Pune  ',
+                'accepts_one_time_jobs': True,
+                'accepts_amc_jobs': False,
+                'service_area': 'Kothrud',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['alternative_mobile'], '9222000091')
+        self.assertEqual(res.data['address'], 'Flat 4, Lane 2, Baner')
+        self.assertEqual(res.data['location'], 'Baner, Pune')
+        self.assertEqual(res.data['service_area'], 'Kothrud')
+        self.assertTrue(res.data['accepts_one_time_jobs'])
+        self.assertFalse(res.data['accepts_amc_jobs'])
+        self.assertTrue(res.data['accepts_standard_service'])
+        self.assertTrue(res.data['accepts_premium_service'])
+
+        tech = Technician.objects.get(id=res.data['id'])
+        self.assertEqual(tech.address, 'Flat 4, Lane 2, Baner')
+        self.assertEqual(tech.location, 'Baner, Pune')
+        self.assertEqual(tech.alternative_mobile, '9222000091')
+
+        patch = self.api.patch(
+            f"/api/v1/technicians/{tech.id}/",
+            {
+                'address': 'Shop 12, FC Road',
+                'location': 'Shivajinagar, Pune',
+                'alternative_mobile': '',
+            },
+            format='json',
+        )
+        self.assertEqual(patch.status_code, 200, patch.data)
+        self.assertEqual(patch.data['address'], 'Shop 12, FC Road')
+        self.assertEqual(patch.data['location'], 'Shivajinagar, Pune')
+        self.assertIsNone(patch.data['alternative_mobile'])
+        self.assertFalse(patch.data['accepts_amc_jobs'])
+        self.assertEqual(patch.data['service_area'], 'Kothrud')
+        self.assertEqual(patch.data['mobile'], '9111000091')
+
+    def test_address_and_location_blank_by_default(self):
+        res = self.api.post(
+            '/api/v1/technicians/',
+            {'name': 'No Address Tech', 'mobile': '9111000092', 'is_active': True},
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertEqual(res.data['address'], '')
+        self.assertEqual(res.data['location'], '')
+        self.assertIsNone(res.data['alternative_mobile'])
+        self.assertTrue(res.data['accepts_one_time_jobs'])
+        self.assertTrue(res.data['accepts_amc_jobs'])
+        self.assertTrue(res.data['accepts_standard_service'])
+        self.assertTrue(res.data['accepts_premium_service'])
+
+        stored = Technician.objects.get(id=res.data['id'])
+        self.assertEqual(stored.address, '')
+        self.assertEqual(stored.location, '')
+
+    def test_short_alternative_mobile_rejected(self):
+        res = self.api.post(
+            '/api/v1/technicians/',
+            {
+                'name': 'Bad Alt',
+                'mobile': '9111000093',
+                'alternative_mobile': '12345',
+            },
+            format='json',
+        )
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertIn('alternative_mobile', res.data)

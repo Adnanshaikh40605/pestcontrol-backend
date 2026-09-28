@@ -190,6 +190,13 @@ class TechnicianSerializer(serializers.ModelSerializer):
         source='get_presence_status_display',
         read_only=True,
     )
+    # Wider than the stored 10 digits so "+91 92220 00091" can be normalized.
+    alternative_mobile = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=24,
+    )
     is_available_for_work = serializers.BooleanField(read_only=True)
     remarks = TechnicianRemarkSerializer(many=True, read_only=True)
     latest_remark = serializers.SerializerMethodField()
@@ -200,6 +207,7 @@ class TechnicianSerializer(serializers.ModelSerializer):
         model = Technician
         fields = [
             'id', 'name', 'mobile', 'phone', 'age', 'alternative_mobile',
+            'address', 'location',
             'is_active', 'service_area', 'city', 'service_cities', 'service_city_ids',
             'base_services',
             'last_active', 'active_jobs', 'active_job_details',
@@ -307,13 +315,22 @@ class TechnicianSerializer(serializers.ModelSerializer):
 
     def validate_alternative_mobile(self, value):
         if not value:
-            return value
+            return None
         import re
 
         cleaned = re.sub(r'[\s\-\(\)]', '', str(value).strip())
         if cleaned and not re.match(r'^\d{10}$', cleaned):
             raise serializers.ValidationError('Alternative mobile must be exactly 10 digits.')
         return cleaned or None
+
+    def validate_address(self, value):
+        text = (value or '').strip()
+        if len(text) > 1000:
+            raise serializers.ValidationError('Address must be 1000 characters or fewer.')
+        return text
+
+    def validate_location(self, value):
+        return (value or '').strip()
 
     def validate_name(self, value):
         return (value or '').strip()

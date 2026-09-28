@@ -473,6 +473,8 @@ class TechnicianViewSet(BaseModelViewSet):
                 Q(name__icontains=raw)
                 | Q(mobile__icontains=raw)
                 | Q(alternative_mobile__icontains=raw)
+                | Q(location__icontains=raw)
+                | Q(address__icontains=raw)
             )
             phone_digits = re.sub(r'\D', '', raw)
             if phone_digits:

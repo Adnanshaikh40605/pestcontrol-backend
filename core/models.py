@@ -279,6 +279,25 @@ class Technician(BaseModel):
         verbose_name="Alternative Number",
         help_text="Secondary contact number"
     )
+    address = models.TextField(
+        blank=True,
+        default='',
+        verbose_name='Address',
+        help_text=(
+            'Full address where this technician lives or works from. '
+            'Existing rows stay blank. Not used for job filtering.'
+        ),
+    )
+    location = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        verbose_name='Location',
+        help_text=(
+            'City and area where this technician is based, such as Baner, Pune. '
+            'Separate from service areas used for job filtering.'
+        ),
+    )
     is_active = models.BooleanField(
         default=True, 
         db_index=True,

@@ -25,6 +25,8 @@ class TechnicianSearchApiTests(TestCase):
             name='SHIVAM DUEBY',
             mobile='9167065176',
             alternative_mobile='9876543210',
+            address='Lane 2, Baner',
+            location='Baner, Pune',
             is_active=True,
         )
         self.other = Technician.objects.create(
@@ -67,6 +69,11 @@ class TechnicianSearchApiTests(TestCase):
 
     def test_search_by_alternative_mobile(self):
         res = self.api.get('/api/v1/technicians/', {'search': '9876543210'})
+        ids = self._ids(res)
+        self.assertEqual(ids, [self.shivam.id])
+
+    def test_search_by_location(self):
+        res = self.api.get('/api/v1/technicians/', {'search': 'Baner, Pune'})
         ids = self._ids(res)
         self.assertEqual(ids, [self.shivam.id])
 
