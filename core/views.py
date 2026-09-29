@@ -1046,21 +1046,6 @@ class TechnicianViewSet(BaseModelViewSet):
 
         POST body: { "job_ids": [1,2,3], "notes": "" } — settle selected Unsettled rows.
         """
-        from decimal import Decimal
-
-        from core.technician_ledger import (
-            LEDGER_DEFAULT_PAGE_SIZE,
-            LEDGER_MAX_PAGE_SIZE,
-            apply_ledger_filters,
-            earning_periods,
-            exclude_package_shells,
-            heal_stuck_payouts,
-            payment_history,
-            serialize_ledger_row,
-            summarize_rows,
-            technician_jobs_queryset,
-        )
-
         technician = self.get_object()
 
         if request.method == 'POST':
@@ -1087,6 +1072,28 @@ class TechnicianViewSet(BaseModelViewSet):
                 'job_count': settlement.line_items.count(),
             })
 
+        from core.pricing.gst import pricing_lookup_cache
+
+        with pricing_lookup_cache():
+            return self._ledger_report(request, technician)
+
+    def _ledger_report(self, request, technician):
+        from decimal import Decimal
+
+        from core.technician_ledger import (
+            LEDGER_DEFAULT_PAGE_SIZE,
+            LEDGER_HEAL_BATCH,
+            LEDGER_MAX_PAGE_SIZE,
+            apply_ledger_filters,
+            earning_periods,
+            exclude_package_shells,
+            heal_stuck_payouts,
+            payment_history,
+            serialize_ledger_row,
+            summarize_rows,
+            technician_jobs_queryset,
+        )
+
         base_queryset = technician_jobs_queryset(technician)
         settlement_filter = (request.query_params.get('settlement_status') or '').strip().lower()
         # Old Service Calls (legacy/history) must not be hidden by the date range —
@@ -1106,7 +1113,7 @@ class TechnicianViewSet(BaseModelViewSet):
             list(filtered_queryset.order_by('-schedule_datetime', '-id'))
         )
         # Auto-repair Held / missing Tech 40% rows for Done jobs in this range.
-        if heal_stuck_payouts(filtered_jobs):
+        if heal_stuck_payouts(filtered_jobs, limit=LEDGER_HEAL_BATCH):
             filtered_jobs = exclude_package_shells(
                 list(filtered_queryset.order_by('-schedule_datetime', '-id'))
             )

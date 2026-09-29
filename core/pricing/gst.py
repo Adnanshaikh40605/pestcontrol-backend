@@ -2,11 +2,48 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
+# Ledger GET serializes every visit, and each row asks Pricing Master several
+# times for the same service/plan/area. Hold those results for one request so
+# a busy technician's report does not time out. Unset outside that request so
+# tests and later price edits are not stuck with a process-wide cache.
+_pricing_cache: ContextVar[dict | None] = ContextVar('pricing_lookup_cache', default=None)
+
 MONEY_QUANT = Decimal('0.01')
 DEFAULT_GST_PERCENT = Decimal('18.00')
+
+
+@contextmanager
+def pricing_lookup_cache():
+    """Reuse Pricing Master lookups for the rest of this request."""
+    existing = _pricing_cache.get()
+    if existing is not None:
+        yield existing
+        return
+    token = _pricing_cache.set({})
+    try:
+        yield
+    finally:
+        _pricing_cache.reset(token)
+
+
+def _cached_pricing_lookup(key, loader):
+    cache = _pricing_cache.get()
+    if cache is None:
+        return loader()
+    if key in cache:
+        cached = cache[key]
+        return dict(cached) if isinstance(cached, dict) else cached
+    value = loader()
+    if isinstance(value, dict):
+        cache[key] = dict(value)
+        return dict(value)
+    cache[key] = value
+    return value
 
 
 def _money(value) -> Decimal:
@@ -143,30 +180,20 @@ def chart_quote_for_job(job) -> dict[str, Any] | None:
         return None
 
     canonical = canonical_service_line(service)
-    names = {service, canonical}
+    names = tuple(sorted({service, canonical}))
     city = None
     master_city = getattr(job, 'master_city', None)
     if master_city is not None and getattr(master_city, 'name', None):
         city = master_city.name
     elif getattr(job, 'city', None):
         city = job.city
-    slug = resolve_pricing_region_slug(pricing_region_for_city(city) if city else None) or 'mumbai'
 
-    rate = (
-        PricingRate.objects.filter(
-            is_active=True,
-            region__slug=slug,
-            plan_type=plan,
-            area_key=area,
-            service_package__in=list(names),
-        )
-        .order_by('-id')
-        .first()
-    )
-    if rate is None:
+    def _load():
+        slug = resolve_pricing_region_slug(pricing_region_for_city(city) if city else None) or 'mumbai'
         rate = (
             PricingRate.objects.filter(
                 is_active=True,
+                region__slug=slug,
                 plan_type=plan,
                 area_key=area,
                 service_package__in=list(names),
@@ -174,14 +201,26 @@ def chart_quote_for_job(job) -> dict[str, Any] | None:
             .order_by('-id')
             .first()
         )
-    if rate is None:
-        return None
-    breakdown = gst_breakdown(
-        rate.amount,
-        gst_percent=getattr(rate, 'gst_percent', DEFAULT_GST_PERCENT),
-        price_includes_gst=getattr(rate, 'price_includes_gst', True),
-    )
-    return breakdown
+        if rate is None:
+            rate = (
+                PricingRate.objects.filter(
+                    is_active=True,
+                    plan_type=plan,
+                    area_key=area,
+                    service_package__in=list(names),
+                )
+                .order_by('-id')
+                .first()
+            )
+        if rate is None:
+            return None
+        return gst_breakdown(
+            rate.amount,
+            gst_percent=getattr(rate, 'gst_percent', DEFAULT_GST_PERCENT),
+            price_includes_gst=getattr(rate, 'price_includes_gst', True),
+        )
+
+    return _cached_pricing_lookup(('chart', city or '', plan, area, names), _load)
 
 
 def _visit_slice_matches(amount: Decimal, package: Decimal) -> bool:
@@ -416,13 +455,20 @@ def resolve_job_gst_percent(job=None) -> Decimal:
         slug = resolve_pricing_region_slug(pricing_region_for_city(city) if city else None)
         if not slug:
             slug = 'mumbai'
-        distinct = list(
-            PricingRate.objects.filter(region__slug=slug, is_active=True)
-            .values_list('gst_percent', flat=True)
-            .distinct()
-        )
-        if len(distinct) == 1 and distinct[0] is not None:
-            return _money(distinct[0])
+
+        def _load_region_gst():
+            distinct = list(
+                PricingRate.objects.filter(region__slug=slug, is_active=True)
+                .values_list('gst_percent', flat=True)
+                .distinct()
+            )
+            if len(distinct) == 1 and distinct[0] is not None:
+                return _money(distinct[0])
+            return None
+
+        region_gst = _cached_pricing_lookup(('gst-percent', slug), _load_region_gst)
+        if region_gst is not None:
+            return region_gst
     except Exception:
         pass
 

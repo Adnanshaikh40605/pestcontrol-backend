@@ -191,7 +191,7 @@ def technician_jobs_queryset(technician: Technician):
             )
         )
         .exclude(hidden_from_technician_ledger=True)
-        .select_related('client', 'master_city', 'parent_job')
+        .select_related('client', 'technician', 'master_city', 'parent_job')
         .prefetch_related(
             Prefetch('technician_participations', queryset=participations),
             Prefetch('partner_earnings', queryset=earnings),
@@ -204,9 +204,19 @@ def technician_jobs_queryset(technician: Technician):
 
 def exclude_package_shells(jobs):
     """Technician ledger shows per-service rows, not the multi-service package shell."""
-    from core.booking_schedule_engine import is_multi_service_package_shell
+    from core.booking_schedule_engine import is_multi_service_booking
 
-    return [job for job in jobs if not is_multi_service_package_shell(job)]
+    job_list = list(jobs)
+    candidate_ids = [job.id for job in job_list if is_multi_service_booking(job)]
+    shell_ids = set()
+    if candidate_ids:
+        shell_ids = set(
+            JobCard.objects.filter(
+                parent_job_id__in=candidate_ids,
+                service_cycle=1,
+            ).values_list('parent_job_id', flat=True).distinct()
+        )
+    return [job for job in job_list if job.id not in shell_ids]
 
 
 def apply_ledger_filters(queryset, params, *, skip_dates: bool = False):
@@ -420,7 +430,14 @@ def job_needs_payout_heal(job) -> bool:
     return False
 
 
-def heal_stuck_payouts(jobs) -> int:
+# One ledger page must answer before the CRM (and the Railway proxy) give up.
+# A busy month can contain hundreds of rows that still look "stuck"; repairing
+# every one of them inline is what made the report time out. The rest are
+# repaired on later opens, and the cleanup command still heals without a cap.
+LEDGER_HEAL_BATCH = 15
+
+
+def heal_stuck_payouts(jobs, *, limit: int | None = None) -> int:
     """
     Recalculate Done jobs with wrong / missing Tech 40% so ledger stays correct.
     Never migrates legacy_exempt history into unsettled payables.
@@ -437,6 +454,8 @@ def heal_stuck_payouts(jobs) -> int:
 
     healed = 0
     for job in jobs:
+        if limit is not None and healed >= limit:
+            break
         if job.payout_status == JC.PayoutStatus.LEGACY_EXEMPT:
             continue
         # Keep items/total in lockstep with staff price (Booking History).
@@ -764,22 +783,35 @@ def summarize_rows(rows: list[dict]) -> dict:
 
 
 def earning_periods(technician: Technician) -> dict:
+    """Daily / monthly / lifetime net payable.
+
+    Uses the same per-visit net as the ledger table, but sums it in one pass.
+    Building a full display row for every historical visit is what made a busy
+    technician's report exceed the CRM timeout.
+    """
+    from core.pricing.gst import pricing_lookup_cache
+
     today = timezone.localdate()
-    all_rows = [
-        serialize_ledger_row(job, technician)
+    today_iso = today.isoformat()
+    month_key = today.strftime('%Y-%m')
+    daily = Decimal('0.00')
+    monthly = Decimal('0.00')
+    lifetime = Decimal('0.00')
+    with pricing_lookup_cache():
         for job in exclude_package_shells(
             technician_jobs_queryset(technician).filter(status=JobCard.JobStatus.DONE)
-        )
-    ]
-    daily = [row for row in all_rows if row['booking_date'] == today.isoformat()]
-    monthly = [
-        row for row in all_rows
-        if row['booking_date'][:7] == today.strftime('%Y-%m')
-    ]
+        ):
+            net = Decimal(serialize_ledger_row(job, technician)['net_payable'])
+            lifetime += net
+            booking_date = _report_date(job).isoformat()
+            if booking_date == today_iso:
+                daily += net
+            if booking_date[:7] == month_key:
+                monthly += net
     return {
-        'daily': summarize_rows(daily)['net_payable'],
-        'monthly': summarize_rows(monthly)['net_payable'],
-        'lifetime': summarize_rows(all_rows)['net_payable'],
+        'daily': str(quantize_money(daily)),
+        'monthly': str(quantize_money(monthly)),
+        'lifetime': str(quantize_money(lifetime)),
     }
 
 
