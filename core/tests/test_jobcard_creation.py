@@ -6,6 +6,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 
 from core.models import City, Client, Country, CRMInquiry, JobCard, Location, State
+from core.payment_utils import parse_jobcard_price
 from core.services import CRMInquiryService, JobCardService
 
 
@@ -327,6 +328,92 @@ class JobCardCreationTests(TestCase):
         self.assertFalse(job.is_price_estimated)
         self.assertEqual(job.service_items[0]['amount'], 4500.0)
         self.assertEqual(job.total_amount, Decimal('4500.00'))
+
+    def _priced_booking(self, price, *, amount, base):
+        return JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            schedule_datetime=self.schedule,
+            price=price,
+            total_amount=Decimal(price),
+            reference='Poster',
+            status=JobCard.JobStatus.PENDING,
+            service_items=[
+                {
+                    'service': 'Cockroach / Ants',
+                    'plan': 'One Time Service',
+                    'area': '2 BHK',
+                    'base_amount': base,
+                    'discount': 0,
+                    'amount': amount,
+                },
+            ],
+        )
+
+    def test_opening_edit_does_not_replace_price_with_gst_base_or_total(self):
+        """Edit and back must not flip 1180 and 1000. A real new price still saves."""
+        job = self._priced_booking('1180.00', amount=1180, base=1000)
+        line = {
+            'service': 'Cockroach / Ants',
+            'plan': 'One Time Service',
+            'area': '2 BHK',
+            'base_amount': 1000,
+            'discount': 0,
+            'amount': 1000,
+        }
+        flipped = self.api.patch(
+            f'/api/v1/jobcards/{job.id}/',
+            {'price': '1000.00', 'service_items': [line]},
+            format='json',
+        )
+        self.assertEqual(flipped.status_code, 200, flipped.data)
+        job.refresh_from_db()
+        self.assertEqual(job.price, '1180.00')
+        self.assertEqual(parse_jobcard_price(job.service_items[0]['amount']), Decimal('1180.00'))
+
+        back = self.api.patch(
+            f'/api/v1/jobcards/{job.id}/',
+            {
+                'price': '1180.00',
+                'service_items': [{**line, 'amount': 1180, 'base_amount': 1000}],
+            },
+            format='json',
+        )
+        self.assertEqual(back.status_code, 200, back.data)
+        job.refresh_from_db()
+        self.assertEqual(job.price, '1180.00')
+
+        changed = self.api.patch(
+            f'/api/v1/jobcards/{job.id}/',
+            {'price': '900', 'service_items': [{**line, 'amount': 900, 'base_amount': 900}]},
+            format='json',
+        )
+        self.assertEqual(changed.status_code, 200, changed.data)
+        job.refresh_from_db()
+        self.assertEqual(job.price, '900')
+        self.assertEqual(parse_jobcard_price(job.total_amount), Decimal('900.00'))
+
+    def test_edit_without_a_new_price_keeps_the_saved_price_text(self):
+        job = self._priced_booking('2000.00', amount=2000, base=2000)
+        response = self.api.patch(
+            f'/api/v1/jobcards/{job.id}/',
+            {
+                'service_items': [
+                    {
+                        'service': 'Cockroach / Ants',
+                        'plan': 'One Time Service',
+                        'area': '2 BHK',
+                        'base_amount': 2000,
+                        'discount': 0,
+                        'amount': 2000,
+                    },
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        job.refresh_from_db()
+        self.assertEqual(job.price, '2000.00')
 
 
 class CRMInquiryConversionTests(TestCase):

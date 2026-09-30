@@ -28,6 +28,59 @@ def quantize_money(value) -> Decimal:
     return Decimal(str(value or 0)).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
 
 
+def prices_differ_only_by_gst(stored, submitted, gst_percent=Decimal('18.00')) -> bool:
+    """True when one figure is the other plus or minus GST, not a new price.
+
+    Edit Booking often sends the excl-GST base (1000) for a stored customer
+    total (1180), then the inclusive total on the next open. Those are the
+    same booking price.
+    """
+    left = quantize_money(stored)
+    right = quantize_money(submitted)
+    if left <= 0 or right <= 0 or left == right:
+        return False
+    rate = quantize_money(gst_percent)
+    if rate < 0:
+        rate = Decimal('0.00')
+    factor = Decimal('1') + (rate / Decimal('100'))
+    if factor <= 1:
+        return False
+
+    def close(a, b) -> bool:
+        return abs(quantize_money(a) - quantize_money(b)) <= Decimal('0.05')
+
+    return close(right, left / factor) or close(right, left * factor)
+
+
+def price_echoes_stored_booking(job, submitted) -> bool:
+    """True when a PATCH price is the stored total or its GST base, not an edit."""
+    stored = parse_jobcard_price(getattr(job, 'price', None))
+    incoming = parse_jobcard_price(submitted)
+    if stored <= 0 or incoming <= 0 or stored == incoming:
+        return False
+    if prices_differ_only_by_gst(stored, incoming):
+        return True
+    items = getattr(job, 'service_items', None)
+    if not isinstance(items, list):
+        return False
+    bases = Decimal('0.00')
+    nets = Decimal('0.00')
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        bases += parse_jobcard_price(item.get('base_amount', item.get('baseAmount')))
+        nets += parse_jobcard_price(item.get('amount'))
+    if bases <= 0 or nets <= 0 or quantize_money(bases) == quantize_money(nets):
+        return False
+
+    def close(a, b) -> bool:
+        return abs(quantize_money(a) - quantize_money(b)) <= Decimal('0.05')
+
+    return (close(stored, nets) and close(incoming, bases)) or (
+        close(stored, bases) and close(incoming, nets)
+    )
+
+
 def validate_payment_amounts(
     total: Decimal,
     paid: Decimal,

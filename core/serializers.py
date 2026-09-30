@@ -35,6 +35,7 @@ from .payment_utils import (
     distribute_amount_across_service_items,
     payment_status_label,
     parse_jobcard_price,
+    price_echoes_stored_booking,
     quantize_money,
     sync_jobcard_amounts_from_price,
 )
@@ -1066,21 +1067,48 @@ class JobCardSerializer(serializers.ModelSerializer):
             if hasattr(self, 'initial_data') and isinstance(self.initial_data, dict):
                 price_explicitly_set = 'price' in self.initial_data
 
+            stored_price_text = ''
+            if self.instance is not None:
+                stored_price_text = str(self.instance.price or '').strip()
+                compared = manual_total if price_explicitly_set else items_total
+                if stored_price_text and price_echoes_stored_booking(self.instance, compared):
+                    # Opening Edit and leaving sends the GST base or the GST
+                    # total. Keep the price already saved on the booking.
+                    data['price'] = stored_price_text
+                    manual_total = parse_jobcard_price(stored_price_text)
+                    price_explicitly_set = True
+
             if price_explicitly_set and manual_total > 0 and normalized:
                 if abs(manual_total - items_total) > parse_jobcard_price('0.01'):
                     distribute_amount_across_service_items(normalized, manual_total)
                     data['service_items'] = normalized
                 # Keep the staff-entered price string (avoid "1000" → "1000.0")
-                data['price'] = str(self.initial_data.get('price')).strip()
+                data['price'] = str(data.get('price') or '').strip() or str(
+                    self.initial_data.get('price')
+                ).strip()
             elif items_total > 0 and items_were_updated:
-                data['price'] = str(float(items_total))
+                if (
+                    stored_price_text
+                    and abs(items_total - parse_jobcard_price(stored_price_text))
+                    <= parse_jobcard_price('0.01')
+                ):
+                    data['price'] = stored_price_text
+                else:
+                    data['price'] = str(items_total)
             elif manual_total > 0 and normalized:
                 if abs(manual_total - items_total) > parse_jobcard_price('0.01'):
                     distribute_amount_across_service_items(normalized, manual_total)
                     data['service_items'] = normalized
                 items_total = sum(parse_jobcard_price(i['amount']) for i in normalized)
                 if items_total > 0:
-                    data['price'] = str(float(items_total))
+                    if (
+                        stored_price_text
+                        and abs(items_total - parse_jobcard_price(stored_price_text))
+                        <= parse_jobcard_price('0.01')
+                    ):
+                        data['price'] = stored_price_text
+                    else:
+                        data['price'] = str(items_total)
 
         # Done Service GST / Extra Amount rules.
         # GST Paid = No ⇒ Extra Amount must be No / zero.
