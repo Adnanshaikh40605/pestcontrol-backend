@@ -1,7 +1,8 @@
 """Daily technician type report (performing / non-performing + city earnings)."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
@@ -177,3 +178,157 @@ class TechnicianDailyTypeReportTests(TestCase):
             {'date': 'not-a-date', 'technician_type': 'partner'},
         )
         self.assertEqual(res.status_code, 400)
+
+    def test_cancelled_visit_is_not_performing(self):
+        job = self._done_job(self.partner_tech, price='2000', service='Bed Bugs')
+        JobCard.objects.filter(pk=job.pk).update(status=JobCard.JobStatus.CANCELLED)
+        res = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {
+                'date': self.today.date().isoformat(),
+                'technician_type': 'priority',
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['summary']['performing_count'], 0)
+        self.assertEqual(res.data['summary']['total_completed_jobs'], 0)
+        self.assertEqual(res.data['summary']['non_performing_count'], 2)
+
+    def test_service_type_counts_and_city_earnings(self):
+        self._done_job(self.partner_tech, price='1000', service='Cockroach Standard', city='Mumbai')
+        self._done_job(self.partner_tech, price='1000', service='Cockroach Standard', city='Mumbai')
+        self._done_job(self.partner_tech, price='1500', service='Bed Bugs', city='Pune')
+        res = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {
+                'date': self.today.date().isoformat(),
+                'technician_type': 'partner',
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        row = res.data['performing'][0]
+        self.assertEqual(row['completed_count'], 3)
+        by_type = {s['service_type']: s['count'] for s in row['services']}
+        self.assertEqual(by_type.get('Cockroach Standard'), 2)
+        self.assertEqual(by_type.get('Bed Bugs'), 1)
+        self.assertIn('Cockroach Standard 2', row['services_summary'])
+        self.assertIn('Bed Bugs 1', row['services_summary'])
+        cities = {c['city']: c for c in row['city_earnings']}
+        self.assertEqual(cities['Mumbai']['completed_jobs'], 2)
+        self.assertEqual(cities['Pune']['completed_jobs'], 1)
+        rollup = {c['city']: c['completed_jobs'] for c in res.data['city_earnings']}
+        self.assertEqual(rollup['Mumbai'], 2)
+        self.assertEqual(rollup['Pune'], 1)
+
+    def test_stored_base_share_is_not_gst_peeled(self):
+        """1600 is already the ex-GST base. A stored 30% split stays 480, not 480/1.18 or 40%."""
+        job = self._done_job(
+            self.partner_tech,
+            price='1600.00',
+            service='Cockroach Standard',
+            city='Mumbai',
+        )
+        JobCard.objects.filter(pk=job.pk).update(
+            price='1600.00',
+            total_amount=Decimal('1600.00'),
+            visit_revenue_amount=Decimal('1600.00'),
+            visit_payout_amount=Decimal('480.00'),
+            technician_pool_amount=Decimal('480.00'),
+            company_share_amount=Decimal('1120.00'),
+            technician_share_percent=Decimal('30.00'),
+            company_share_percent=Decimal('70.00'),
+            service_items=[{
+                'service': 'Cockroach Standard',
+                'plan': 'One Time Service',
+                'area': '2 BHK',
+                'amount': 1600.0,
+                'base_amount': 1600.0,
+            }],
+        )
+        JobCardTechnicianParticipation.objects.create(
+            jobcard=job,
+            technician=self.partner_tech,
+            partner=self.partner,
+            role=JobCardTechnicianParticipation.Role.LEAD,
+            attendance_status=JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
+            is_payout_eligible=True,
+            payout_amount_snapshot=Decimal('480.00'),
+            share_percent_snapshot=Decimal('30.00'),
+        )
+        res = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {
+                'date': self.today.date().isoformat(),
+                'technician_type': 'priority',
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        row = res.data['performing'][0]
+        self.assertEqual(Decimal(row['earnings']), Decimal('480.00'))
+        self.assertNotEqual(Decimal(row['earnings']), Decimal('406.78'))
+        self.assertNotEqual(Decimal(row['earnings']), Decimal('640.00'))
+        mumbai = next(c for c in row['city_earnings'] if c['city'] == 'Mumbai')
+        self.assertEqual(Decimal(mumbai['earnings']), Decimal('480.00'))
+
+    def test_salaried_completion_earns_nothing(self):
+        salaried = Technician.objects.create(
+            name='Daily Salaried',
+            mobile='9444000004',
+            technician_type=Technician.TechnicianType.SALARIED,
+            is_active=True,
+            city='Mumbai',
+        )
+        self._done_job(salaried, price='2000', service='Bed Bugs', city='Mumbai')
+        res = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {
+                'date': self.today.date().isoformat(),
+                'technician_type': 'salaried',
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['summary']['performing_count'], 1)
+        self.assertEqual(Decimal(res.data['performing'][0]['earnings']), Decimal('0.00'))
+        self.assertEqual(Decimal(res.data['summary']['total_earnings']), Decimal('0.00'))
+
+    def test_inactive_technician_is_omitted(self):
+        Technician.objects.create(
+            name='Left Partner',
+            mobile='9444000005',
+            technician_type=Technician.TechnicianType.PARTNER,
+            is_active=False,
+            city='Mumbai',
+        )
+        res = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {
+                'date': self.today.date().isoformat(),
+                'technician_type': 'priority',
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        names = {r['name'] for r in res.data['performing'] + res.data['non_performing']}
+        self.assertNotIn('Left Partner', names)
+        self.assertEqual(res.data['summary']['total_technicians'], 2)
+
+    def test_kolkata_midnight_belongs_to_that_india_date(self):
+        ist = ZoneInfo('Asia/Kolkata')
+        stamp = datetime(2026, 9, 28, 0, 30, tzinfo=ist)
+        job = self._done_job(self.partner_tech, price='1000', service='Bed Bugs')
+        JobCard.objects.filter(pk=job.pk).update(
+            completed_at=stamp,
+            schedule_datetime=stamp,
+        )
+        on_the_day = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {'date': '2026-09-28', 'technician_type': 'partner'},
+        )
+        previous = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {'date': '2026-09-27', 'technician_type': 'partner'},
+        )
+        self.assertEqual(on_the_day.status_code, 200, on_the_day.data)
+        self.assertEqual(previous.status_code, 200, previous.data)
+        self.assertEqual(on_the_day.data['summary']['performing_count'], 1)
+        self.assertEqual(on_the_day.data['performing'][0]['name'], 'Daily Partner')
+        self.assertEqual(previous.data['summary']['performing_count'], 0)

@@ -5,23 +5,38 @@ Product language maps "Priority" technicians to TechnicianType.PARTNER
 (broadcast + 40/60 payout). Secondary and Salaried keep their API values.
 
 Performing rule (documented for CRM UI):
-  A technician is **performing** for a given calendar day if they completed
-  ≥1 Done job that day as lead (JobCard.technician) or crew
-  (JobCardTechnicianParticipation with COMPLETED / DONE attendance).
-  Otherwise active technicians of that type are **non-performing**.
+  A technician is **performing** for a given Asia/Kolkata calendar day if they
+  completed ≥1 Done job that day as lead (JobCard.technician) or crew
+  (JobCardTechnicianParticipation with COMPLETED attendance).
+  Cancelled jobs never count. Active technicians of that type with zero
+  completed jobs are **non-performing**.
+
+Earnings use the same technician share the ledger shows: the stored payout
+(usually 40% of the stored service base, or another split when the record
+stores one), scaled onto that base. An already ex-GST base is not divided
+by 18% again.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from django.db.models import Q
-from django.utils import timezone
+from django.db.models import Prefetch, Q
 
-from core.models import JobCard, JobCardTechnicianParticipation, Technician
+from core.models import (
+    JobCard,
+    JobCardTechnicianParticipation,
+    SettlementLineItem,
+    Technician,
+)
+from partner.models import PartnerEarning
+
+# Desk dates are always India, even if the CRM browser is elsewhere.
+IST = ZoneInfo('Asia/Kolkata')
 
 # CRM product labels — Priority == partner (broadcast pool).
 TYPE_DISPLAY = {
@@ -31,18 +46,40 @@ TYPE_DISPLAY = {
 }
 
 PERFORMING_RULE = (
-    'completed ≥ 1 Done job on the selected date '
-    '(as lead technician or completed crew participation)'
+    'completed at least one Done visit on this Asia/Kolkata date '
+    '(lead technician or completed crew). Cancelled visits are ignored. '
+    'Earnings are the ledger share of the stored service base.'
 )
+
+
+def kolkata_today() -> date:
+    return datetime.now(IST).date()
 
 
 def _parse_report_date(raw: str | None) -> date:
     if not raw:
-        return timezone.localdate()
+        return kolkata_today()
     try:
         return datetime.strptime(raw.strip()[:10], '%Y-%m-%d').date()
     except (TypeError, ValueError):
         raise ValueError('date must be YYYY-MM-DD')
+
+
+def _ist_day_bounds(report_date: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(report_date, time.min, tzinfo=IST)
+    return start, start + timedelta(days=1)
+
+
+def _done_on_day(start: datetime, end: datetime, *, prefix: str = '') -> Q:
+    completed = f'{prefix}completed_at'
+    schedule = f'{prefix}schedule_datetime'
+    return Q(**{f'{completed}__gte': start, f'{completed}__lt': end}) | Q(
+        **{
+            f'{completed}__isnull': True,
+            f'{schedule}__gte': start,
+            f'{schedule}__lt': end,
+        }
+    )
 
 
 def _normalize_type(raw: str | None) -> str:
@@ -74,43 +111,82 @@ def _job_city(job: JobCard) -> str:
     return (job.city or '').strip() or 'Unknown'
 
 
-def _job_service_label(job: JobCard) -> str:
+def _service_labels(job: JobCard) -> list[str]:
+    """One display name per service line on a completed visit.
+
+    Legacy Cockroach / Ants labels show as Cockroach Standard so the desk
+    sees the same names as Assign Technician.
+    """
+    from core.pricing.aliases import canonical_service_line, clean_service_label
+
+    raws: list[str] = []
     items = job.service_items if isinstance(job.service_items, list) else []
-    labels: list[str] = []
     for item in items:
         if not isinstance(item, dict):
             continue
         svc = (item.get('service') or item.get('service_type') or '').strip()
-        if svc and svc not in labels:
-            labels.append(svc)
-    if labels:
-        return ', '.join(labels)
-    return (job.service_type or 'Unknown').strip() or 'Unknown'
+        if svc:
+            raws.append(svc)
+    if not raws:
+        fallback = (job.service_type or '').strip()
+        raws = [fallback] if fallback else ['Unknown']
+
+    labels: list[str] = []
+    for raw in raws:
+        label = canonical_service_line(raw) or clean_service_label(raw) or 'Unknown'
+        if label not in labels:
+            labels.append(label)
+    return labels
 
 
-def _payout_for_tech(job: JobCard, technician_id: int, participation_map: dict) -> Decimal:
-    """Prefer immutable participation snapshot; fall back to lead visit payout."""
-    from core.pricing.gst import apply_ledger_base
+def _ledger_share(job: JobCard, technician: Technician) -> Decimal:
+    """Same technician share the ledger row shows for this visit."""
+    from core.technician_ledger import serialize_ledger_row
 
-    part = participation_map.get((job.id, technician_id))
-    if part is not None and part.payout_amount_snapshot is not None:
-        snap = _money(part.payout_amount_snapshot)
-        if snap > 0:
-            return apply_ledger_base(job, snap)
+    row = serialize_ledger_row(job, technician)
+    return _money(row.get('technician_share'))
 
-    tech = getattr(job, 'technician', None)
-    if tech is not None and tech.id == technician_id:
-        if getattr(tech, 'technician_type', None) == Technician.TechnicianType.SALARIED:
-            return Decimal('0.00')
-        raw = job.visit_payout_amount
-        if raw is not None and _money(raw) > 0:
-            return apply_ledger_base(job, raw)
-        # Legacy: 40% of the ledger base when snapshots are missing.
-        price = _money(job.price or job.total_amount or 0)
-        if price > 0:
-            base = apply_ledger_base(job, price)
-            return (base * Decimal('0.40')).quantize(Decimal('0.01'))
-    return Decimal('0.00')
+
+def _with_ledger_relations(qs):
+    return qs.select_related(
+        'technician', 'master_city', 'client', 'parent_job',
+    ).prefetch_related(
+        Prefetch(
+            'technician_participations',
+            queryset=JobCardTechnicianParticipation.objects.select_related(
+                'technician', 'partner',
+            ),
+        ),
+        Prefetch(
+            'partner_earnings',
+            queryset=PartnerEarning.objects.select_related('partner'),
+        ),
+        Prefetch(
+            'settlement_line_items',
+            queryset=SettlementLineItem.objects.select_related('settlement'),
+        ),
+        'feedbacks',
+    )
+
+
+def _package_shell_ids(jobs_by_id: dict[int, JobCard]) -> set[int]:
+    """Multi-service package shells are not visits; their day-1 children are."""
+    if not jobs_by_id:
+        return set()
+    from core.booking_schedule_engine import service_line_names
+
+    parents = set(
+        JobCard.objects.filter(
+            parent_job_id__in=list(jobs_by_id.keys()),
+            service_cycle=1,
+        ).values_list('parent_job_id', flat=True)
+    )
+    shells: set[int] = set()
+    for job_id in parents:
+        job = jobs_by_id.get(job_id)
+        if job is not None and len(service_line_names(job)) > 1:
+            shells.add(job_id)
+    return shells
 
 
 def build_daily_type_report(*, report_date: date, technician_type: str) -> dict[str, Any]:
@@ -118,82 +194,77 @@ def build_daily_type_report(*, report_date: date, technician_type: str) -> dict[
         Technician.objects.filter(
             is_active=True,
             technician_type=technician_type,
-        ).order_by('name')
+        ).select_related('partner_account').order_by('name')
     )
     tech_ids = [t.id for t in techs]
     tech_by_id = {t.id: t for t in techs}
+    start, end = _ist_day_bounds(report_date)
+    on_day = _done_on_day(start, end)
 
-    # Done jobs on this calendar day where tech is lead.
     lead_jobs = list(
-        JobCard.objects.filter(
-            status=JobCard.JobStatus.DONE,
-            technician_id__in=tech_ids,
+        _with_ledger_relations(
+            JobCard.objects.filter(
+                status=JobCard.JobStatus.DONE,
+                technician_id__in=tech_ids,
+            ).filter(on_day)
         )
-        .filter(
-            Q(completed_at__date=report_date)
-            | Q(completed_at__isnull=True, schedule_datetime__date=report_date)
-        )
-        .select_related('technician', 'master_city')
-    )
+    ) if tech_ids else []
 
-    # Crew completions on this day (completed attendance only — not absent/assigned).
-    participation_qs = (
+    participations = list(
         JobCardTechnicianParticipation.objects.filter(
             technician_id__in=tech_ids,
             jobcard__status=JobCard.JobStatus.DONE,
             attendance_status=JobCardTechnicianParticipation.AttendanceStatus.COMPLETED,
-        )
-        .filter(
-            Q(jobcard__completed_at__date=report_date)
-            | Q(
-                jobcard__completed_at__isnull=True,
-                jobcard__schedule_datetime__date=report_date,
-            )
-        )
-        .select_related('jobcard', 'jobcard__master_city', 'technician')
-    )
-    participations = list(participation_qs)
-    participation_map = {(p.jobcard_id, p.technician_id): p for p in participations}
+        ).filter(_done_on_day(start, end, prefix='jobcard__'))
+        .select_related('technician')
+    ) if tech_ids else []
 
-    # Aggregate per technician
+    crew_job_ids = {
+        part.jobcard_id
+        for part in participations
+        if part.jobcard_id not in {job.id for job in lead_jobs}
+    }
+    crew_jobs = list(
+        _with_ledger_relations(
+            JobCard.objects.filter(id__in=crew_job_ids)
+        )
+    ) if crew_job_ids else []
+
+    jobs_by_id: dict[int, JobCard] = {job.id: job for job in lead_jobs}
+    for job in crew_jobs:
+        jobs_by_id[job.id] = job
+    shells = _package_shell_ids(jobs_by_id)
+
+    # technician -> completed job ids, then service / city rollups
     completed_job_ids: dict[int, set[int]] = defaultdict(set)
     service_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     city_earnings: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     city_jobs: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     total_earnings: dict[int, Decimal] = defaultdict(lambda: Decimal('0.00'))
 
-    jobs_by_id: dict[int, JobCard] = {}
-    for job in lead_jobs:
-        jobs_by_id[job.id] = job
-        tid = job.technician_id
-        if tid not in tech_by_id:
-            continue
-        completed_job_ids[tid].add(job.id)
-        label = _job_service_label(job)
-        service_counts[tid][label] += 1
+    def _credit(job: JobCard, technician_id: int) -> None:
+        if job.id in shells or technician_id not in tech_by_id:
+            return
+        if job.id in completed_job_ids[technician_id]:
+            return
+        completed_job_ids[technician_id].add(job.id)
+        for label in _service_labels(job):
+            service_counts[technician_id][label] += 1
         city = _job_city(job)
-        payout = _payout_for_tech(job, tid, participation_map)
-        city_earnings[tid][city] += payout
-        city_jobs[tid][city] += 1
-        total_earnings[tid] += payout
+        payout = _ledger_share(job, tech_by_id[technician_id])
+        city_earnings[technician_id][city] += payout
+        city_jobs[technician_id][city] += 1
+        total_earnings[technician_id] += payout
+
+    for job in lead_jobs:
+        if job.technician_id:
+            _credit(job, job.technician_id)
 
     for part in participations:
-        job = part.jobcard
-        jobs_by_id[job.id] = job
-        tid = part.technician_id
-        if tid not in tech_by_id:
+        job = jobs_by_id.get(part.jobcard_id)
+        if job is None:
             continue
-        if job.id in completed_job_ids[tid]:
-            # Already counted as lead — avoid double-counting services/jobs
-            continue
-        completed_job_ids[tid].add(job.id)
-        label = _job_service_label(job)
-        service_counts[tid][label] += 1
-        city = _job_city(job)
-        payout = _payout_for_tech(job, tid, participation_map)
-        city_earnings[tid][city] += payout
-        city_jobs[tid][city] += 1
-        total_earnings[tid] += payout
+        _credit(job, part.technician_id)
 
     def row_for(tech: Technician) -> dict[str, Any]:
         services = [
@@ -226,7 +297,7 @@ def build_daily_type_report(*, report_date: date, technician_type: str) -> dict[
             'completed_count': len(completed_job_ids[tech.id]),
             'services': services,
             'services_summary': ', '.join(
-                f'{s["service_type"]} ×{s["count"]}' for s in services
+                f'{s["service_type"]} {s["count"]}' for s in services
             )
             or '—',
             'earnings': str(total_earnings[tech.id]),
@@ -244,7 +315,6 @@ def build_daily_type_report(*, report_date: date, technician_type: str) -> dict[
         else:
             non_performing.append(row)
 
-    # City-wise rollup across all technicians of this type for the day
     rollup: dict[str, dict[str, Any]] = defaultdict(
         lambda: {
             'city': '',
