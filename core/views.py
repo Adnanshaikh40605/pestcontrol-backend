@@ -3664,7 +3664,7 @@ class JobCardViewSet(BaseModelViewSet):
         },
         tags=['Job Cards']
     )
-    @decorators.action(detail=False, methods=['get'], url_path='reference-report', permission_classes=[])
+    @decorators.action(detail=False, methods=['get'], url_path='reference-report', permission_classes=[IsCRMOperationalUser])
     def reference_statistics(self, request):
         """Get simplified reference report with reference_name and reference_count."""
         try:
@@ -3736,7 +3736,7 @@ class JobCardViewSet(BaseModelViewSet):
         },
         tags=['Job Cards']
     )
-    @decorators.action(detail=False, methods=['get'], url_path='reference-statistics', permission_classes=[])
+    @decorators.action(detail=False, methods=['get'], url_path='reference-statistics', permission_classes=[IsCRMOperationalUser])
     def get_reference_statistics(self, request):
         """Get comprehensive reference statistics with total, top references, and recent references."""
         try:
