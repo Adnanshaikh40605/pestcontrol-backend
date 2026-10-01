@@ -393,6 +393,31 @@ class JobCardCreationTests(TestCase):
         self.assertEqual(job.price, '900')
         self.assertEqual(parse_jobcard_price(job.total_amount), Decimal('900.00'))
 
+    def test_chart_total_can_be_changed_to_the_ex_gst_chart_price(self):
+        """₹2950 is ₹2500 + 18%. Staff must be able to save ₹2500 as the new amount."""
+        job = self._priced_booking('2950.00', amount=2950, base=2950)
+        response = self.api.patch(
+            f'/api/v1/jobcards/{job.id}/',
+            {
+                'price': '2500',
+                'service_items': [
+                    {
+                        'service': 'Cockroach Premium',
+                        'plan': 'One Time Service',
+                        'area': '1 BHK',
+                        'base_amount': 2500,
+                        'discount': 0,
+                        'amount': 2500,
+                    },
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        job.refresh_from_db()
+        self.assertEqual(parse_jobcard_price(job.price), Decimal('2500.00'))
+        self.assertEqual(parse_jobcard_price(job.total_amount), Decimal('2500.00'))
+
     def test_edit_without_a_new_price_keeps_the_saved_price_text(self):
         job = self._priced_booking('2000.00', amount=2000, base=2000)
         response = self.api.patch(

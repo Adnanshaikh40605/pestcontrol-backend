@@ -58,11 +58,9 @@ def price_echoes_stored_booking(job, submitted) -> bool:
     incoming = parse_jobcard_price(submitted)
     if stored <= 0 or incoming <= 0 or stored == incoming:
         return False
-    if prices_differ_only_by_gst(stored, incoming):
-        return True
     items = getattr(job, 'service_items', None)
     if not isinstance(items, list):
-        return False
+        return prices_differ_only_by_gst(stored, incoming)
     bases = Decimal('0.00')
     nets = Decimal('0.00')
     for item in items:
@@ -70,6 +68,8 @@ def price_echoes_stored_booking(job, submitted) -> bool:
             continue
         bases += parse_jobcard_price(item.get('base_amount', item.get('baseAmount')))
         nets += parse_jobcard_price(item.get('amount'))
+    # Saved base and line amount are the same number. A different figure is an
+    # edit, even when it is exactly 18% away (chart ₹2500 vs stored ₹2950).
     if bases <= 0 or nets <= 0 or quantize_money(bases) == quantize_money(nets):
         return False
 
