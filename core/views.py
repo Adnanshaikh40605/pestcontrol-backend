@@ -2441,6 +2441,11 @@ class JobCardViewSet(BaseModelViewSet):
     """
     queryset = JobCard.objects.select_related(
         'client',
+        'created_by',
+        'on_process_by',
+        'done_by',
+        'technician',
+        'partner',
         'master_country',
         'master_state',
         'master_city',
@@ -5355,6 +5360,16 @@ class InvoiceViewSet(BaseModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    @action(detail=True, methods=['post'], url_path='email-customer')
+    def email_customer(self, request, pk=None):
+        from core.gst_views import email_invoice_to_customer
+
+        invoice = self.get_object()
+        ok, detail = email_invoice_to_customer(invoice)
+        if not ok:
+            return response.Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
+        return response.Response({'status': 'sent', 'email': invoice.customer_email})
 
 
 def log_activity(user, action, booking_id=None, details=None):

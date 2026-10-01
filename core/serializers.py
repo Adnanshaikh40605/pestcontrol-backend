@@ -674,6 +674,8 @@ class JobCardSerializer(serializers.ModelSerializer):
             'booking_priority',
             'package_tier', 'payment_model', 'technician_share_percent', 'company_share_percent',
             'planned_visit_count', 'discount_amount',
+            'gst_mode', 'gst_rate', 'original_service_price', 'taxable_amount',
+            'gst_amount', 'final_payable_amount', 'overridden_price',
             'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
             'visit_payout_amount', 'payout_status',
             'created_by', 'created_by_name', 'on_process_by', 'on_process_by_name', 'done_by', 'done_by_name',
@@ -1064,14 +1066,61 @@ class JobCardSerializer(serializers.ModelSerializer):
             # Prefer an explicit price from the request over stale line amounts
             # (CRM often PATCHes price while still sending old service_items).
             price_explicitly_set = False
+            gst_mode_applied = False
             if hasattr(self, 'initial_data') and isinstance(self.initial_data, dict):
                 price_explicitly_set = 'price' in self.initial_data
+                gst_mode_applied = 'gst_mode' in self.initial_data
+
+            if gst_mode_applied and normalized:
+                from core.pricing.gst import parse_gst_pricing_mode, snapshot_service_gst
+
+                try:
+                    mode = parse_gst_pricing_mode(self.initial_data.get('gst_mode'))
+                except ValueError as exc:
+                    raise serializers.ValidationError({'gst_mode': str(exc)})
+                rate = self.initial_data.get('gst_rate', self.initial_data.get('gst_percent', '18'))
+                snapshot = snapshot_service_gst(normalized, gst_mode=mode, gst_percent=rate)
+                explicit_price = manual_total if price_explicitly_set else Decimal('0')
+                if (
+                    price_explicitly_set
+                    and explicit_price > 0
+                    and abs(explicit_price - snapshot['final_payable_amount']) > Decimal('0.01')
+                    and abs(explicit_price - snapshot['original_service_price']) > Decimal('0.01')
+                ):
+                    from core.pricing.gst import quote_entered_price
+
+                    booking = quote_entered_price(
+                        explicit_price, gst_mode=mode, gst_percent=rate,
+                    )
+                    snapshot.update(booking)
+                    snapshot['overridden_price'] = explicit_price
+                    snapshot['price'] = f"{booking['final_payable_amount']:.2f}"
+                    distribute_amount_across_service_items(
+                        normalized, booking['final_payable_amount'],
+                    )
+                data['service_items'] = normalized
+                data['gst_mode'] = snapshot['gst_mode']
+                data['gst_rate'] = snapshot['gst_rate']
+                data['original_service_price'] = snapshot['original_service_price']
+                data['taxable_amount'] = snapshot['taxable_amount']
+                data['gst_amount'] = snapshot['gst_amount']
+                data['final_payable_amount'] = snapshot['final_payable_amount']
+                data['overridden_price'] = snapshot['overridden_price']
+                data['price'] = snapshot['price']
+                data['total_amount'] = snapshot['final_payable_amount']
+                items_total = sum(parse_jobcard_price(i['amount']) for i in normalized)
+                manual_total = parse_jobcard_price(data['price'])
+                price_explicitly_set = True
 
             stored_price_text = ''
             if self.instance is not None:
                 stored_price_text = str(self.instance.price or '').strip()
                 compared = manual_total if price_explicitly_set else items_total
-                if stored_price_text and price_echoes_stored_booking(self.instance, compared):
+                if (
+                    not gst_mode_applied
+                    and stored_price_text
+                    and price_echoes_stored_booking(self.instance, compared)
+                ):
                     # Opening Edit and leaving sends the GST base or the GST
                     # total. Keep the price already saved on the booking.
                     data['price'] = stored_price_text
@@ -1112,7 +1161,6 @@ class JobCardSerializer(serializers.ModelSerializer):
 
         # Done Service GST / Extra Amount rules.
         # GST Paid = No ⇒ Extra Amount must be No / zero.
-        from decimal import Decimal
 
         gst_in_payload = 'gst_paid' in data
         extra_flag_in_payload = 'has_extra_amount' in data
@@ -1955,7 +2003,7 @@ class QuotationSerializer(serializers.ModelSerializer):
 class InvoiceItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceItem
-        fields = ['id', 'service', 'schedule', 'technician', 'amount']
+        fields = ['id', 'service', 'schedule', 'technician', 'amount', 'quantity', 'rate', 'sac_code']
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
@@ -1970,22 +2018,55 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'customer_name', 'customer_mobile', 'customer_address', 'customer_gst_number',
             'booking_code', 'booking_created_at', 'next_service_date', 'reference',
             'tax_amount', 'subtotal', 'grand_total', 'notes',
+            'supply_category', 'customer_state', 'place_of_supply', 'sac_code',
+            'gst_rate', 'cgst_amount', 'sgst_amount', 'igst_amount',
+            'payment_received', 'customer_email', 'payment_terms', 'due_date',
+            'is_cancelled', 'note_kind', 'bank_ifsc', 'balance_due',
             'created_by', 'created_by_name',
             'items', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'created_by', 'created_by_name', 'created_at', 'updated_at',
-            'subtotal', 'grand_total',
+            'subtotal', 'grand_total', 'cgst_amount', 'sgst_amount', 'igst_amount',
+            'balance_due',
         ]
         extra_kwargs = {
             'invoice_no': {'required': False, 'allow_blank': True},
         }
+
+    balance_due = serializers.SerializerMethodField()
+
+    def get_balance_due(self, obj):
+        return str(quantize_money((obj.grand_total or 0) - (obj.payment_received or 0)))
 
     def get_created_by_name(self, obj):
         user = obj.created_by
         if not user:
             return ''
         return (user.get_full_name() or user.username or '').strip()
+
+    def validate(self, attrs):
+        category = attrs.get('supply_category', getattr(self.instance, 'supply_category', ''))
+        gstin = attrs.get('customer_gst_number', getattr(self.instance, 'customer_gst_number', ''))
+        invoice_no = (attrs.get('invoice_no') or getattr(self.instance, 'invoice_no', '') or '').strip()
+        if category and not invoice_no:
+            raise serializers.ValidationError({
+                'invoice_no': 'Enter the invoice number. It is not generated automatically.',
+            })
+        if invoice_no:
+            clash = Invoice.objects.filter(invoice_no__iexact=invoice_no)
+            if self.instance is not None:
+                clash = clash.exclude(pk=self.instance.pk)
+            if clash.exists():
+                raise serializers.ValidationError({'invoice_no': 'This invoice number is already used.'})
+            attrs['invoice_no'] = invoice_no
+        if category == 'B2B' and not str(gstin or '').strip():
+            raise serializers.ValidationError({
+                'customer_gst_number': 'Customer GSTIN is required for a B2B invoice.',
+            })
+        if category == 'B2C':
+            attrs['customer_gst_number'] = ''
+        return attrs
 
     def _normalize_gstin(self, value):
         if value is None:
@@ -2002,19 +2083,62 @@ class InvoiceSerializer(serializers.ModelSerializer):
     def validate_customer_gst_number(self, value):
         return self._normalize_gstin(value)
 
+    def _line_taxable(self, item):
+        qty = Decimal(str(item.get('quantity') or 0))
+        rate = Decimal(str(item.get('rate') or 0))
+        if qty > 0 and rate > 0:
+            return quantize_money(qty * rate)
+        return quantize_money(item.get('amount') or 0)
+
     def _sync_totals(self, invoice, items_data):
-        subtotal = sum(Decimal(str(item.get('amount') or 0)) for item in items_data)
-        tax = Decimal(str(invoice.tax_amount or 0))
-        invoice.subtotal = quantize_money(subtotal)
-        invoice.grand_total = quantize_money(subtotal + tax)
-        invoice.save(update_fields=['subtotal', 'grand_total', 'updated_at'])
+        prepared = []
+        for item in items_data:
+            row = dict(item)
+            row.pop('id', None)
+            row['amount'] = self._line_taxable(row)
+            prepared.append(row)
+        subtotal = sum((row['amount'] for row in prepared), Decimal('0.00'))
+        if invoice.supply_category:
+            from core.gst_invoice import split_gst
+            split = split_gst(
+                subtotal,
+                invoice.gst_rate,
+                invoice.place_of_supply,
+                invoice.billed_by_gst_number,
+            )
+            invoice.subtotal = split['taxable']
+            invoice.cgst_amount = split['cgst']
+            invoice.sgst_amount = split['sgst']
+            invoice.igst_amount = split['igst']
+            invoice.tax_amount = split['total_gst']
+            invoice.grand_total = split['grand_total']
+            invoice.save(update_fields=[
+                'subtotal', 'cgst_amount', 'sgst_amount', 'igst_amount',
+                'tax_amount', 'grand_total', 'updated_at',
+            ])
+        else:
+            tax = Decimal(str(invoice.tax_amount or 0))
+            invoice.subtotal = quantize_money(subtotal)
+            invoice.grand_total = quantize_money(subtotal + tax)
+            invoice.save(update_fields=['subtotal', 'grand_total', 'updated_at'])
+        return prepared
+
+    def _persist_items(self, invoice, items_data):
+        prepared = []
+        for item in items_data:
+            row = dict(item)
+            row.pop('id', None)
+            row['amount'] = self._line_taxable(row)
+            prepared.append(row)
+        invoice.items.all().delete()
+        for item_data in prepared:
+            InvoiceItem.objects.create(invoice=invoice, **item_data)
+        self._sync_totals(invoice, prepared)
 
     def create(self, validated_data):
         items_data = validated_data.pop('items')
         invoice = Invoice.objects.create(**validated_data)
-        for item_data in items_data:
-            InvoiceItem.objects.create(invoice=invoice, **item_data)
-        self._sync_totals(invoice, items_data)
+        self._persist_items(invoice, items_data)
         return invoice
 
     def update(self, instance, validated_data):
@@ -2024,12 +2148,10 @@ class InvoiceSerializer(serializers.ModelSerializer):
         instance.save()
 
         if items_data is not None:
-            instance.items.all().delete()
-            for item_data in items_data:
-                InvoiceItem.objects.create(invoice=instance, **item_data)
-
-        sync_items = items_data if items_data is not None else list(
-            instance.items.values('service', 'schedule', 'technician', 'amount'),
-        )
-        self._sync_totals(instance, sync_items)
+            self._persist_items(instance, items_data)
+        else:
+            sync_items = list(instance.items.values(
+                'service', 'schedule', 'technician', 'amount', 'quantity', 'rate', 'sac_code',
+            ))
+            self._sync_totals(instance, sync_items)
         return instance

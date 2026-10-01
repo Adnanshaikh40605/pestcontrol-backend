@@ -1723,7 +1723,12 @@ class BookingScheduleEngine:
 
         root = jobcard
         if jobcard.parent_job_id:
-            root = JobCard.objects.filter(id=jobcard.parent_job_id).first() or jobcard
+            root = (
+                JobCard.objects.filter(id=jobcard.parent_job_id)
+                .select_related('technician')
+                .first()
+                or jobcard
+            )
 
         # Legacy website "Cockroach / Ants" → Ant Control + Cockroach Control children.
         # CRM should show one Cockroach Standard/Premium visit, not three cards.
@@ -1768,6 +1773,7 @@ class BookingScheduleEngine:
 
         visits = (
             JobCard.objects.filter(Q(id=root.id) | Q(parent_job=root))
+            .select_related('technician')
             .order_by('source_service', 'service_cycle', 'schedule_datetime')
         )
 

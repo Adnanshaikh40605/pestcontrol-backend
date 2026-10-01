@@ -1326,6 +1326,10 @@ class JobCard(BaseModel):
         STANDARD = 'standard', 'Standard'
         PREMIUM = 'premium', 'Premium'
 
+    class GstPricingMode(models.TextChoices):
+        INCLUSIVE = 'GST_INCLUSIVE', 'GST Inclusive'
+        EXCLUSIVE = 'GST_EXCLUSIVE', 'GST Exclusive'
+
     class PaymentModel(models.TextChoices):
         REVENUE_SHARING = 'revenue_sharing', 'Revenue Sharing'
         SALARIED = 'salaried', 'Salaried'
@@ -1382,6 +1386,63 @@ class JobCard(BaseModel):
         default=0,
         validators=[validate_non_negative_decimal],
         verbose_name="Discount Amount",
+    )
+    gst_mode = models.CharField(
+        max_length=20,
+        choices=GstPricingMode.choices,
+        default=GstPricingMode.INCLUSIVE,
+        verbose_name="GST Pricing Mode",
+        help_text="GST Inclusive keeps the entered price as the customer total. GST Exclusive adds GST on top.",
+    )
+    gst_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal('18.00'),
+        validators=[validate_non_negative_decimal],
+        verbose_name="GST Rate",
+    )
+    # Null on bookings saved before this snapshot existed. Those rows keep their stored price.
+    original_service_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Original Service Price",
+        help_text="Entered service price after discount, before the GST mode is applied.",
+    )
+    taxable_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Taxable Amount",
+    )
+    gst_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[validate_non_negative_decimal],
+        verbose_name="GST Amount",
+    )
+    final_payable_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Final Customer Payable",
+    )
+    overridden_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[validate_non_negative_decimal],
+        verbose_name="Overridden Price",
+        help_text="Staff booking-level price when it differs from the sum of service lines.",
     )
     visit_revenue_amount = models.DecimalField(
         max_digits=12,
@@ -2920,6 +2981,37 @@ class Invoice(BaseModel):
     grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     notes = models.TextField(blank=True, default='')
 
+    class SupplyCategory(models.TextChoices):
+        B2B = 'B2B', 'B2B'
+        B2C = 'B2C', 'B2C'
+
+    class NoteKind(models.TextChoices):
+        NONE = '', 'Invoice'
+        CREDIT = 'credit', 'Credit note'
+        DEBIT = 'debit', 'Debit note'
+
+    supply_category = models.CharField(
+        max_length=3,
+        blank=True,
+        default='',
+        choices=SupplyCategory.choices,
+        help_text='Blank keeps older invoices on the previous tax field.',
+    )
+    customer_state = models.CharField(max_length=80, blank=True, default='')
+    place_of_supply = models.CharField(max_length=80, blank=True, default='Maharashtra')
+    sac_code = models.CharField(max_length=12, blank=True, default='998531')
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('18.00'))
+    cgst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    sgst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    igst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    payment_received = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    customer_email = models.EmailField(blank=True, default='')
+    payment_terms = models.CharField(max_length=120, blank=True, default='Due end of next month')
+    due_date = models.DateField(null=True, blank=True)
+    is_cancelled = models.BooleanField(default=False)
+    note_kind = models.CharField(max_length=10, blank=True, default='', choices=NoteKind.choices)
+    bank_ifsc = models.CharField(max_length=20, blank=True, default='IDFB0040115')
+
     created_by = models.ForeignKey(
         'auth.User',
         on_delete=models.SET_NULL,
@@ -2962,9 +3054,81 @@ class InvoiceItem(BaseModel):
     schedule = models.CharField(max_length=100, blank=True, default='')
     technician = models.CharField(max_length=255, blank=True, default='')
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('1.00'))
+    rate = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    sac_code = models.CharField(max_length=12, blank=True, default='')
 
     class Meta:
         ordering = ['created_at', 'id']
 
     def __str__(self) -> str:
         return f'{self.service} ({self.invoice.invoice_no})'
+
+
+class PurchaseBill(BaseModel):
+    """Supplier bill recorded for CA review. Input GST is not auto-claimed."""
+
+    class InputEligibility(models.TextChoices):
+        PENDING = 'pending', 'Pending CA review'
+        ELIGIBLE = 'eligible', 'Eligible input'
+        NOT_ELIGIBLE = 'not_eligible', 'Not eligible'
+
+    supplier_name = models.CharField(max_length=255)
+    supplier_gstin = models.CharField(max_length=30, blank=True, default='')
+    bill_number = models.CharField(max_length=80)
+    bill_date = models.DateField(db_index=True)
+    taxable_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    cgst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    sgst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    igst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
+    attachment = models.FileField(upload_to='purchase_bills/%Y/%m/', blank=True)
+    input_eligibility = models.CharField(
+        max_length=20,
+        choices=InputEligibility.choices,
+        default=InputEligibility.PENDING,
+    )
+    notes = models.TextField(blank=True, default='')
+
+    class Meta:
+        ordering = ['-bill_date', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['supplier_gstin', 'bill_number'],
+                name='unique_supplier_bill_number',
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f'{self.bill_number} - {self.supplier_name}'
+
+
+class GstCaSettings(models.Model):
+    """Single row: where the monthly GST package is emailed."""
+
+    ca_email = models.EmailField(blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'GST CA settings'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+
+class CaReportDispatch(models.Model):
+    period_start = models.DateField()
+    period_end = models.DateField()
+    ca_email = models.EmailField()
+    status = models.CharField(max_length=20)
+    detail = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']

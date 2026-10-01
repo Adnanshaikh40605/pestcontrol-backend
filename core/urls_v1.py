@@ -28,6 +28,7 @@ from .views import (
     QuotationViewSet,
     InvoiceViewSet,
 )
+from .gst_views import GstCaSettingsView, GstReportEmailView, GstReportView, PurchaseBillViewSet
 from .remark_views import (
     CRMInquiryRemarkListCreateView,
     CRMInquiryRemarkDetailView,
@@ -73,6 +74,7 @@ router.register(r'cities', CityViewSet, basename='city')
 router.register(r'locations', LocationViewSet, basename='location')
 router.register(r'quotations', QuotationViewSet, basename='quotation')
 router.register(r'invoices', InvoiceViewSet, basename='invoice')
+router.register(r'purchase-bills', PurchaseBillViewSet, basename='purchase-bill')
 router.register(r'partner-referrals', PartnerReferralViewSet, basename='partner-referral')
 router.register(r'pricing-regions', PricingRegionViewSet, basename='pricing-region')
 router.register(r'pricing-rates', PricingRateViewSet, basename='pricing-rate')
@@ -123,6 +125,9 @@ urlpatterns = [
     path('users/theme/', UserThemeView.as_view(), name='user-theme'),
     path('media-file/', MediaFileView.as_view(), name='media-file'),
     path('pricing-config/', PricingConfigAPIView.as_view(), name='pricing-config'),
+    path('gst-ca-settings/', GstCaSettingsView.as_view(), name='gst-ca-settings'),
+    path('gst-reports/', GstReportView.as_view(), name='gst-reports'),
+    path('gst-reports/email/', GstReportEmailView.as_view(), name='gst-reports-email'),
     path('health/', health_check, name='health_check'),
     path('feature-flags/', feature_flags, name='feature-flags'),
     path('global-search/', GlobalSearchView.as_view(), name='global_search'),

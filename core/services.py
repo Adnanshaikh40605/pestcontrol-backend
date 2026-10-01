@@ -2046,38 +2046,45 @@ class DashboardService:
                 jobcard_filters &= Q(schedule_datetime__date__lte=to_date)
                 renewal_filters &= Q(due_date__lte=to_date)
             
-            # Basic counts
+            # One pass per table. Conditional counts match the old separate .count() calls.
             total_web_inquiries = Inquiry.objects.filter(inquiry_filters).count()
             total_crm_inquiries = CRMInquiry.objects.filter(inquiry_filters).count()
             total_inquiries = total_web_inquiries + total_crm_inquiries
-            
-            total_job_cards = JobCard.objects.filter(jobcard_filters).count()
-            total_clients = Client.objects.count() 
+
+            total_clients = Client.objects.count()
             total_technicians = Technician.objects.filter(is_active=True).count()
             renewals = Renewal.objects.filter(renewal_filters).count()
-            
-            # Quotation counts
+
             from .models import Quotation
             quotation_filters = Q()
             if from_date:
                 quotation_filters &= Q(created_at__date__gte=from_date)
             if to_date:
                 quotation_filters &= Q(created_at__date__lte=to_date)
-                
-            total_quotations = Quotation.objects.filter(quotation_filters).count()
-            approved_quotations = Quotation.objects.filter(quotation_filters, status='Approved').count()
-            converted_quotations = Quotation.objects.filter(quotation_filters, status='Converted').count()
-            
-            # Service Category Breakdown
+            quotation_totals = Quotation.objects.filter(quotation_filters).aggregate(
+                total=Count('id'),
+                approved=Count('id', filter=Q(status='Approved')),
+                converted=Count('id', filter=Q(status='Converted')),
+            )
+            total_quotations = quotation_totals['total'] or 0
+            approved_quotations = quotation_totals['approved'] or 0
+            converted_quotations = quotation_totals['converted'] or 0
+
+            job_totals = JobCard.objects.filter(jobcard_filters).aggregate(
+                total=Count('id'),
+                one_time=Count('id', filter=Q(service_category=JobCard.ServiceCategory.ONE_TIME)),
+                amc=Count('id', filter=Q(service_category=JobCard.ServiceCategory.AMC)),
+                individual=Count('id', filter=Q(commercial_type=JobCard.CommercialType.HOME)),
+                society=Count('id', filter=~Q(commercial_type=JobCard.CommercialType.HOME)),
+            )
+            total_job_cards = job_totals['total'] or 0
             category_stats = {
-                'one_time': JobCard.objects.filter(jobcard_filters, service_category=JobCard.ServiceCategory.ONE_TIME).count(),
-                'amc': JobCard.objects.filter(jobcard_filters, service_category=JobCard.ServiceCategory.AMC).count()
+                'one_time': job_totals['one_time'] or 0,
+                'amc': job_totals['amc'] or 0,
             }
-            
-            # Category Breakdown (Retail vs Corporate)
             job_type_stats = {
-                'individual': JobCard.objects.filter(jobcard_filters, commercial_type=JobCard.CommercialType.HOME).count(),
-                'society': JobCard.objects.filter(jobcard_filters).exclude(commercial_type=JobCard.CommercialType.HOME).count(),
+                'individual': job_totals['individual'] or 0,
+                'society': job_totals['society'] or 0,
             }
             
             # Status Breakdown (Pending = operational queue only, not scheduled service visits).
@@ -2089,23 +2096,30 @@ class DashboardService:
                 is_complaint_call=False,
             )
             status_base = JobCard.objects.filter(jobcard_filters).exclude(day1_auto_child_q)
+            status_totals = status_base.aggregate(
+                pending=Count('id', filter=Q(status=JobCard.JobStatus.PENDING)),
+                upcoming=Count(
+                    'id',
+                    filter=Q(
+                        status=JobCard.JobStatus.UPCOMING,
+                        booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES,
+                    ),
+                ),
+                on_process=Count('id', filter=Q(status=JobCard.JobStatus.ON_PROCESS)),
+                done=Count('id', filter=Q(status=JobCard.JobStatus.DONE)),
+            )
             status_stats = {
-                'pending': status_base.filter(
-                    status=JobCard.JobStatus.PENDING,
-                ).count(),
-                'upcoming': status_base.filter(
-                    status=JobCard.JobStatus.UPCOMING,
-                    booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES,
-                ).count(),
-                'on_process': status_base.filter(status=JobCard.JobStatus.ON_PROCESS).count(),
-                'done': status_base.filter(status=JobCard.JobStatus.DONE).count(),
-                # Today's Jobs (always relative to today unless explicitly filtering for a range that excludes it)
+                'pending': status_totals['pending'] or 0,
+                'upcoming': status_totals['upcoming'] or 0,
+                'on_process': status_totals['on_process'] or 0,
+                'done': status_totals['done'] or 0,
+                # Today's Jobs stay relative to today, even when the date picker is a different range.
                 'confirmed': JobCard.objects.filter(
                     schedule_datetime__date=today,
                 ).exclude(day1_auto_child_q).count(),
                 'completed': 0,
                 'cancelled': 0,
-                'hold': 0
+                'hold': 0,
             }
             
             # City breakdown — merge case variants (Mumbai / mumbai) into proper labels.
@@ -2157,9 +2171,21 @@ class DashboardService:
             range_booking_city_stats = city_stats
             range_service_city_stats = _city_counts(range_service_qs)
             range_complaint_city_stats = _city_counts(range_complaint_qs)
-            range_booking_count = range_booking_qs.values('id').distinct().count()
-            range_service_call_count = range_service_qs.count()
-            range_complaint_call_count = range_complaint_qs.count()
+            booking_root_q = (
+                new_booking_type_q
+                & ~complaint_q
+                & ~service_q
+                & ~day1_auto_child_q
+                & Q(parent_job_id__isnull=True)
+            )
+            range_split = range_active.aggregate(
+                bookings=Count('id', filter=booking_root_q, distinct=True),
+                services=Count('id', filter=service_q),
+                complaints=Count('id', filter=complaint_q),
+            )
+            range_booking_count = range_split['bookings'] or 0
+            range_service_call_count = range_split['services'] or 0
+            range_complaint_call_count = range_split['complaints'] or 0
 
             today_active = JobCard.objects.filter(
                 schedule_datetime__date=today,
@@ -2179,9 +2205,14 @@ class DashboardService:
             today_city_stats = _city_counts(today_booking_qs, distinct_booking=True)
             today_service_city_stats = _city_counts(today_service_qs)
             today_complaint_city_stats = _city_counts(today_complaint_qs)
-            today_booking_count = today_booking_qs.values('id').distinct().count()
-            today_service_call_count = today_service_qs.count()
-            today_complaint_call_count = today_complaint_qs.count()
+            today_split = today_active.aggregate(
+                bookings=Count('id', filter=booking_root_q, distinct=True),
+                services=Count('id', filter=service_q),
+                complaints=Count('id', filter=complaint_q),
+            )
+            today_booking_count = today_split['bookings'] or 0
+            today_service_call_count = today_split['services'] or 0
+            today_complaint_call_count = today_split['complaints'] or 0
 
             # Range totals — complaints stay in total_job_cards but are also surfaced.
             total_complaint_calls = JobCard.objects.filter(
@@ -2210,36 +2241,36 @@ class DashboardService:
             last_month_end = month_start - timedelta(days=1)
             last_month_start = last_month_end.replace(day=1)
             
-            # Helper to aggregate revenue safely from CharField 'price'
-            def get_revenue(filters):
-                return JobCard.objects.filter(filters).aggregate(
-                    total=Coalesce(Sum(Cast('price', FloatField())), Value(0.0, output_field=FloatField()))
-                )['total']
+            # One scan of completed billable bookings. price stays a text field;
+            # the cast is the same one the separate sums used.
+            price_total = Cast('price', FloatField())
+            zero_money = Value(0.0, output_field=FloatField())
 
-            # Revenue is grouped by service/booking date — not CRM entry or completion date
-            today_revenue = get_revenue(
-                revenue_filter_base & revenue_service_date_q(on_date=today)
-            )
-            yesterday_revenue = get_revenue(
-                revenue_filter_base & revenue_service_date_q(on_date=yesterday)
-            )
-            month_revenue = get_revenue(
-                revenue_filter_base
-                & revenue_service_date_q(from_date=month_start, to_date=month_end)
-            )
+            def _revenue_sum(date_filter):
+                return Coalesce(Sum(price_total, filter=date_filter), zero_money)
 
-            # For the filtered range revenue (dashboard date picker)
-            range_revenue = 0
+            month_date_q = revenue_service_date_q(from_date=month_start, to_date=month_end)
+            revenue_aggregates = {
+                'today': _revenue_sum(revenue_service_date_q(on_date=today)),
+                'yesterday': _revenue_sum(revenue_service_date_q(on_date=yesterday)),
+                'month': _revenue_sum(month_date_q),
+                'last_month': _revenue_sum(
+                    revenue_service_date_q(from_date=last_month_start, to_date=last_month_end)
+                ),
+                'jobs_done_month': Count('id', filter=month_date_q),
+            }
             if from_date or to_date:
-                range_revenue = get_revenue(
-                    revenue_filter_base
-                    & revenue_service_date_q(
-                        from_date=from_date,
-                        to_date=to_date,
-                    )
+                revenue_aggregates['range'] = _revenue_sum(
+                    revenue_service_date_q(from_date=from_date, to_date=to_date)
                 )
-            else:
-                range_revenue = month_revenue
+            revenue_row = JobCard.objects.filter(revenue_filter_base).aggregate(**revenue_aggregates)
+            today_revenue = revenue_row['today'] or 0
+            yesterday_revenue = revenue_row['yesterday'] or 0
+            month_revenue = revenue_row['month'] or 0
+            last_month_revenue = revenue_row['last_month'] or 0
+            jobs_done_month = revenue_row['jobs_done_month'] or 0
+            range_revenue = revenue_row['range'] if (from_date or to_date) else month_revenue
+            range_revenue = range_revenue or 0
 
             logger.info(
                 'Dashboard Revenue Stats (by service date) - Today: %s, Yesterday: %s, '
@@ -2251,19 +2282,6 @@ class DashboardService:
             )
 
             revenue_target = 500000
-            last_month_revenue = get_revenue(
-                revenue_filter_base
-                & revenue_service_date_q(
-                    from_date=last_month_start,
-                    to_date=last_month_end,
-                )
-            )
-
-            month_jobs_filter = revenue_filter_base & revenue_service_date_q(
-                from_date=month_start,
-                to_date=month_end,
-            )
-            jobs_done_month = JobCard.objects.filter(month_jobs_filter).count()
 
             avg_ticket_month = round(month_revenue / jobs_done_month, 2) if jobs_done_month else 0
             month_achievement_pct = (
@@ -2413,36 +2431,46 @@ class DashboardService:
             end_date = today + timedelta(days=1)
 
         # Get all active staff/admins
-        staff_users = User.objects.filter(is_active=True).order_by('first_name', 'username')
-        
+        staff_users = list(User.objects.filter(is_active=True).order_by('first_name', 'username'))
+        date_filter_created = Q(created_at__date__gte=start_date, created_at__date__lt=end_date)
+        date_filter_updated = Q(updated_at__date__gte=start_date, updated_at__date__lt=end_date)
+
+        def _by_user(qs, field):
+            return {
+                row[field]: row['n']
+                for row in qs.values(field).annotate(n=Count('id'))
+                if row[field]
+            }
+
+        website_created_by = _by_user(Inquiry.objects.filter(date_filter_created), 'created_by')
+        crm_created_by = _by_user(CRMInquiry.objects.filter(date_filter_created), 'created_by')
+        website_converted_by = _by_user(Inquiry.objects.filter(date_filter_updated), 'converted_by')
+        crm_converted_by = _by_user(CRMInquiry.objects.filter(date_filter_updated), 'converted_by')
+        bookings_by = _by_user(JobCard.objects.filter(date_filter_created), 'created_by')
+        on_process_by = _by_user(JobCard.objects.filter(date_filter_updated), 'on_process_by')
+        done_by = _by_user(JobCard.objects.filter(date_filter_updated), 'done_by')
+        complaints_by = _by_user(
+            JobCard.objects.filter(
+                date_filter_created,
+                booking_type=JobCard.BookingType.COMPLAINT_CALL,
+            ),
+            'created_by',
+        )
+        reminders_by = _by_user(Renewal.objects.filter(date_filter_created), 'created_by')
+
         performance_data = []
-        
+
         for user in staff_users:
-            # Filters for the period
-            date_filter_created = Q(created_at__date__gte=start_date, created_at__date__lt=end_date)
-            date_filter_updated = Q(updated_at__date__gte=start_date, updated_at__date__lt=end_date)
-            
-            # 1. Inquiries Created (Website + CRM)
-            website_inquiries_created = Inquiry.objects.filter(created_by=user).filter(date_filter_created).count()
-            crm_inquiries_created = CRMInquiry.objects.filter(created_by=user).filter(date_filter_created).count()
+            website_inquiries_created = website_created_by.get(user.id, 0)
+            crm_inquiries_created = crm_created_by.get(user.id, 0)
             total_inquiries_created = website_inquiries_created + crm_inquiries_created
-            
-            # 2. Inquiries Converted
-            website_converted = Inquiry.objects.filter(converted_by=user).filter(date_filter_updated).count()
-            crm_converted = CRMInquiry.objects.filter(converted_by=user).filter(date_filter_updated).count()
-            
-            # 3. Bookings Created
-            bookings_created = JobCard.objects.filter(created_by=user).filter(date_filter_created).count()
-            
-            # 4. Status Updates
-            on_process_updates = JobCard.objects.filter(on_process_by=user).filter(date_filter_updated).count()
-            done_updates = JobCard.objects.filter(done_by=user).filter(date_filter_updated).count()
-            
-            # 5. Complaint Calls Created
-            complaint_calls_created = JobCard.objects.filter(created_by=user, booking_type=JobCard.BookingType.COMPLAINT_CALL).filter(date_filter_created).count()
-            
-            # 6. Reminders Created (Renewals)
-            reminders_created = Renewal.objects.filter(created_by=user).filter(date_filter_created).count()
+            website_converted = website_converted_by.get(user.id, 0)
+            crm_converted = crm_converted_by.get(user.id, 0)
+            bookings_created = bookings_by.get(user.id, 0)
+            on_process_updates = on_process_by.get(user.id, 0)
+            done_updates = done_by.get(user.id, 0)
+            complaint_calls_created = complaints_by.get(user.id, 0)
+            reminders_created = reminders_by.get(user.id, 0)
             
             # 7. Conversion Rate
             total_converted = website_converted + crm_converted

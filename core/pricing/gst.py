@@ -15,6 +15,8 @@ _pricing_cache: ContextVar[dict | None] = ContextVar('pricing_lookup_cache', def
 
 MONEY_QUANT = Decimal('0.01')
 DEFAULT_GST_PERCENT = Decimal('18.00')
+GST_INCLUSIVE = 'GST_INCLUSIVE'
+GST_EXCLUSIVE = 'GST_EXCLUSIVE'
 
 
 @contextmanager
@@ -100,6 +102,91 @@ def gst_breakdown(
         'base_amount': base,
         'gst_amount': gst_amount,
         'total_with_gst': total,
+    }
+
+
+def parse_gst_pricing_mode(value) -> str:
+    """Accept only GST Inclusive or GST Exclusive. Blank means Inclusive."""
+    text = str(value or '').strip().upper().replace(' ', '_').replace('-', '_')
+    if text in ('', 'GST_INCLUSIVE', 'INCLUSIVE'):
+        return GST_INCLUSIVE
+    if text in ('GST_EXCLUSIVE', 'EXCLUSIVE'):
+        return GST_EXCLUSIVE
+    raise ValueError('GST mode must be GST Inclusive or GST Exclusive.')
+
+
+def quote_entered_price(entered, *, gst_mode, gst_percent=DEFAULT_GST_PERCENT) -> dict[str, Any]:
+    """Turn one entered service price into the saved GST snapshot.
+
+    Inclusive: the entered figure is the customer payable. GST is taken out of it.
+    Exclusive: the entered figure is before GST. GST is added on top.
+    """
+    mode = parse_gst_pricing_mode(gst_mode)
+    entered_amount = _money(entered)
+    breakdown = gst_breakdown(
+        entered_amount,
+        gst_percent=gst_percent,
+        price_includes_gst=(mode == GST_INCLUSIVE),
+    )
+    return {
+        'gst_mode': mode,
+        'gst_rate': breakdown['gst_percent'],
+        'original_service_price': entered_amount,
+        'taxable_amount': breakdown['base_amount'],
+        'gst_amount': breakdown['gst_amount'],
+        'final_payable_amount': breakdown['total_with_gst'],
+    }
+
+
+def snapshot_service_gst(items, *, gst_mode, gst_percent=DEFAULT_GST_PERCENT) -> dict[str, Any]:
+    """Save GST on each service line, then the booking total from those lines.
+
+    The entered price is base minus discount. The returned price string is the
+    customer payable. Existing invoice, payment, and ledger reads use that price.
+    """
+    mode = parse_gst_pricing_mode(gst_mode)
+    rate = _money(gst_percent)
+    if rate < 0:
+        rate = Decimal('0.00')
+
+    entered_total = Decimal('0.00')
+    taxable_total = Decimal('0.00')
+    gst_total = Decimal('0.00')
+    final_total = Decimal('0.00')
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        base = _money(item.get('base_amount', item.get('baseAmount')))
+        discount = _money(item.get('discount'))
+        if discount > base > 0:
+            discount = base
+        entered = (base - discount) if base > 0 else _money(item.get('amount'))
+        entered = _money(entered)
+        quote = quote_entered_price(entered, gst_mode=mode, gst_percent=rate)
+        if base <= 0:
+            item['base_amount'] = float(entered)
+            item['discount'] = 0.0
+        item['amount'] = float(quote['final_payable_amount'])
+        item['gst_mode'] = mode
+        item['gst_rate'] = str(quote['gst_rate'])
+        item['taxable_amount'] = str(quote['taxable_amount'])
+        item['gst_amount'] = str(quote['gst_amount'])
+        item['final_amount'] = str(quote['final_payable_amount'])
+        entered_total += quote['original_service_price']
+        taxable_total += quote['taxable_amount']
+        gst_total += quote['gst_amount']
+        final_total += quote['final_payable_amount']
+
+    return {
+        'gst_mode': mode,
+        'gst_rate': rate,
+        'original_service_price': _money(entered_total),
+        'taxable_amount': _money(taxable_total),
+        'gst_amount': _money(gst_total),
+        'final_payable_amount': _money(final_total),
+        'overridden_price': None,
+        'price': f'{_money(final_total):.2f}',
     }
 
 
