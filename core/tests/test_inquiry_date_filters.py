@@ -7,7 +7,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from core.models import CRMInquiry, Inquiry
+from core.models import CRMInquiry, Inquiry, WebsiteLeadRemark
 
 
 class InquiryDateFilterAPITest(APITestCase):
@@ -73,6 +73,50 @@ class InquiryDateFilterAPITest(APITestCase):
         self.assertEqual(response.data['status_counts']['New'], 1)
         self.assertEqual(len(response.data['results']), 1)
         self.assertEqual(response.data['results'][0]['name'], 'Today Lead')
+
+    def test_website_leads_with_current_comments_sort_last(self):
+        pending = Inquiry.objects.create(
+            name='Needs Comment',
+            mobile='9000000011',
+            message='New',
+            service_interest='Pest Control',
+            status='New',
+        )
+        updated = Inquiry.objects.create(
+            name='Comment Done',
+            mobile='9000000012',
+            message='Called',
+            service_interest='Pest Control',
+            status='Contacted',
+        )
+        WebsiteLeadRemark.objects.create(
+            lead=updated,
+            remark='Spoke to customer',
+            created_by=self.user,
+        )
+        stale = Inquiry.objects.create(
+            name='Comment Stale',
+            mobile='9000000013',
+            message='Called again',
+            service_interest='Pest Control',
+            status='New',
+        )
+        WebsiteLeadRemark.objects.create(
+            lead=stale,
+            remark='Old note',
+            created_by=self.user,
+        )
+        Inquiry.objects.filter(pk=pending.pk).update(
+            updated_at=timezone.now() - timedelta(days=2),
+        )
+        updated.is_read = True
+        updated.save(update_fields=['is_read', 'updated_at'])
+
+        response = self.api_client.get('/api/v1/inquiries/', {'page_size': 50})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = [row['name'] for row in response.data['results']]
+        self.assertLess(names.index('Needs Comment'), names.index('Comment Done'))
+        self.assertLess(names.index('Needs Comment'), names.index('Comment Stale'))
 
     def test_website_leads_tab_counts_respect_date_filter(self):
         today = timezone.now().date().isoformat()

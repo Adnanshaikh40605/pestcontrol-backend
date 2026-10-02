@@ -35,7 +35,7 @@ from .serializers import (
     InvoiceSerializer,
 )
 from django.contrib.auth.models import User
-from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField, Exists, OuterRef
+from django.db.models import Q, Count, Sum, Avg, FloatField, ExpressionWrapper, F, Case, When, Value, IntegerField, Exists, OuterRef, Max
 from django.db.models.functions import Cast, Coalesce
 from .jobcard_schedule import (
     order_queryset_by_reminder_date,
@@ -1827,13 +1827,25 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
     filterset_fields = ['status', 'city']
     search_fields = ['id', 'name', 'mobile', 'email', 'service_interest']
     ordering_fields = ['created_at', 'updated_at', 'name', 'status', 'city']
-    ordering = ['-created_at']  # Default: latest inquiries first
+    # No staff comment first. A saved comment stays at the bottom even if
+    # mark-as-read or a status change bumps the lead timestamp.
+    ordering = ['comment_needs_update', '-updated_at', '-id']
     date_filter_field = 'created_at'
     search_fields_list = ('name', 'mobile', 'email', 'service_interest', 'city', 'state')
 
     def get_queryset(self):
         qs = Inquiry.objects.all()
-        qs = qs.annotate(remark_count=Count('remarks', distinct=True))
+        qs = qs.annotate(
+            remark_count=Count('remarks', distinct=True),
+            last_remark_at=Max('remarks__updated_at'),
+        )
+        qs = qs.annotate(
+            comment_needs_update=Case(
+                When(last_remark_at__isnull=True, then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            )
+        )
         qs = qs.prefetch_related(
             Prefetch(
                 'remarks',
@@ -1843,6 +1855,18 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
         )
         self.queryset = qs
         return super().get_queryset()
+
+    def filter_queryset(self, queryset):
+        if getattr(self, 'action', None) != 'list':
+            return super().filter_queryset(queryset)
+        backends = [backend for backend in self.filter_backends if backend is not filters.OrderingFilter]
+        original_backends = self.filter_backends
+        self.filter_backends = backends
+        try:
+            queryset = super().filter_queryset(queryset)
+        finally:
+            self.filter_backends = original_backends
+        return queryset.order_by('comment_needs_update', '-updated_at', '-id')
 
     def get_authenticators(self):
         """Do not enforce Session/JWT auth on public create endpoint (avoids CSRF)."""
