@@ -1827,8 +1827,8 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
     filterset_fields = ['status', 'city']
     search_fields = ['id', 'name', 'mobile', 'email', 'service_interest']
     ordering_fields = ['created_at', 'updated_at', 'name', 'status', 'city']
-    # Pending and out-of-date comments first. A comment saved after the
-    # lead's latest change stays at the bottom.
+    # No staff comment first. A saved comment stays at the bottom even if
+    # mark-as-read or a status change bumps the lead timestamp.
     ordering = ['comment_needs_update', '-updated_at', '-id']
     date_filter_field = 'created_at'
     search_fields_list = ('name', 'mobile', 'email', 'service_interest', 'city', 'state')
@@ -1842,7 +1842,6 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
         qs = qs.annotate(
             comment_needs_update=Case(
                 When(last_remark_at__isnull=True, then=Value(0)),
-                When(last_remark_at__lt=F('updated_at'), then=Value(0)),
                 default=Value(1),
                 output_field=IntegerField(),
             )
@@ -2019,7 +2018,8 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
         """Mark inquiry as read."""
         try:
             inquiry = self.get_object()
-            Inquiry.objects.filter(pk=inquiry.pk).update(is_read=True)
+            inquiry.is_read = True
+            inquiry.save(update_fields=['is_read', 'updated_at'])
             return response.Response({'status': 'marked as read'})
         except Exception as e:
             logger.error(f"Error marking inquiry {pk} as read: {e}")

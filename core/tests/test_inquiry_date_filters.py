@@ -109,15 +109,14 @@ class InquiryDateFilterAPITest(APITestCase):
         Inquiry.objects.filter(pk=pending.pk).update(
             updated_at=timezone.now() - timedelta(days=2),
         )
-        Inquiry.objects.filter(pk=stale.pk).update(
-            updated_at=timezone.now(),
-        )
+        updated.is_read = True
+        updated.save(update_fields=['is_read', 'updated_at'])
 
         response = self.api_client.get('/api/v1/inquiries/', {'page_size': 50})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         names = [row['name'] for row in response.data['results']]
         self.assertLess(names.index('Needs Comment'), names.index('Comment Done'))
-        self.assertLess(names.index('Comment Stale'), names.index('Comment Done'))
+        self.assertLess(names.index('Needs Comment'), names.index('Comment Stale'))
 
     def test_website_leads_tab_counts_respect_date_filter(self):
         today = timezone.now().date().isoformat()
