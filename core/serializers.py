@@ -490,6 +490,7 @@ class InquirySerializer(serializers.ModelSerializer):
     remark = serializers.SerializerMethodField()
     latest_remark = serializers.SerializerMethodField()
     remark_count = serializers.IntegerField(read_only=True, required=False)
+    needs_comment_update = serializers.BooleanField(read_only=True, required=False)
     service_rate_info = serializers.SerializerMethodField()
 
     class Meta:
@@ -501,14 +502,16 @@ class InquirySerializer(serializers.ModelSerializer):
             'estimated_price', 'is_inspection_required', 'service_frequency',
             'booking_session_id', 'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
             'linked_jobcard',
-            'remark', 'latest_remark', 'remark_count', 'service_rate_info',
+            'remark', 'latest_remark', 'remark_count', 'needs_comment_update',
+            'service_rate_info',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_by', 'created_by_name', 'converted_by', 'converted_by_name',
             'created_at', 'updated_at'
         ]
         read_only_fields = [
             'id', 'created_by', 'converted_by', 'created_at', 'updated_at',
-            'remark', 'latest_remark', 'remark_count', 'service_rate_info',
+            'remark', 'latest_remark', 'remark_count', 'needs_comment_update',
+            'service_rate_info',
             'linked_jobcard',
         ]
 

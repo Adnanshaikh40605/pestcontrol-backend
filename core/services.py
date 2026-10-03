@@ -2214,6 +2214,23 @@ class DashboardService:
             today_service_call_count = today_split['services'] or 0
             today_complaint_call_count = today_split['complaints'] or 0
 
+            tomorrow = today + timedelta(days=1)
+            tomorrow_active = JobCard.objects.filter(
+                schedule_datetime__date=tomorrow,
+            ).exclude(status=JobCard.JobStatus.CANCELLED)
+            tomorrow_booking_qs = (
+                tomorrow_active.filter(new_booking_type_q)
+                .exclude(complaint_q)
+                .exclude(service_q)
+                .exclude(day1_auto_child_q)
+                .filter(parent_job_id__isnull=True)
+            )
+            tomorrow_city_stats = _city_counts(tomorrow_booking_qs, distinct_booking=True)
+            tomorrow_split = tomorrow_active.aggregate(
+                bookings=Count('id', filter=booking_root_q, distinct=True),
+            )
+            tomorrow_booking_count = tomorrow_split['bookings'] or 0
+
             # Range totals — complaints stay in total_job_cards but are also surfaced.
             total_complaint_calls = JobCard.objects.filter(
                 jobcard_filters,
@@ -2358,6 +2375,8 @@ class DashboardService:
                 'today_booking_count': today_booking_count,
                 'today_service_call_count': today_service_call_count,
                 'today_complaint_call_count': today_complaint_call_count,
+                'tomorrow_booking_count': tomorrow_booking_count,
+                'tomorrow_city_stats': tomorrow_city_stats,
                 'total_complaint_calls': total_complaint_calls,
                 'property_type_stats': property_type_stats,
                 'sharing_breakdown': sharing_breakdown,

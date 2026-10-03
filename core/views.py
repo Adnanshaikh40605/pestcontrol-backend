@@ -24,7 +24,7 @@ from .models import (
     QuotationHistory, InquiryRemark, WebsiteLeadRemark, RemarkType, TechnicianRemark,
     Invoice,
 )
-from django.db.models import Count, Prefetch
+from django.db.models import BooleanField, Count, Max, Prefetch
 from .serializers import (
     ClientSerializer, InquirySerializer, JobCardSerializer, JobCardTechnicianParticipationSerializer,
     RenewalSerializer, TechnicianSerializer, TechnicianRemarkSerializer, CRMInquirySerializer, 
@@ -1827,13 +1827,25 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
     filterset_fields = ['status', 'city']
     search_fields = ['id', 'name', 'mobile', 'email', 'service_interest']
     ordering_fields = ['created_at', 'updated_at', 'name', 'status', 'city']
-    ordering = ['-created_at']  # Default: latest inquiries first
+    # Pending / outdated comments first, then leads with a current comment.
+    ordering = ['-needs_comment_update', '-updated_at', '-id']
     date_filter_field = 'created_at'
     search_fields_list = ('name', 'mobile', 'email', 'service_interest', 'city', 'state')
 
     def get_queryset(self):
         qs = Inquiry.objects.all()
-        qs = qs.annotate(remark_count=Count('remarks', distinct=True))
+        qs = qs.annotate(
+            remark_count=Count('remarks', distinct=True),
+            last_remark_at=Max('remarks__updated_at'),
+        )
+        qs = qs.annotate(
+            needs_comment_update=Case(
+                When(last_remark_at__isnull=True, then=Value(True)),
+                When(last_remark_at__lt=F('updated_at'), then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            )
+        )
         qs = qs.prefetch_related(
             Prefetch(
                 'remarks',
@@ -1843,6 +1855,22 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
         )
         self.queryset = qs
         return super().get_queryset()
+
+    def filter_queryset(self, queryset):
+        # Keep comment-priority order for the list; ignore client ordering params.
+        if getattr(self, 'action', None) != 'list':
+            return super().filter_queryset(queryset)
+        backends = [
+            backend for backend in self.filter_backends
+            if backend is not filters.OrderingFilter
+        ]
+        original_backends = self.filter_backends
+        self.filter_backends = backends
+        try:
+            queryset = super().filter_queryset(queryset)
+        finally:
+            self.filter_backends = original_backends
+        return queryset.order_by('-needs_comment_update', '-updated_at', '-id')
 
     def get_authenticators(self):
         """Do not enforce Session/JWT auth on public create endpoint (avoids CSRF)."""
@@ -1994,8 +2022,8 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
         """Mark inquiry as read."""
         try:
             inquiry = self.get_object()
-            inquiry.is_read = True
-            inquiry.save(update_fields=['is_read', 'updated_at'])
+            # Do not bump updated_at — that would falsely mark a current comment as stale.
+            Inquiry.objects.filter(pk=inquiry.pk).update(is_read=True)
             return response.Response({'status': 'marked as read'})
         except Exception as e:
             logger.error(f"Error marking inquiry {pk} as read: {e}")

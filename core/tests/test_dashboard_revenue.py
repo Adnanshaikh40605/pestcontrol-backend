@@ -196,22 +196,39 @@ class DashboardTodayCitySplitTests(TestCase):
             service_cycle=2,
         )
 
+        tomorrow = self.today + timedelta(days=1)
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            city='Thane',
+            schedule_datetime=tomorrow,
+            price='1500',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_service_call=False,
+        )
+
         stats = DashboardService.get_dashboard_statistics()
         self.assertEqual(stats['today_booking_count'], 1)
+        self.assertEqual(stats['tomorrow_booking_count'], 1)
         self.assertEqual(stats['today_service_call_count'], 2)
         self.assertEqual(stats['today_complaint_call_count'], 0)
         self.assertEqual(stats['today_city_stats'], [{'city': 'Mumbai', 'count': 1}])
+        self.assertEqual(stats['tomorrow_city_stats'], [{'city': 'Thane', 'count': 1}])
         service_by_city = {row['city']: row['count'] for row in stats['today_service_city_stats']}
         self.assertEqual(service_by_city.get('Mumbai'), 1)
         self.assertEqual(service_by_city.get('Pune'), 1)
-        # Selected date range uses the same booking / service city split.
-        self.assertEqual(stats['range_booking_count'], 1)
+        # No date filter → range includes today and tomorrow bookings.
+        self.assertEqual(stats['range_booking_count'], 2)
         self.assertEqual(stats['range_service_call_count'], 2)
         range_svc = {row['city']: row['count'] for row in stats['range_service_city_stats']}
         self.assertEqual(range_svc.get('Mumbai'), 1)
         self.assertEqual(range_svc.get('Pune'), 1)
         # city_stats = unique new bookings only (not all jobs / service calls).
-        self.assertEqual(stats['city_stats'], [{'city': 'Mumbai', 'count': 1}])
+        range_by_city = {row['city']: row['count'] for row in stats['city_stats']}
+        self.assertEqual(range_by_city.get('Mumbai'), 1)
+        self.assertEqual(range_by_city.get('Thane'), 1)
         self.assertEqual(stats['range_booking_city_stats'], stats['city_stats'])
 
     def test_multi_service_children_count_as_one_new_booking(self):

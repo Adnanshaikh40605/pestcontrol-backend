@@ -61,6 +61,20 @@ def apply_date_range_filter(
     return qs
 
 
+def parse_is_read_param(value: str | None) -> bool | None:
+    """Parse is_read query values used by CRM list filters."""
+    if value is None:
+        return None
+    raw = str(value).strip().lower()
+    if not raw:
+        return None
+    if raw in ('1', 'true', 'yes', 'read'):
+        return True
+    if raw in ('0', 'false', 'no', 'unread'):
+        return False
+    return None
+
+
 def get_status_counts(qs: QuerySet) -> dict[str, int]:
     """Return status breakdown for tab badges (all filters except status)."""
     rows = qs.values('status').annotate(count=Count('id', distinct=True))
@@ -75,6 +89,20 @@ def get_status_counts(qs: QuerySet) -> dict[str, int]:
     }
 
 
+def get_read_counts(qs: QuerySet) -> dict[str, int]:
+    """Return read / unread breakdown for filter badges."""
+    totals = qs.aggregate(
+        all=Count('id', distinct=True),
+        unread=Count('id', filter=Q(is_read=False), distinct=True),
+        read=Count('id', filter=Q(is_read=True), distinct=True),
+    )
+    return {
+        'all': totals['all'] or 0,
+        'unread': totals['unread'] or 0,
+        'read': totals['read'] or 0,
+    }
+
+
 class InquiryListCountsMixin:
     """
     Mixin for inquiry list endpoints: date/search filters + status_counts in response.
@@ -84,7 +112,12 @@ class InquiryListCountsMixin:
     search_fields_list: tuple[str, ...] = ('name', 'mobile', 'email')
     extra_list_filters = None  # optional callable(qs, request) -> qs
 
-    def _base_list_queryset(self, *, include_status: bool = True) -> QuerySet:
+    def _base_list_queryset(
+        self,
+        *,
+        include_status: bool = True,
+        include_read: bool = True,
+    ) -> QuerySet:
         qs = super().get_queryset()
 
         focus = self.request.query_params.get('focus')
@@ -102,21 +135,32 @@ class InquiryListCountsMixin:
             if status:
                 qs = qs.filter(status=status)
 
+        if include_read:
+            is_read = parse_is_read_param(self.request.query_params.get('is_read'))
+            if is_read is not None:
+                qs = qs.filter(is_read=is_read)
+
         return qs
 
     def get_queryset(self):
-        return self._base_list_queryset(include_status=True)
+        return self._base_list_queryset(include_status=True, include_read=True)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
-        counts_qs = self._base_list_queryset(include_status=False)
-        status_counts = get_status_counts(counts_qs)
+        # Status badges respect the current read filter; read badges respect status.
+        status_counts = get_status_counts(
+            self._base_list_queryset(include_status=False, include_read=True)
+        )
+        read_counts = get_read_counts(
+            self._base_list_queryset(include_status=True, include_read=False)
+        )
 
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             response = self.get_paginated_response(serializer.data)
             response.data['status_counts'] = status_counts
+            response.data['read_counts'] = read_counts
             return response
 
         serializer = self.get_serializer(queryset, many=True)
@@ -124,4 +168,5 @@ class InquiryListCountsMixin:
             'count': queryset.count(),
             'results': serializer.data,
             'status_counts': status_counts,
+            'read_counts': read_counts,
         })

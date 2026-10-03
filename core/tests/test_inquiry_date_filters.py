@@ -7,7 +7,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from core.models import CRMInquiry, Inquiry
+from core.models import CRMInquiry, Inquiry, WebsiteLeadRemark
 
 
 class InquiryDateFilterAPITest(APITestCase):
@@ -80,6 +80,87 @@ class InquiryDateFilterAPITest(APITestCase):
         counts = response.data['status_counts']
         self.assertEqual(counts['Contacted'], 0)
         self.assertEqual(counts['all'], 1)
+
+    def test_website_leads_with_pending_comments_sort_first(self):
+        pending = Inquiry.objects.create(
+            name='Needs Comment',
+            mobile='9000000011',
+            message='New',
+            service_interest='Pest Control',
+            status='New',
+        )
+        updated = Inquiry.objects.create(
+            name='Comment Done',
+            mobile='9000000012',
+            message='Called',
+            service_interest='Pest Control',
+            status='Contacted',
+        )
+        WebsiteLeadRemark.objects.create(
+            lead=updated,
+            remark='Spoke to customer',
+            created_by=self.user,
+        )
+        stale = Inquiry.objects.create(
+            name='Comment Stale',
+            mobile='9000000013',
+            message='Called again',
+            service_interest='Pest Control',
+            status='New',
+        )
+        WebsiteLeadRemark.objects.create(
+            lead=stale,
+            remark='Old note',
+            created_by=self.user,
+        )
+        Inquiry.objects.filter(pk=pending.pk).update(
+            updated_at=timezone.now() - timedelta(days=2),
+        )
+        Inquiry.objects.filter(pk=stale.pk).update(
+            updated_at=timezone.now(),
+        )
+
+        response = self.api_client.get('/api/v1/inquiries/', {'page_size': 50})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        by_name = {row['name']: row for row in response.data['results']}
+        self.assertTrue(by_name['Needs Comment']['needs_comment_update'])
+        self.assertTrue(by_name['Comment Stale']['needs_comment_update'])
+        self.assertFalse(by_name['Comment Done']['needs_comment_update'])
+        names = [row['name'] for row in response.data['results']]
+        self.assertLess(names.index('Needs Comment'), names.index('Comment Done'))
+        self.assertLess(names.index('Comment Stale'), names.index('Comment Done'))
+
+    def test_website_leads_read_unread_filter(self):
+        unread = Inquiry.objects.create(
+            name='Unread Lead',
+            mobile='9000000021',
+            message='New',
+            service_interest='Pest Control',
+            status='New',
+            is_read=False,
+        )
+        read = Inquiry.objects.create(
+            name='Read Lead',
+            mobile='9000000022',
+            message='Seen',
+            service_interest='Pest Control',
+            status='Contacted',
+            is_read=True,
+        )
+
+        unread_res = self.api_client.get('/api/v1/inquiries/', {'is_read': 'false', 'page_size': 50})
+        self.assertEqual(unread_res.status_code, status.HTTP_200_OK)
+        unread_names = [row['name'] for row in unread_res.data['results']]
+        self.assertIn(unread.name, unread_names)
+        self.assertNotIn(read.name, unread_names)
+        self.assertIn('read_counts', unread_res.data)
+        self.assertGreaterEqual(unread_res.data['read_counts']['unread'], 1)
+
+        read_res = self.api_client.get('/api/v1/inquiries/', {'is_read': 'true', 'page_size': 50})
+        self.assertEqual(read_res.status_code, status.HTTP_200_OK)
+        read_names = [row['name'] for row in read_res.data['results']]
+        self.assertIn(read.name, read_names)
+        self.assertNotIn(unread.name, read_names)
 
     def test_crm_inquiries_filter_by_inquiry_date(self):
         today = timezone.now().date().isoformat()
