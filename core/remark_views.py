@@ -165,6 +165,9 @@ class WebsiteLeadRemarkListCreateView(views.APIView):
             created_by=request.user,
             remark_type=remark_type,
         )
+        # Keep lead.updated_at <= remark.updated_at so needs_comment_update
+        # clears immediately and stays clear after refresh (DB is source of truth).
+        Inquiry.objects.filter(pk=lead.pk).update(updated_at=entry.updated_at)
         _log_remark_activity(
             request.user,
             'Added Website Lead Remark',
@@ -172,7 +175,11 @@ class WebsiteLeadRemarkListCreateView(views.APIView):
             new_text=text,
         )
         serializer = WebsiteLeadRemarkSerializer(entry, context={'request': request})
-        return response.Response(serializer.data, status=status.HTTP_201_CREATED)
+        payload = dict(serializer.data)
+        payload['needs_comment_update'] = False
+        payload['comment_status'] = 'added'
+        payload['lead_id'] = lead.id
+        return response.Response(payload, status=status.HTTP_201_CREATED)
 
 
 class WebsiteLeadRemarkDetailView(views.APIView):
@@ -195,6 +202,7 @@ class WebsiteLeadRemarkDetailView(views.APIView):
             if rt in RemarkType.values:
                 entry.remark_type = rt
         entry.save(update_fields=['remark', 'remark_type', 'updated_at'])
+        Inquiry.objects.filter(pk=entry.lead_id).update(updated_at=entry.updated_at)
 
         _log_remark_activity(
             request.user,
@@ -203,9 +211,13 @@ class WebsiteLeadRemarkDetailView(views.APIView):
             old_text=old_text,
             new_text=new_text,
         )
-        return response.Response(
+        payload = dict(
             WebsiteLeadRemarkSerializer(entry, context={'request': request}).data
         )
+        payload['needs_comment_update'] = False
+        payload['comment_status'] = 'added'
+        payload['lead_id'] = entry.lead_id
+        return response.Response(payload)
 
     def delete(self, request, pk):
         try:

@@ -783,8 +783,9 @@ class InquiryService:
                 'mobile' in update_fields and previous_mobile != existing.mobile
             )
             if update_fields:
-                # Surface the lead again in CRM unread / recent activity.
-                if existing.is_read:
+                # Only reopen as unread when the customer changes mobile —
+                # silent form edits must not undo staff "Mark as Read".
+                if mobile_changed and existing.is_read:
                     existing.is_read = False
                     update_fields.append('is_read')
                 existing.full_clean()

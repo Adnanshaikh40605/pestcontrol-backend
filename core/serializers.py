@@ -491,6 +491,7 @@ class InquirySerializer(serializers.ModelSerializer):
     latest_remark = serializers.SerializerMethodField()
     remark_count = serializers.IntegerField(read_only=True, required=False)
     needs_comment_update = serializers.BooleanField(read_only=True, required=False)
+    comment_status = serializers.SerializerMethodField()
     service_rate_info = serializers.SerializerMethodField()
 
     class Meta:
@@ -503,6 +504,7 @@ class InquirySerializer(serializers.ModelSerializer):
             'booking_session_id', 'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
             'linked_jobcard',
             'remark', 'latest_remark', 'remark_count', 'needs_comment_update',
+            'comment_status',
             'service_rate_info',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
             'created_by', 'created_by_name', 'converted_by', 'converted_by_name',
@@ -511,9 +513,18 @@ class InquirySerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'created_by', 'converted_by', 'created_at', 'updated_at',
             'remark', 'latest_remark', 'remark_count', 'needs_comment_update',
+            'comment_status',
             'service_rate_info',
             'linked_jobcard',
         ]
+
+    def get_comment_status(self, obj) -> str:
+        """required = needs staff comment; added = latest comment is current."""
+        needs = getattr(obj, 'needs_comment_update', None)
+        if needs is None:
+            latest = _resolve_latest_remark(obj)
+            needs = latest is None
+        return 'required' if needs else 'added'
 
     def get_created_by_name(self, obj):
         if obj.created_by:

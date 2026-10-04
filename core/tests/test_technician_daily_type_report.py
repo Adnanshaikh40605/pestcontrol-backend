@@ -58,7 +58,8 @@ class TechnicianDailyTypeReportTests(TestCase):
             mobile='9555000001',
         )
 
-    def _done_job(self, technician, *, price='1000', service='Cockroach / Ants', city='Mumbai'):
+    def _process_job(self, technician, *, price='1000', service='Cockroach / Ants', city='Mumbai'):
+        """Create an On Process booking (Technician Report counts Process only)."""
         job = JobCard.objects.create(
             client=self.client_obj,
             technician=technician,
@@ -75,12 +76,14 @@ class TechnicianDailyTypeReportTests(TestCase):
             created_by=self.user,
         )
         JobCard.objects.filter(pk=job.pk).update(
-            status='Done',
-            completed_at=self.today,
+            status=JobCard.JobStatus.ON_PROCESS,
             schedule_datetime=self.today,
         )
         job.refresh_from_db()
         return job
+
+    # Back-compat alias used by older test names in this module.
+    _done_job = _process_job
 
     def test_priority_alias_and_performing_split(self):
         job = self._done_job(self.partner_tech, price='5000', service='Termite Control')
@@ -193,6 +196,41 @@ class TechnicianDailyTypeReportTests(TestCase):
         self.assertEqual(res.data['summary']['performing_count'], 0)
         self.assertEqual(res.data['summary']['total_completed_jobs'], 0)
         self.assertEqual(res.data['summary']['non_performing_count'], 2)
+
+    def test_done_visit_is_excluded_process_only(self):
+        job = self._process_job(self.partner_tech, price='2000', service='Bed Bugs')
+        JobCard.objects.filter(pk=job.pk).update(status=JobCard.JobStatus.DONE)
+        res = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {
+                'date': self.today.date().isoformat(),
+                'technician_type': 'priority',
+            },
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['summary']['performed_count'], 0)
+        self.assertEqual(res.data['booking_status'], JobCard.JobStatus.ON_PROCESS)
+
+    def test_city_and_date_range_filters(self):
+        self._process_job(self.partner_tech, price='1000', city='Mumbai')
+        self._process_job(self.partner_tech, price='1000', city='Pune')
+        day = self.today.date().isoformat()
+        mumbai = self.api.get(
+            '/api/v1/technicians/daily_type_report/',
+            {
+                'from': day,
+                'to': day,
+                'city': 'Mumbai',
+                'technician_type': 'priority',
+            },
+        )
+        self.assertEqual(mumbai.status_code, 200, mumbai.data)
+        self.assertEqual(mumbai.data['city'], 'Mumbai')
+        self.assertEqual(mumbai.data['summary']['performed_count'], 1)
+        self.assertEqual(mumbai.data['performed'][0]['process_count'], 1)
+        self.assertEqual(mumbai.data['performed'][0]['performance_status'], 'Performed')
+        cities = {c['city'] for c in mumbai.data['city_earnings']}
+        self.assertEqual(cities, {'Mumbai'})
 
     def test_service_type_counts_and_city_earnings(self):
         self._done_job(self.partner_tech, price='1000', service='Cockroach Standard', city='Mumbai')

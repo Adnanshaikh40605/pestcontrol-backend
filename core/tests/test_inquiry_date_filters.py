@@ -81,6 +81,47 @@ class InquiryDateFilterAPITest(APITestCase):
         self.assertEqual(counts['Contacted'], 0)
         self.assertEqual(counts['all'], 1)
 
+    def test_website_lead_remark_clears_comment_required(self):
+        lead = Inquiry.objects.create(
+            name='Needs Then Added',
+            mobile='9000000031',
+            message='New',
+            service_interest='Pest Control',
+            status='New',
+            is_read=False,
+        )
+        Inquiry.objects.filter(pk=lead.pk).update(
+            updated_at=timezone.now() - timedelta(days=1),
+        )
+        before = self.api_client.get('/api/v1/inquiries/', {'page_size': 50, 'search': 'Needs Then Added'})
+        row = next(r for r in before.data['results'] if r['id'] == lead.id)
+        self.assertTrue(row['needs_comment_update'])
+        self.assertEqual(row['comment_status'], 'required')
+
+        remark_res = self.api_client.post(
+            f'/api/v1/website-leads/{lead.id}/remarks/',
+            {'remark': 'Spoke to customer'},
+            format='json',
+        )
+        self.assertEqual(remark_res.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(remark_res.data['needs_comment_update'])
+        self.assertEqual(remark_res.data['comment_status'], 'added')
+
+        after = self.api_client.get('/api/v1/inquiries/', {'page_size': 50, 'search': 'Needs Then Added'})
+        row2 = next(r for r in after.data['results'] if r['id'] == lead.id)
+        self.assertFalse(row2['needs_comment_update'])
+        self.assertEqual(row2['comment_status'], 'added')
+
+        mark = self.api_client.post(f'/api/v1/inquiries/{lead.id}/mark_as_read/')
+        self.assertEqual(mark.status_code, status.HTTP_200_OK)
+        self.assertTrue(mark.data['is_read'])
+        lead.refresh_from_db()
+        self.assertTrue(lead.is_read)
+        after_read = self.api_client.get('/api/v1/inquiries/', {'page_size': 50, 'search': 'Needs Then Added'})
+        row3 = next(r for r in after_read.data['results'] if r['id'] == lead.id)
+        self.assertTrue(row3['is_read'])
+        self.assertEqual(row3['comment_status'], 'added')
+
     def test_website_leads_with_pending_comments_sort_first(self):
         pending = Inquiry.objects.create(
             name='Needs Comment',

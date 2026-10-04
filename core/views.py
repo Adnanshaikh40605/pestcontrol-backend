@@ -814,24 +814,32 @@ class TechnicianViewSet(BaseModelViewSet):
     @action(detail=False, methods=['get'], url_path='daily_type_report')
     def daily_type_report(self, request):
         """
-        Daily performing / non-performing report by technician type.
+        Performed / Not Performed report by technician type.
 
         Query params:
-          - date (YYYY-MM-DD, default: today)
+          - date (YYYY-MM-DD) — single day (default: today) when from/to omitted
+          - from / to (YYYY-MM-DD) — Asia/Kolkata inclusive date range
+          - city — optional job city filter (e.g. Mumbai, Pune)
           - technician_type: partner|priority|secondary|salaried
             ("priority" is a product alias for partner)
 
-        Performing rule: completed ≥1 Done job on that date (lead or crew).
-        Also returns per-tech service counts and city-wise earnings.
+        Performance rule: ≥1 On Process booking in the selected range
+        (lead or active crew). Cancelled/Done/other statuses are excluded.
         """
         from core.technician_daily_report import (
             _normalize_type,
+            _parse_date_bound,
             _parse_report_date,
             build_daily_type_report,
         )
 
         try:
-            report_date = _parse_report_date(request.query_params.get('date'))
+            date_from = _parse_date_bound(request.query_params.get('from'), label='from')
+            date_to = _parse_date_bound(request.query_params.get('to'), label='to')
+            # Single-day shorthand when range not provided.
+            report_date = None
+            if date_from is None and date_to is None:
+                report_date = _parse_report_date(request.query_params.get('date'))
             technician_type = _normalize_type(
                 request.query_params.get('technician_type')
             )
@@ -844,6 +852,9 @@ class TechnicianViewSet(BaseModelViewSet):
         payload = build_daily_type_report(
             report_date=report_date,
             technician_type=technician_type,
+            date_from=date_from,
+            date_to=date_to,
+            city=request.query_params.get('city'),
         )
         return response.Response(payload)
 
@@ -2019,12 +2030,21 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
     )
     @action(detail=True, methods=['post'], url_path='mark_as_read')
     def mark_as_read(self, request, pk=None):
-        """Mark inquiry as read."""
+        """Mark inquiry as read (persist is_read without touching updated_at)."""
         try:
-            inquiry = self.get_object()
-            # Do not bump updated_at — that would falsely mark a current comment as stale.
-            Inquiry.objects.filter(pk=inquiry.pk).update(is_read=True)
-            return response.Response({'status': 'marked as read'})
+            # Update by pk directly — avoid get_object() list filters / ordering
+            # annotations that can 404 or 500 and leave the row unread.
+            updated = Inquiry.objects.filter(pk=pk).update(is_read=True)
+            if not updated:
+                return response.Response(
+                    {'error': 'Inquiry not found'},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            return response.Response({
+                'status': 'marked as read',
+                'id': int(pk),
+                'is_read': True,
+            })
         except Exception as e:
             logger.error(f"Error marking inquiry {pk} as read: {e}")
             return response.Response(
