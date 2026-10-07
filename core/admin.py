@@ -7,6 +7,8 @@ from .models import (
     CRMInquiry,
     InquiryRemark,
     WebsiteLeadRemark,
+    DeepCleaningInquiry,
+    DeepCleaningInquiryRemark,
     ECardVisit,
     ECardWhatsAppSend,
 )
@@ -66,6 +68,22 @@ class InquiryRemarkAdmin(admin.ModelAdmin):
 class WebsiteLeadRemarkAdmin(admin.ModelAdmin):
     list_display = ('id', 'lead', 'remark_type', 'created_by', 'created_at')
     search_fields = ('remark', 'lead__name', 'lead__mobile')
+    list_filter = ('remark_type', 'created_at')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(DeepCleaningInquiry)
+class DeepCleaningInquiryAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'mobile', 'service', 'city', 'status', 'is_read', 'preferred_date', 'created_at')
+    search_fields = ('name', 'mobile', 'service', 'package_name', 'city', 'area', 'address')
+    list_filter = ('status', 'is_read', 'city', 'service', 'created_at')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(DeepCleaningInquiryRemark)
+class DeepCleaningInquiryRemarkAdmin(admin.ModelAdmin):
+    list_display = ('id', 'inquiry', 'remark_type', 'created_by', 'created_at')
+    search_fields = ('remark', 'inquiry__name', 'inquiry__mobile')
     list_filter = ('remark_type', 'created_at')
     readonly_fields = ('created_at', 'updated_at')
 

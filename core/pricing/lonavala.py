@@ -84,6 +84,20 @@ LONAVALA_PRICING: dict[str, dict[str, dict[str, int]]] = {
             _COMMERCIAL_AREA: 0,
         },
     },
+    # Same Standard launch card as Mumbai (Excel 05 Oct 2026).
+    'Wood Borer': {
+        'One Time Service': {
+            '1 Small Item / Door Frame': 1500,
+            '1 Double Bed / Wardrobe': 2500,
+            '1 Room (upto 3 items)': 3500,
+            '1 RK': 3000,
+            '1 BHK': 4000,
+            '2 BHK': 5500,
+            '3 BHK': 7000,
+            '4 BHK': 8500,
+            _COMMERCIAL_AREA: 0,
+        },
+    },
     'Mosquito': {
         'One Time Service': {
             '1 RK': 1000,
@@ -152,6 +166,7 @@ LONAVALA_SERVICE_TYPES: dict[str, list[str]] = {
     'Cockroach / Ants': ['One Time Service', 'AMC 3 Services'],
     'Bed Bugs': ['One Time Service'],
     'Termite': ['One Time Service'],
+    'Wood Borer': ['One Time Service'],
     'Rodent': ['One Time Service'],
     'Mosquito': ['One Time Service'],
     'Hotel / Commercial': ['One Time Service'],

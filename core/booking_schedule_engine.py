@@ -187,6 +187,13 @@ def is_bed_bug_service(service: str) -> bool:
     return 'bed bug' in normalized or 'bedbug' in normalized
 
 
+def is_wood_borer_service(service: str) -> bool:
+    normalized = (service or '').lower()
+    return 'wood borer' in normalized or 'woodborer' in normalized or (
+        'borer' in normalized and 'termite' not in normalized
+    )
+
+
 _OTHER_PEST_MARKERS = (
     'cockroach',
     'ant',
@@ -196,6 +203,8 @@ _OTHER_PEST_MARKERS = (
     'bedbug',
     'lizard',
     'general pest',
+    'wood borer',
+    'woodborer',
 )
 
 
@@ -209,12 +218,16 @@ def is_termite_only_service(service: str) -> bool:
 
 def is_fixed_visit_service(service: str) -> bool:
     """Services with hard-coded visit counts that must never become AMC packages."""
-    return is_termite_service(service) or is_bed_bug_service(service)
+    return (
+        is_termite_service(service)
+        or is_bed_bug_service(service)
+        or is_wood_borer_service(service)
+    )
 
 
 def fixed_visit_count_for_service(service: str) -> Optional[int]:
     """Return locked visit count when the service has a hard product rule."""
-    if is_termite_service(service):
+    if is_termite_service(service) or is_wood_borer_service(service):
         return 1
     if is_bed_bug_service(service):
         return 2

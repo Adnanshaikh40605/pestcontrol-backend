@@ -17,7 +17,13 @@ from .lonavala import (
     LONAVALA_SERVICE_TYPES,
     LONAVALA_VILLA_LOCATIONS,
 )
-from .mumbai import MUMBAI_PRICING, MUMBAI_PROPERTY_LOCATIONS, MUMBAI_SERVICE_TYPES, COMMERCIAL_AREA_KEY
+from .mumbai import (
+    MUMBAI_PRICING,
+    MUMBAI_PROPERTY_LOCATIONS,
+    MUMBAI_SERVICE_TYPES,
+    MUMBAI_WOOD_BORER_LOCATIONS,
+    COMMERCIAL_AREA_KEY,
+)
 
 # Include common CRM master-data spellings (e.g. "Lonavla" vs "Lonavala").
 LONAVALA_CITY_NAMES = frozenset({'lonavala', 'lonavla'})
@@ -273,9 +279,11 @@ def _service_area_queryset(qs, service: str, commercial_type: str):
     lower = (service or '').casefold()
     cockroach = is_cockroach_family(service)
     bed_or_termite = (
-        service in ('Bed Bugs', 'Termite', 'Termite Spot Treatment')
+        service in ('Bed Bugs', 'Termite', 'Termite Spot Treatment', 'Wood Borer', 'Wood Borer Control')
         or 'bed bug' in lower
         or 'termite' in lower
+        or 'wood borer' in lower
+        or 'woodborer' in lower
     )
     mosquito = service == 'Mosquito' or 'mosquito' in lower or 'fogging' in lower
     rodent = service == 'Rodent' or 'rodent' in lower
@@ -384,6 +392,12 @@ def get_area_options(
         or 'termite' in s.casefold()
         for s in services
     )
+    has_wood_borer = any(
+        s in ('Wood Borer', 'Wood Borer Control')
+        or 'wood borer' in s.casefold()
+        or 'woodborer' in s.casefold()
+        for s in services
+    )
 
     if commercial_type == 'villa':
         if has_cockroach:
@@ -394,11 +408,15 @@ def get_area_options(
             options.extend(rodent_locs)
         if has_bed_or_termite:
             options.extend(['1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK'])
+        if has_wood_borer:
+            options.extend(MUMBAI_WOOD_BORER_LOCATIONS)
     else:
         residential_svcs = [s for s in services if s not in ('Rodent', 'Hotel / Commercial')]
         if residential_svcs:
             if has_bed_or_termite:
                 options.extend(['1 BHK', '2 BHK', '3 BHK', '4 BHK', '5 BHK'])
+            if has_wood_borer:
+                options.extend(MUMBAI_WOOD_BORER_LOCATIONS)
             if has_cockroach or has_mosquito:
                 options.extend(residential_locs)
         if has_rodent:

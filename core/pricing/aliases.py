@@ -23,6 +23,8 @@ LEGACY_SERVICE_PACKAGE_ALIASES: dict[str, tuple[str, ...]] = {
     'Rodent': ('Regular Rodent', 'Kill-Rodent System'),
     'Mosquito': ('Mosquito Cold Fogging', 'Mosquito Thermal Fogging'),
     'Termite': ('Termite Spot Treatment', 'Termite'),
+    'Wood Borer Control': ('Wood Borer',),
+    'Wood Borer Treatment': ('Wood Borer',),
     'General Pest': ('General Pest Control',),
 }
 
@@ -41,6 +43,8 @@ COMMERCIAL_CATCHALL_SERVICES: frozenset[str] = frozenset({
     'Bed Bugs',
     'Termite',
     'Termite Spot Treatment',
+    'Wood Borer',
+    'Wood Borer Control',
     'General Pest Control',
 })
 
@@ -213,6 +217,8 @@ def resolve_service_package(
             fuzzy = ['Mosquito Cold Fogging', 'Mosquito Thermal Fogging']
         elif 'termite' in lower:
             fuzzy = ['Termite Spot Treatment', 'Termite']
+        elif 'wood borer' in lower or 'woodborer' in lower or re.search(r'\bborer\b', lower):
+            fuzzy = ['Wood Borer']
         for candidate in fuzzy:
             if candidate in available:
                 return candidate

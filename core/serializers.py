@@ -1028,11 +1028,16 @@ class JobCardSerializer(serializers.ModelSerializer):
                 is_bed_bug_service,
                 is_fixed_visit_service,
                 is_termite_service,
+                is_wood_borer_service,
             )
 
-            # CRM cannot book Termite / Bed Bugs as AMC — rewrite plans.
+            # CRM cannot book Termite / Bed Bugs / Wood Borer as AMC — rewrite plans.
             for item in normalized:
-                if is_termite_service(item['service']) or is_bed_bug_service(item['service']):
+                if (
+                    is_termite_service(item['service'])
+                    or is_bed_bug_service(item['service'])
+                    or is_wood_borer_service(item['service'])
+                ):
                     item['plan'] = 'One Time Service'
             data['service_items'] = normalized
 

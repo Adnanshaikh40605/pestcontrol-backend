@@ -47,6 +47,10 @@ PEST_PREFERRED_PACKAGES: dict[str, dict[str, tuple[str, ...]]] = {
         'standard': ('Bed Bugs',),
         'premium': ('Bed Bugs',),
     },
+    'wood-borer': {
+        'standard': ('Wood Borer',),
+        'premium': ('Wood Borer',),
+    },
 }
 
 # service_type labels from the website → pest slug
@@ -61,6 +65,7 @@ SERVICE_LABEL_TO_PEST: dict[str, str] = {
     'bed bug control': 'bedbugs',
     'honey bee / wasp removal': 'honey-bee',
     'wood borer control': 'wood-borer',
+    'wood borer': 'wood-borer',
     'fly control': 'house-fly',
     'general pest control': 'other',
 }
@@ -157,6 +162,8 @@ def pest_slug_from_service_type(service_type: str) -> str | None:
         return 'mosquito'
     if 'termite' in label:
         return 'termite'
+    if 'wood borer' in label or 'woodborer' in label or 'borer' in label:
+        return 'wood-borer'
     return None
 
 

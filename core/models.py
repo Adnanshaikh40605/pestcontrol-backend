@@ -2249,6 +2249,139 @@ class WebsiteLeadRemark(BaseModel):
         return f"Lead #{self.lead_id} remark @ {self.created_at}"
 
 
+class DeepCleaningInquiry(BaseModel):
+    """Leads from deepcleaning99.com — isolated from pest Website Leads."""
+
+    class InquiryStatus(models.TextChoices):
+        NEW = 'New', 'New'
+        CONTACTED = 'Contacted', 'Contacted'
+        CONVERTED = 'Converted', 'Converted'
+        CLOSED = 'Closed', 'Closed'
+
+    name = models.CharField(max_length=255, db_index=True)
+    mobile = models.CharField(
+        max_length=10,
+        validators=[validate_mobile_number],
+        db_index=True,
+    )
+    email = models.EmailField(blank=True, null=True)
+    city = models.CharField(max_length=100, db_index=True, default='Mumbai')
+    area = models.CharField(max_length=150, blank=True, default='')
+    address = models.TextField(blank=True, default='')
+    segment = models.CharField(
+        max_length=50,
+        blank=True,
+        default='Residential',
+        help_text='Residential or Commercial',
+    )
+    service = models.CharField(max_length=255, db_index=True)
+    package_name = models.CharField(max_length=255, blank=True, default='')
+    package_id = models.CharField(max_length=50, blank=True, default='')
+    quantity = models.CharField(max_length=50, blank=True, default='')
+    unit = models.CharField(max_length=50, blank=True, default='')
+    plan = models.CharField(
+        max_length=50,
+        blank=True,
+        default='one',
+        help_text='one / amc',
+    )
+    property_size = models.CharField(max_length=50, blank=True, default='')
+    property_type = models.CharField(max_length=50, blank=True, default='')
+    preferred_date = models.DateField(null=True, blank=True, db_index=True)
+    preferred_time = models.CharField(max_length=100, blank=True, default='')
+    estimated_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[validate_non_negative_decimal],
+    )
+    regular_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[validate_non_negative_decimal],
+    )
+    discount_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[validate_non_negative_decimal],
+    )
+    notes = models.TextField(blank=True, default='')
+    page_url = models.URLField(max_length=500, blank=True, null=True)
+    source = models.CharField(
+        max_length=50,
+        blank=True,
+        default='deepcleaning99',
+        db_index=True,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=InquiryStatus.choices,
+        default=InquiryStatus.NEW,
+        db_index=True,
+    )
+    is_read = models.BooleanField(default=False, db_index=True)
+    created_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_deepcleaning_inquiries',
+    )
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        verbose_name = 'DeepCleaning99 Inquiry'
+        verbose_name_plural = 'DeepCleaning99 Inquiries'
+        indexes = [
+            models.Index(fields=['status', '-created_at']),
+            models.Index(fields=['is_read', '-created_at']),
+            models.Index(fields=['mobile', '-created_at']),
+        ]
+
+    def __str__(self) -> str:
+        return f"DC99 #{self.id} {self.name} · {self.service}"
+
+
+class DeepCleaningInquiryRemark(BaseModel):
+    """Append-only remarks for DeepCleaning99 inquiries."""
+
+    inquiry = models.ForeignKey(
+        DeepCleaningInquiry,
+        on_delete=models.CASCADE,
+        related_name='remarks',
+    )
+    remark = models.TextField()
+    created_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='deepcleaning_inquiry_remarks',
+    )
+    remark_type = models.CharField(
+        max_length=20,
+        choices=RemarkType.choices,
+        default=RemarkType.NOTE,
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['inquiry', '-created_at']),
+        ]
+        verbose_name = 'DeepCleaning99 Inquiry Remark'
+        verbose_name_plural = 'DeepCleaning99 Inquiry Remarks'
+
+    def __str__(self) -> str:
+        return f"DC99 #{self.inquiry_id} remark @ {self.created_at}"
+
+
 class Reminder(BaseModel):
     class InquiryType(models.TextChoices):
         CRM = 'crm', 'CRM Inquiry'

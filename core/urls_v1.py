@@ -35,6 +35,11 @@ from .remark_views import (
     WebsiteLeadRemarkListCreateView,
     WebsiteLeadRemarkDetailView,
 )
+from .deepcleaning_views import (
+    DeepCleaningInquiryViewSet,
+    DeepCleaningInquiryRemarkListCreateView,
+    DeepCleaningInquiryRemarkDetailView,
+)
 from .theme_views import UserThemeView
 from .media_views import MediaFileView
 from partner.crm_referral_views import PartnerReferralViewSet
@@ -58,6 +63,7 @@ router = DefaultRouter()
 router.register(r'clients', ClientViewSet, basename='client')
 router.register(r'inquiries', InquiryViewSet, basename='inquiry')
 router.register(r'website-leads', WebsiteLeadViewSet, basename='website-lead')
+router.register(r'deepcleaning-inquiries', DeepCleaningInquiryViewSet, basename='deepcleaning-inquiry')
 router.register(r'jobcards', JobCardViewSet, basename='jobcard')
 router.register(r'renewals', RenewalViewSet, basename='renewal')
 router.register(r'dashboard', DashboardViewSet, basename='dashboard')
@@ -111,6 +117,16 @@ urlpatterns = [
         'website-leads/remarks/<int:pk>/',
         WebsiteLeadRemarkDetailView.as_view(),
         name='website-lead-remark-detail',
+    ),
+    path(
+        'deepcleaning-inquiries/<int:inquiry_id>/remarks/',
+        DeepCleaningInquiryRemarkListCreateView.as_view(),
+        name='deepcleaning-inquiry-remarks',
+    ),
+    path(
+        'deepcleaning-inquiries/remarks/<int:pk>/',
+        DeepCleaningInquiryRemarkDetailView.as_view(),
+        name='deepcleaning-inquiry-remark-detail',
     ),
     path(
         'booking-report-clients/<int:client_id>/remarks/',

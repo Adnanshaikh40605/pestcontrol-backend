@@ -443,6 +443,8 @@ CORS_ALLOWED_ORIGINS = [
     "https://pestcontrol-crm-frontend.vercel.app",
     "https://www.pestcontrol99.com",
     "https://pestcontrol99.com",
+    "https://www.deepcleaning99.com",
+    "https://deepcleaning99.com",
     "https://dohadminpanel.vercel.app",
 ]
 # Merge extra CORS origins from Railway/env (comma-separated). This makes
@@ -472,6 +474,7 @@ CORS_ALLOW_HEADERS = [
 # Additional CORS patterns for subdomains and variations
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://[\w-]+\.pestcontrol99\.com$",
+    r"^https://[\w-]+\.deepcleaning99\.com$",
     r"^https://[\w-]+\.vercel\.app$",
     r"^http://localhost:\d+$",
     r"^http://127\.0\.0\.1:\d+$",
