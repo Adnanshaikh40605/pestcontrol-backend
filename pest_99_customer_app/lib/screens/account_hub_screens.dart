@@ -118,8 +118,9 @@ class _AmcDashboardScreenState extends State<AmcDashboardScreen> {
 
   Widget _buildCard(AmcScheduleGroup g) {
     final visits = g.visits;
-    final completed = visits.where((v) => v.isDone).length;
-    final remaining = (visits.length - completed).clamp(0, 999);
+    final progress = g.progress;
+    final completed = progress.completed;
+    final remaining = progress.remaining;
     final next = visits.where((v) => !v.isDone).cast<CustomerBooking?>().firstWhere((_) => true, orElse: () => null);
     String nextDue = '—';
     if (next?.scheduleDatetime != null) {
@@ -140,7 +141,7 @@ class _AmcDashboardScreenState extends State<AmcDashboardScreen> {
         badge: 'AMC',
         start: '—',
         end: '—',
-        total: visits.isEmpty ? 1 : visits.length,
+        total: progress.total,
         completed: completed,
         remaining: remaining,
         nextDue: nextDue,
@@ -240,7 +241,7 @@ class _AmcCard extends StatelessWidget {
             children: [
               _Metric(label: 'Total', value: '$total'),
               _Metric(label: 'Done', value: '$completed'),
-              _Metric(label: 'Left', value: '$remaining'),
+              _Metric(label: 'Services left', value: '$remaining'),
             ],
           ),
           const SizedBox(height: 10),
@@ -308,10 +309,23 @@ class _ComplaintScreenState extends State<ComplaintScreen> {
       return;
     }
     setState(() => _busy = true);
+    final api = context.read<ApiClient>();
     try {
-      await SupportService(context.read<ApiClient>()).submitComplaint(
+      int? bookingId;
+      try {
+        final bookings = await BookingService(api).list();
+        for (final booking in bookings) {
+          if (booking.isDone) {
+            bookingId = booking.id;
+            break;
+          }
+        }
+        bookingId ??= bookings.isEmpty ? null : bookings.first.id;
+      } catch (_) {}
+      await SupportService(api).submitComplaint(
         complaintType: _type!,
         note: _note.text.trim(),
+        bookingId: bookingId,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -818,8 +832,9 @@ class _AmcDetailsScreenState extends State<AmcDetailsScreen> {
   Widget build(BuildContext context) {
     final g = _group;
     final visits = g?.visits ?? const <CustomerBooking>[];
-    final completed = visits.where((v) => v.isDone).length;
-    final remaining = (visits.length - completed).clamp(0, 999);
+    final progress = g?.progress;
+    final completed = progress?.completed ?? 0;
+    final remaining = progress?.remaining ?? 0;
     final next = visits.where((v) => !v.isDone).cast<CustomerBooking?>().firstWhere((_) => true, orElse: () => null);
     String nextDue = '—';
     if (next?.scheduleDatetime != null) {
@@ -867,7 +882,7 @@ class _AmcDetailsScreenState extends State<AmcDetailsScreen> {
                       badge: 'AMC',
                       start: '—',
                       end: '—',
-                      total: visits.isEmpty ? 1 : visits.length,
+                      total: progress?.total ?? 0,
                       completed: completed,
                       remaining: remaining,
                       nextDue: nextDue,

@@ -113,11 +113,11 @@ void main() {
     expect(find.text('No bookings for tomorrow'), findsOneWidget);
   });
 
-  testWidgets('empty today stays a short line when Later has a job', (tester) async {
+  testWidgets('empty today message is omitted when Later has a job', (tester) async {
     final job = PartnerBooking(
       id: 3860,
       serviceType: 'Cockroach Standard',
-      scheduleDatetime: '2026-09-30T07:30:00+00:00',
+      scheduleDatetime: '2030-09-30T07:30:00+00:00',
       timeSlot: '01:00 PM',
       price: '1600.00',
       localityName: 'Vikhroli East',
@@ -135,7 +135,7 @@ void main() {
               ...buildSingleDayBookingChildren(
                 bookings: sections.today,
                 emptyMessage: 'No bookings for today',
-                compactEmpty: true,
+                hideEmpty: true,
                 cardBuilder: (_, _) => const SizedBox.shrink(),
               ),
               ...buildSingleDayBookingChildren(
@@ -152,15 +152,10 @@ void main() {
       ),
     );
 
-    final empty = tester.widget<Padding>(find.byKey(const Key('single-day-empty')));
-    expect(empty.padding, const EdgeInsets.only(top: 2, bottom: 2));
-    final emptySize = tester.getSize(find.byKey(const Key('single-day-empty')));
-    expect(emptySize.height, lessThan(40));
-    final emptyTop = tester.getTopLeft(find.text('No bookings for today'));
-    final laterTop = tester.getTopLeft(find.text('#3860'));
-    expect(laterTop.dy - emptyTop.dy, lessThan(80));
-    expect(find.text('No bookings for today'), findsOneWidget);
-    expect(find.text('Wed, 30 Sep'), findsOneWidget);
+    expect(find.byKey(const Key('single-day-empty')), findsNothing);
+    expect(find.text('No bookings for today'), findsNothing);
+    expect(find.text('#3860'), findsOneWidget);
+    expect(find.text('Mon, 30 Sep'), findsOneWidget);
     expect(find.text('01:00 PM'), findsOneWidget);
     expect(find.text('Accept Job'), findsOneWidget);
     expect(find.text('Reject'), findsOneWidget);

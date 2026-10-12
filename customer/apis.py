@@ -16,6 +16,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from core.models import City, JobCard, Location, PricingRate, PricingRegion
+from core.payment_utils import customer_invoice_figures
 from core.staff_partner_sync import normalize_mobile
 
 from .account_deletion import CustomerAccountDeletionError, permanently_delete_customer_account
@@ -902,9 +903,12 @@ class InvoiceAPIView(CustomerAPIView):
     @extend_schema(tags=['Customer Bookings'], summary='Simple invoice payload')
     def get(self, request, id):
         try:
-            job = JobCard.objects.select_related('client').get(id=id, client=request.customer.client)
+            job = JobCard.objects.select_related('client', 'parent_job').get(
+                id=id, client=request.customer.client,
+            )
         except JobCard.DoesNotExist:
             return Response({'error': 'Booking not found.'}, status=404)
+        figures = customer_invoice_figures(job)
         return Response(
             {
                 'booking_id': job.id,
@@ -917,7 +921,8 @@ class InvoiceAPIView(CustomerAPIView):
                 'area': getattr(job, 'area', None) or '',
                 'property_type': job.property_type or '',
                 'bhk_size': job.bhk_size or '',
-                'amount': str(job.total_amount or job.price or '0'),
+                'amount': str(figures['amount']),
+                'paid_amount': str(figures['paid_amount']),
                 'payment_status': job.payment_status,
                 'payment_mode': job.payment_mode,
                 'package_tier': job.package_tier,

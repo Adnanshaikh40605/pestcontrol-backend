@@ -11,6 +11,8 @@ Future<Uint8List> buildCustomerInvoicePdf(Map<String, dynamic> inv) async {
   final doc = pw.Document();
   final code = '${inv['code'] ?? inv['booking_id'] ?? ''}';
   final amount = _money(inv['amount']);
+  final paidAmount = _money(inv['paid_amount'] ?? inv['amount']);
+  final paymentMode = '${inv['payment_mode'] ?? ''}'.trim();
   final payment = _paymentLabel(inv['payment_status']?.toString());
   final schedule = _formatDate(inv['schedule_datetime']?.toString());
   final issued = _formatDate(inv['issued_at']?.toString());
@@ -139,19 +141,33 @@ Future<Uint8List> buildCustomerInvoicePdf(Map<String, dynamic> inv) async {
                   border: pw.Border.all(color: PdfColors.grey400),
                   borderRadius: pw.BorderRadius.circular(6),
                 ),
-                child: pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                child: pw.Column(
                   children: [
-                    pw.Text('Total Payable', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
-                    pw.Text('₹$amount', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13)),
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Text('Total Payable', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                        pw.Text('₹$amount', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13)),
+                      ],
+                    ),
+                    pw.SizedBox(height: 6),
+                    pw.Row(
+                      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                      children: [
+                        pw.Text('Paid amount', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12)),
+                        pw.Text('₹$paidAmount', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 13)),
+                      ],
+                    ),
                   ],
                 ),
               ),
             ),
             pw.SizedBox(height: 18),
             pw.Text(
-              'Payment note: Online payment in app is currently disabled. '
-              'Please pay after service completion as confirmed with our team.',
+              payment.toLowerCase() == 'paid'
+                  ? 'Paid${paymentMode.isEmpty ? '' : ' by $paymentMode'}.'
+                  : 'Payment note: Online payment in app is currently disabled. '
+                      'Please pay after service completion as confirmed with our team.',
               style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
             ),
             pw.Spacer(),

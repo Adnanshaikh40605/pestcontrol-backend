@@ -228,6 +228,17 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    const Text('Paid amount', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                                    const Spacer(),
+                                    Text(
+                                      _money(inv['paid_amount'] ?? inv['amount']),
+                                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                                    ),
+                                  ],
+                                ),
                               ],
                             ),
                           ),

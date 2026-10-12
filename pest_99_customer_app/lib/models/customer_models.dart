@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 class CustomerProfile {
   CustomerProfile({
     required this.id,
@@ -112,6 +114,7 @@ class CustomerBooking {
     this.bhkSize,
     this.price,
     this.invoiceAmount,
+    this.paidAmount,
     this.clientAddress,
     this.city,
     this.scheduleDatetime,
@@ -140,6 +143,7 @@ class CustomerBooking {
   final String? bhkSize;
   final String? price;
   final String? invoiceAmount;
+  final String? paidAmount;
   final String? clientAddress;
   final String? city;
   final String? scheduleDatetime;
@@ -156,7 +160,17 @@ class CustomerBooking {
   final String? technicianPhotoUrl;
   final String? partnerStatus;
 
-  bool get isDone => (status ?? '').toLowerCase() == 'done';
+  bool get isDone {
+    final s = (status ?? '').toLowerCase();
+    return s == 'done' || s == 'completed';
+  }
+
+  /// Hide cancel once the visit is finished or already underway.
+  bool get showCancel {
+    if (!canCancel || isDone || isCancelled) return false;
+    final label = visitStatusLabel;
+    return label != 'Completed' && label != 'In progress' && label != 'Cancelled';
+  }
   bool get isCancelled => (status ?? '').toLowerCase().contains('cancel');
   bool get hasAssignedTechnician {
     final name = (technicianName ?? '').trim();
@@ -232,6 +246,7 @@ class CustomerBooking {
       bhkSize: json['bhk_size'] as String?,
       price: json['price']?.toString(),
       invoiceAmount: json['invoice_amount']?.toString(),
+      paidAmount: json['paid_amount']?.toString(),
       clientAddress: json['client_address'] as String?,
       city: json['city'] as String?,
       scheduleDatetime: json['schedule_datetime'] as String?,
@@ -260,6 +275,20 @@ class AmcScheduleGroup {
   final CustomerBooking parent;
   final List<CustomerBooking> visits;
 
+  /// Planned visits come from the AMC cycle (usually 3), not only rows created so far.
+  AmcVisitProgress get progress {
+    final planned = math.max(parent.maxCycle ?? 0, math.max(visits.length, 1));
+    final ids = visits.map((visit) => visit.id).toSet();
+    var done = visits.where((visit) => visit.isDone).length;
+    if (!ids.contains(parent.id) && parent.isDone) done += 1;
+    if (done > planned) done = planned;
+    return AmcVisitProgress(
+      total: planned,
+      completed: done,
+      remaining: (planned - done).clamp(0, 999),
+    );
+  }
+
   factory AmcScheduleGroup.fromJson(Map<String, dynamic> json) {
     final visitsRaw = json['visits'];
     return AmcScheduleGroup(
@@ -286,6 +315,18 @@ class MasterCity {
       name: (json['name'] as String?) ?? '',
     );
   }
+}
+
+class AmcVisitProgress {
+  const AmcVisitProgress({
+    required this.total,
+    required this.completed,
+    required this.remaining,
+  });
+
+  final int total;
+  final int completed;
+  final int remaining;
 }
 
 class MasterLocation {

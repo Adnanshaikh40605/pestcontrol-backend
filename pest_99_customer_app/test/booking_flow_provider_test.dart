@@ -97,6 +97,18 @@ void main() {
       expect(flow.isInspectionQuote, isTrue);
     });
 
+    test('step 1 only asks for the service and schedule', () {
+      final flow = BookingFlowProvider();
+      flow.setPremiseSize('1bhk');
+      flow.setTreatmentQuality('standard');
+      flow.setServiceType('one-time');
+      final errors = flow.validate(step: 0);
+      expect(errors.containsKey('streetAddress'), isFalse);
+      expect(errors.containsKey('name'), isFalse);
+      expect(errors.containsKey('phone'), isFalse);
+      expect(errors, isEmpty);
+    });
+
     test('validate requires name, mobile, address, schedule', () {
       final flow = BookingFlowProvider();
       flow.setPremiseSize('1bhk');

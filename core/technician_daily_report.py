@@ -6,11 +6,13 @@ Product language maps "Priority" technicians to TechnicianType.PARTNER
 
 Performance rule (CRM Technician Reports):
   A technician is **Performed** for the selected Asia/Kolkata date range if they
-  have ≥1 booking with status **On Process** in that range as lead
+  have ≥1 booking with status **On Process** or **Done** in that range as lead
   (JobCard.technician) or active crew (participation not absent).
-  Cancelled / Done / other statuses are excluded.
-  Active technicians of that type with zero matching On Process bookings are
+  A Done visit also counts when it was completed in the range.
+  Cancelled bookings are excluded.
+  Active technicians of that type with zero matching bookings are
   **Not Performed**.
+  Each technician row includes ``bookings`` with schedule time and locality.
 
 Optional filters: city (job city / master city), from/to date range.
 Earnings use the same technician share the ledger shows.
@@ -45,9 +47,11 @@ TYPE_DISPLAY = {
 }
 
 PERFORMING_RULE = (
-    'at least one On Process booking in the selected Asia/Kolkata date range '
-    '(lead technician or active crew). Cancelled, Done, and other statuses '
-    'are excluded. Earnings are the ledger share of the stored service base.'
+    'at least one On Process or Done booking in the selected Asia/Kolkata '
+    'date range (lead technician or active crew). A completed visit counts '
+    'when its schedule or completion time falls in the range. Cancelled '
+    'bookings are excluded. Earnings are the ledger share of the stored '
+    'service base.'
 )
 
 # Keep alias used by older CRM copy / tests.
@@ -108,6 +112,48 @@ def _money(value) -> Decimal:
         return Decimal(str(value or 0)).quantize(Decimal('0.01'))
     except Exception:
         return Decimal('0.00')
+
+
+def _booking_brief(job: JobCard) -> dict[str, Any]:
+    locality = ''
+    if job.master_location_id and getattr(job, 'master_location', None):
+        locality = (job.master_location.name or '').strip()
+    if not locality:
+        locality = _locality_from_address(job.client_address or getattr(job, 'full_address', '') or '')
+    city = _job_city(job)
+    location = ', '.join(
+        part for part in (locality, city if city != 'Unknown' else '') if part
+    )
+    stamp = job.schedule_datetime
+    return {
+        'id': job.id,
+        'code': job.code or str(job.id),
+        'service_type': job.service_type or '',
+        'status': job.status,
+        'schedule_datetime': stamp.isoformat() if stamp else None,
+        'time_slot': job.time_slot or '',
+        'locality': locality,
+        'city': city,
+        'location': location or city,
+    }
+
+
+def _locality_from_address(raw: str) -> str:
+    parts = [part.strip() for part in (raw or '').split(',') if part.strip()]
+    kept = []
+    for part in parts:
+        lower = part.lower()
+        compact = part.replace(' ', '')
+        if lower in {'india'} or 'maharashtra' in lower:
+            continue
+        if compact.isdigit() and len(compact) == 6:
+            continue
+        if lower.startswith(('flat', 'apt', 'apartment', 'bldg', 'building', 'wing', 'floor')):
+            continue
+        kept.append(part)
+    if len(kept) >= 2:
+        return kept[-2]
+    return kept[0] if kept else ''
 
 
 def _job_city(job: JobCard) -> str:
@@ -192,7 +238,7 @@ def _ledger_share(job: JobCard, technician: Technician) -> Decimal:
 
 def _with_ledger_relations(qs):
     return qs.select_related(
-        'technician', 'master_city', 'client', 'parent_job',
+        'technician', 'master_city', 'master_location', 'client', 'parent_job',
     ).prefetch_related(
         Prefetch(
             'technician_participations',
@@ -278,17 +324,23 @@ def build_daily_type_report(
     tech_ids = [t.id for t in techs]
     tech_by_id = {t.id: t for t in techs}
 
-    # Process bookings only — schedule date in the selected IST window.
+    # On Process and Done both count as Performed. Cancelled stays out.
     schedule_in_range = Q(
         schedule_datetime__gte=start,
         schedule_datetime__lt=end,
     )
-    process_status = JobCard.JobStatus.ON_PROCESS
+    completed_in_range = Q(
+        status=JobCard.JobStatus.DONE,
+        completed_at__gte=start,
+        completed_at__lt=end,
+    )
+    in_window = schedule_in_range | completed_in_range
+    performed_statuses = [JobCard.JobStatus.ON_PROCESS, JobCard.JobStatus.DONE]
 
     lead_qs = JobCard.objects.filter(
-        status=process_status,
+        status__in=performed_statuses,
         technician_id__in=tech_ids,
-    ).filter(schedule_in_range)
+    ).filter(in_window)
     if city_filter:
         lead_qs = lead_qs.filter(
             Q(master_city__name__iexact=city_filter)
@@ -307,10 +359,15 @@ def build_daily_type_report(
     ]
     part_qs = JobCardTechnicianParticipation.objects.filter(
         technician_id__in=tech_ids,
-        jobcard__status=process_status,
+        jobcard__status__in=performed_statuses,
         attendance_status__in=active_attendance,
-        jobcard__schedule_datetime__gte=start,
-        jobcard__schedule_datetime__lt=end,
+    ).filter(
+        Q(jobcard__schedule_datetime__gte=start, jobcard__schedule_datetime__lt=end)
+        | Q(
+            jobcard__status=JobCard.JobStatus.DONE,
+            jobcard__completed_at__gte=start,
+            jobcard__completed_at__lt=end,
+        )
     )
     if city_filter:
         part_qs = part_qs.filter(
@@ -341,6 +398,7 @@ def build_daily_type_report(
     shells = _package_shell_ids(jobs_by_id)
 
     completed_job_ids: dict[int, set[int]] = defaultdict(set)
+    booking_rows: dict[int, list[dict[str, Any]]] = defaultdict(list)
     service_counts: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     city_earnings: dict[int, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     city_jobs: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -354,6 +412,7 @@ def build_daily_type_report(
         if job.id in completed_job_ids[technician_id]:
             return
         completed_job_ids[technician_id].add(job.id)
+        booking_rows[technician_id].append(_booking_brief(job))
         for label in _service_labels(job):
             service_counts[technician_id][label] += 1
         job_city = _job_city(job)
@@ -413,6 +472,10 @@ def build_daily_type_report(
             or '—',
             'earnings': str(total_earnings[tech.id]),
             'city_earnings': cities,
+            'bookings': sorted(
+                booking_rows[tech.id],
+                key=lambda row: row.get('schedule_datetime') or '',
+            ),
         }
 
     performing = []
@@ -464,7 +527,7 @@ def build_daily_type_report(
         'from': start_day.isoformat(),
         'to': end_day.isoformat(),
         'city': city_filter,
-        'booking_status': process_status,
+        'booking_status': 'On Process, Done',
         'technician_type': technician_type,
         'technician_type_label': TYPE_DISPLAY.get(technician_type, technician_type),
         'performing_rule': PERFORMING_RULE,

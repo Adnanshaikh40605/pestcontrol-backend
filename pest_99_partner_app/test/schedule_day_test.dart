@@ -189,7 +189,7 @@ void main() {
       expect(plan, isNotNull);
       expect(plan!.detailPath, '/booking/3860');
       expect(plan.dayTabIndex, isNull);
-      expect(plan.scrollToCard, isTrue);
+      expect(plan.scrollToCard, isFalse);
       expect(plan.bucket, 'later');
       expect(canPushBookingDetail('/bookings'), isTrue);
       expect(canPushBookingDetail('/splash'), isFalse);

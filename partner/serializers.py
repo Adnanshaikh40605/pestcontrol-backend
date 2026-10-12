@@ -3,6 +3,31 @@ from .models import Partner, PartnerEarning, PartnerLeaveRequest, PartnerRating
 from core.models import JobCard, TechnicianSettlement
 
 
+def _locality_from_address(raw: str) -> str:
+    """Peel a locality from a full address when master location is empty."""
+    parts = [part.strip() for part in (raw or '').split(',') if part.strip()]
+    kept = []
+    for part in parts:
+        lower = part.lower()
+        compact = part.replace(' ', '')
+        if lower in {'india'}:
+            continue
+        if 'maharashtra' in lower or 'maharastra' in lower:
+            continue
+        if compact.isdigit() and len(compact) == 6:
+            continue
+        if lower.startswith((
+            'flat', 'apt', 'apartment', 'bldg', 'building', 'wing', 'floor', 'society',
+        )):
+            continue
+        kept.append(part)
+    if len(kept) >= 2:
+        return kept[-2]
+    if kept:
+        return kept[0]
+    return ''
+
+
 def _inject_partner_money_fields(data, instance):
     """
     Strip GST from tech/company share fields; add customer GST breakdown.
@@ -321,7 +346,17 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
     def get_locality_name(self, obj):
         """Locality / area only (no flat, street, or full address) for New Bookings cards."""
         if obj.master_location_id and getattr(obj, 'master_location', None):
-            return (obj.master_location.name or '').strip()
+            name = (obj.master_location.name or '').strip()
+            if name:
+                return name
+        for raw in (
+            getattr(obj, 'area', None),
+            obj.client_address,
+            getattr(obj, 'full_address', None),
+        ):
+            guessed = _locality_from_address(raw or '')
+            if guessed:
+                return guessed
         return ''
 
     def to_representation(self, instance):

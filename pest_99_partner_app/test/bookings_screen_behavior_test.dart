@@ -15,10 +15,14 @@ import 'package:pest_99_partner_app/providers/profile_provider.dart';
 import 'package:pest_99_partner_app/services/booking_service.dart';
 import 'package:pest_99_partner_app/services/profile_service.dart';
 import 'package:pest_99_partner_app/shared/widgets/booking_day_sections.dart';
+import 'package:pest_99_partner_app/shared/widgets/segmented_tabs.dart';
 import 'package:provider/provider.dart';
 
 /// 30 Sep 2026 13:00 IST. On 28 Sep 2026 this is Later.
 const _job3860Schedule = '2026-09-30T07:30:00Z';
+
+/// Far enough ahead that it stays in Later on any machine clock this year.
+const _laterThanNow = '2030-09-30T07:30:00Z';
 
 PartnerBooking _job(int id, String schedule) => PartnerBooking(
       id: id,
@@ -94,51 +98,95 @@ void main() {
     expect(sections.later.map((b) => b.id), [3860]);
   });
 
-  testWidgets('Tomorrow tap changes the empty copy and a rebuild keeps it', (tester) async {
+  testWidgets('Today and Tomorrow each show only that list', (tester) async {
+    final tomorrow = DateTime.now().toUtc().add(const Duration(days: 1));
     final bookings = await _pumpBookings(
       tester,
-      jobs: [_job(3860, _job3860Schedule)],
+      jobs: [
+        _job(3860, _laterThanNow),
+        _job(11, tomorrow.toIso8601String()),
+      ],
     );
 
     expect(find.text('No bookings for today'), findsOneWidget);
     expect(find.text('Today (0)'), findsOneWidget);
-    expect(find.text('Tomorrow (0)'), findsOneWidget);
+    expect(find.textContaining('Tomorrow ('), findsOneWidget);
+    expect(find.text('Later (1)'), findsNothing);
+    expect(find.text('#3860'), findsNothing);
+    expect(find.text('#11'), findsNothing);
 
-    await tester.tap(find.text('Tomorrow (0)'));
+    await tester.tap(find.textContaining('Tomorrow ('));
     await tester.pump();
 
-    expect(find.text('No bookings for tomorrow'), findsOneWidget);
+    expect(find.text('No bookings for tomorrow'), findsNothing);
     expect(find.text('No bookings for today'), findsNothing);
+    expect(find.text('#11'), findsOneWidget);
+    expect(find.text('#3860'), findsNothing);
+    expect(tester.widget<SegmentedTabs>(find.byType(SegmentedTabs)).selectedIndex, 1);
 
     bookings.notifyListeners();
     await tester.pump();
-    expect(find.text('No bookings for tomorrow'), findsOneWidget);
+    expect(tester.widget<SegmentedTabs>(find.byType(SegmentedTabs)).selectedIndex, 1);
 
-    // A later-date notification must not force the Today tab back.
     bookings.showNotificationBooking(id: 3860, dayTab: null, scrollToCard: false);
     await tester.pump();
-    expect(find.text('No bookings for tomorrow'), findsOneWidget);
+    expect(tester.widget<SegmentedTabs>(find.byType(SegmentedTabs)).selectedIndex, 1);
   });
 
-  testWidgets('empty Today is a short line and Later keeps Accept and Reject', (tester) async {
+  testWidgets('jobs after tomorrow stay off Today and Tomorrow', (tester) async {
     await _pumpBookings(
       tester,
-      jobs: [_job(3860, _job3860Schedule)],
+      jobs: [_job(3860, _laterThanNow)],
     );
 
-    final empty = tester.widget<Padding>(find.byKey(const Key('single-day-empty')));
-    expect(empty.padding, const EdgeInsets.only(top: 2, bottom: 2));
-    expect(find.text('#3860'), findsOneWidget);
-    expect(find.text('Wed, 30 Sep'), findsOneWidget);
-    expect(find.text('Accept Job'), findsOneWidget);
-    expect(find.text('Reject'), findsOneWidget);
+    expect(find.text('No bookings for today'), findsOneWidget);
+    expect(find.text('#3860'), findsNothing);
+    expect(find.textContaining('Later'), findsNothing);
+
+    await tester.tap(find.text('Tomorrow (0)'));
+    await tester.pump();
+    expect(find.text('No bookings for tomorrow'), findsOneWidget);
+    expect(find.text('#3860'), findsNothing);
   });
 
-  testWidgets('a later job below the fold is scrolled into view', (tester) async {
+  testWidgets('a day with no jobs still explains the empty tab', (tester) async {
+    await _pumpBookings(tester, jobs: const []);
+
+    expect(find.text('No bookings for today'), findsOneWidget);
+    expect(find.textContaining('Later'), findsNothing);
+
+    await tester.tap(find.text('Tomorrow (0)'));
+    await tester.pump();
+    expect(find.text('No bookings for tomorrow'), findsOneWidget);
+    expect(find.text('No bookings for today'), findsNothing);
+  });
+
+  testWidgets('a network error replaces an empty list and a loaded list stays visible', (tester) async {
+    final bookings = await _pumpBookings(tester, jobs: const []);
+    bookings.error = 'No internet connection';
+    bookings.notifyListeners();
+    await tester.pump();
+
+    expect(find.text('No Internet Connection'), findsOneWidget);
+    expect(find.text('Try again'), findsOneWidget);
+    expect(find.text('No bookings for today'), findsNothing);
+
+    bookings.available = [_job(3860, _laterThanNow)];
+    bookings.error = 'No internet connection';
+    bookings.notifyListeners();
+    await tester.pump();
+
+    expect(find.text('No Internet Connection'), findsNothing);
+    expect(find.text('No bookings for today'), findsOneWidget);
+    expect(find.text('#3860'), findsNothing);
+    expect(find.textContaining('Later'), findsNothing);
+  });
+
+  testWidgets('a today job below the fold is scrolled into view', (tester) async {
+    final now = DateTime.now().toUtc().toIso8601String();
     final jobs = [
-      for (var id = 1; id <= 12; id++)
-        _job(id, '2030-07-${id.toString().padLeft(2, '0')}T07:30:00Z'),
-      _job(3860, _job3860Schedule),
+      for (var id = 1; id <= 12; id++) _job(id, now),
+      _job(3860, now),
     ];
     final bookings = await _pumpBookings(
       tester,
@@ -148,7 +196,7 @@ void main() {
 
     expect(find.text('#3860'), findsNothing);
 
-    bookings.showNotificationBooking(id: 3860, dayTab: null, scrollToCard: true);
+    bookings.showNotificationBooking(id: 3860, dayTab: 0, scrollToCard: true);
     for (var i = 0; i < 40; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
@@ -272,10 +320,9 @@ void main() {
     for (var i = 0; i < 30; i++) {
       await tester.pump(const Duration(milliseconds: 50));
     }
-    expect(find.text('#3860'), findsOneWidget);
-    final top = tester.getTopLeft(find.text('#3860')).dy;
-    expect(top, greaterThan(-40));
-    expect(top, lessThan(700));
+    expect(router.state.uri.path, '/bookings');
+    expect(find.text('#3860'), findsNothing);
+    expect(find.text('No bookings for today'), findsOneWidget);
 
     // Foreground tap from the list opens the same booking again.
     open(3860, data);

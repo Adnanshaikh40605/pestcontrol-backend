@@ -23,6 +23,7 @@ class BookingFlowProvider extends ChangeNotifier {
     PestOption(value: 'cockroach-ants', label: 'Cockroach / Ants'),
     PestOption(value: 'termite', label: 'Termite'),
     PestOption(value: 'bedbugs', label: 'Bed Bugs'),
+    PestOption(value: 'wood-borer', label: 'Wood Borer'),
     PestOption(value: 'rodent', label: 'Rodent'),
     PestOption(value: 'mosquito', label: 'Mosquito'),
   ];
@@ -46,6 +47,8 @@ class BookingFlowProvider extends ChangeNotifier {
     'termite': 'termite',
     'bedbug': 'bedbugs',
     'bedbugs': 'bedbugs',
+    'woodborer': 'wood-borer',
+    'wood-borer': 'wood-borer',
     'rodent': 'rodent',
     'mosquito': 'mosquito',
   };
@@ -491,7 +494,9 @@ class BookingFlowProvider extends ChangeNotifier {
   }
 
   /// Client-side validation matching website home form.
-  Map<String, String> validate() {
+  /// Step 0 is service, property, date and time. Step 1 also checks address
+  /// and the name/mobile already saved at login.
+  Map<String, String> validate({int step = 1}) {
     final errors = <String, String>{};
     if (premiseType != 'residential' && premiseType != 'commercial') {
       errors['premiseType'] = 'Please select Residential or Commercial';
@@ -514,7 +519,7 @@ class BookingFlowProvider extends ChangeNotifier {
         errors['serviceType'] = 'Please select a service plan';
       }
     }
-    if (streetAddress.trim().length < 5) {
+    if (step >= 1 && streetAddress.trim().length < 5) {
       errors['streetAddress'] = 'Please enter your service address';
     }
     if (preferredDate.trim().isEmpty) {
@@ -523,6 +528,7 @@ class BookingFlowProvider extends ChangeNotifier {
     if (bookingTime24 == null) {
       errors['preferredTime'] = 'Please select a preferred time';
     }
+    if (step < 1) return errors;
     if (fullName.trim().isEmpty) {
       errors['name'] = 'Name is required';
     } else if (RegExp(r'\d').hasMatch(fullName)) {

@@ -209,6 +209,6 @@ class PartnerScheduleDateTests(SimpleTestCase):
             ],
             now=now,
         )
-        self.assertEqual(len(kept), 2)
-        self.assertIs(kept[0].schedule_datetime, stamp)
-        self.assertIsNone(kept[1].schedule_datetime)
+        # 30 Sep is two days out from 28 Sep, so it is not Today or Tomorrow.
+        self.assertEqual(len(kept), 1)
+        self.assertIsNone(kept[0].schedule_datetime)

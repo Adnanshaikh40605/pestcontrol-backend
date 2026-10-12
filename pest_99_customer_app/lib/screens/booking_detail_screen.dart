@@ -281,6 +281,11 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                                 ? 'Pending confirmation'
                                 : '₹${b.invoiceAmount ?? b.price ?? '—'}',
                           ),
+                          if (!b.priceConfirmationPending)
+                            _DetailRow(
+                              label: 'Paid amount',
+                              value: '₹${b.paidAmount ?? '0'}',
+                            ),
                           if (b.clientAddress != null && b.clientAddress!.isNotEmpty)
                             _DetailRow(label: 'Address', value: b.clientAddress!),
                           if (b.city != null && b.city!.isNotEmpty)
@@ -297,7 +302,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                             _DetailRow(label: 'Plan', value: b.planTypeLabel!),
                           if (b.customerNotes != null)
                             _DetailRow(label: 'Notes', value: b.customerNotes!),
-                          if (b.canCancel) ...[
+                          if (b.showCancel) ...[
                             const SizedBox(height: 8),
                             SizedBox(
                               width: double.infinity,

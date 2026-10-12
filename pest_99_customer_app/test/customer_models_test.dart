@@ -92,4 +92,67 @@ void main() {
     expect(group.visits, hasLength(1));
     expect(group.visits.first.id, 2);
   });
+
+  test('paid amount is read from the booking payload', () {
+    final booking = CustomerBooking.fromJson({
+      'id': 9,
+      'service_type': 'Cockroach / Ants',
+      'paid_amount': '1800.00',
+      'invoice_amount': '1800.00',
+      'payment_status': 'Paid',
+      'payment_mode': 'Cash',
+    });
+    expect(booking.paidAmount, '1800.00');
+    expect(booking.invoiceAmount, '1800.00');
+    expect(booking.isPaid, isTrue);
+  });
+
+  test('completed booking does not offer cancel even if the flag is stale', () {
+    final done = CustomerBooking.fromJson({
+      'id': 10,
+      'service_type': 'Cockroach / Ants',
+      'status': 'Done',
+      'can_cancel': true,
+    });
+    final completedPartner = CustomerBooking.fromJson({
+      'id': 11,
+      'service_type': 'Cockroach / Ants',
+      'status': 'Pending',
+      'partner_status': 'completed',
+      'can_cancel': true,
+    });
+    final open = CustomerBooking.fromJson({
+      'id': 12,
+      'service_type': 'Cockroach / Ants',
+      'status': 'Pending',
+      'partner_status': 'accepted',
+      'can_cancel': true,
+    });
+    expect(done.showCancel, isFalse);
+    expect(completedPartner.showCancel, isFalse);
+    expect(open.showCancel, isTrue);
+  });
+
+  test('AMC with 3 services and 1 complete shows 2 services left', () {
+    final group = AmcScheduleGroup.fromJson({
+      'parent': {
+        'id': 20,
+        'service_type': 'Cockroach / Ants',
+        'status': 'Pending',
+        'max_cycle': 3,
+        'booking_type': 'AMC Main Booking',
+      },
+      'visits': [
+        {
+          'id': 21,
+          'service_type': 'Cockroach / Ants',
+          'status': 'Done',
+          'service_cycle': 1,
+        },
+      ],
+    });
+    expect(group.progress.total, 3);
+    expect(group.progress.completed, 1);
+    expect(group.progress.remaining, 2);
+  });
 }

@@ -448,17 +448,42 @@ def create_customer_complaint(account: CustomerAccount, data: dict) -> JobCard:
         except JobCard.DoesNotExist as exc:
             raise CustomerAppError('Booking not found.', code='booking_not_found') from exc
 
+    # Support can be opened without picking a booking. Attach the latest
+    # completed service so CRM Complaints has a parent, address, and schedule.
+    if parent is None:
+        parent = (
+            JobCard.objects.filter(client=account.client, status=JobCard.JobStatus.DONE)
+            .exclude(is_complaint_call=True)
+            .select_related('parent_job', 'client')
+            .order_by('-completed_at', '-created_at')
+            .first()
+        )
+    if parent is None:
+        parent = (
+            JobCard.objects.filter(client=account.client)
+            .exclude(is_complaint_call=True)
+            .exclude(status=JobCard.JobStatus.CANCELLED)
+            .select_related('parent_job', 'client')
+            .order_by('-created_at')
+            .first()
+        )
+
     from core.complaint_service import create_complaint_jobcard
 
     if parent is None:
         # Standalone complaint without a parent booking — still one free service only.
+        from django.utils import timezone
+
         from core.complaint_service import apply_complaint_constraints
 
+        client = account.client
         job = JobCard(
-            client=account.client,
-            service_type='Complaint / Re-Service',
-            client_address=account.client.address or '',
-            city=getattr(account.client, 'city', '') or '',
+            client=client,
+            service_type=f'Complaint / Re-Service — {complaint_type}',
+            client_address=client.address or '',
+            city=getattr(client, 'city', '') or '',
+            full_address=client.address or '',
+            schedule_datetime=timezone.now(),
             notes=note,
             status=JobCard.JobStatus.PENDING,
             property_type=JobCard.PropertyType.HOME_FLAT,
@@ -467,6 +492,7 @@ def create_customer_complaint(account: CustomerAccount, data: dict) -> JobCard:
             creation_source='customer_app',
             complaint_type=complaint_type,
             complaint_note=note,
+            complaint_status=JobCard.ComplaintStatus.OPEN,
         )
         apply_complaint_constraints(job, parent=None)
         job.save()

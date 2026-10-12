@@ -13,13 +13,13 @@ class NotificationOpenPlan {
 
   final int bookingId;
 
-  /// Always the booking page, including jobs that sit in Later.
+  /// Always the booking page.
   final String detailPath;
 
-  /// 0 = Today, 1 = Tomorrow. Null for Later or an unparsed schedule.
+  /// 0 = Today, 1 = Tomorrow. Null when the job is not on those two days.
   final int? dayTabIndex;
 
-  /// Scroll the New Bookings list onto this card when it is not on a day tab.
+  /// Scroll the New Bookings list onto this card when it is on the open tab.
   final bool scrollToCard;
   final String? bucket;
 
@@ -43,7 +43,7 @@ class NotificationOpenPlan {
       bookingId: id,
       detailPath: '/booking/$id',
       dayTabIndex: dayTab,
-      scrollToCard: dayTab == null,
+      scrollToCard: false,
       bucket: bucket,
     );
   }

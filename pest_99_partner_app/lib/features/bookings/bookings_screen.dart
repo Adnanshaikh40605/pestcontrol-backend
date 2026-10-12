@@ -50,7 +50,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   GlobalKey _cardKey(int id) => _cardKeys.putIfAbsent(id, GlobalKey.new);
 
-  String _emptyMessage(BookingsProvider bookings, {required bool isToday}) {
+  String _emptyMessage(BookingsProvider bookings) {
     if (bookings.isSuspended) {
       return 'No bookings available while suspended';
     }
@@ -60,7 +60,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
     if (bookings.manualAssignOnly) {
       return 'Nothing assigned to you yet';
     }
-    return isToday ? 'No bookings for today' : 'No bookings for tomorrow';
+    return switch (_dayTab.index) {
+      1 => 'No bookings for tomorrow',
+      _ => 'No bookings for today',
+    };
   }
 
   void _applyNotificationDayTab(BookingsProvider bookings) {
@@ -133,7 +136,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
         physics: const AlwaysScrollableScrollPhysics(),
         children: [
           SizedBox(
-            height: MediaQuery.sizeOf(context).height * 0.55,
+            height: MediaQuery.sizeOf(context).height * 0.45,
             child: offline
                 ? NoInternetView(
                     onRetry: () => bookings.refreshListsLight(force: true),
@@ -148,9 +151,10 @@ class _BookingsScreenState extends State<BookingsScreen> {
     }
 
     final sections = BookingDaySections.from(bookings.available);
-    final isTodayTab = _dayTab.index == 0;
-    final dayList = isTodayTab ? sections.today : sections.tomorrow;
-    final laterHasJobs = sections.later.isNotEmpty;
+    final selected = switch (_dayTab.index) {
+      1 => sections.tomorrow,
+      _ => sections.today,
+    };
     _scheduleFocusScroll(bookings.focusBookingId, bookings.available.length);
 
     return ListView(
@@ -228,25 +232,11 @@ class _BookingsScreenState extends State<BookingsScreen> {
         ),
         const SizedBox(height: AppSpacing.elementGap),
         ...buildSingleDayBookingChildren(
-          bookings: dayList,
-          emptyMessage: _emptyMessage(bookings, isToday: isTodayTab),
-          compactEmpty: dayList.isEmpty && laterHasJobs,
+          bookings: selected,
+          emptyMessage: _emptyMessage(bookings),
           itemKey: (b) => _cardKey(b.id),
           cardBuilder: (b, ui) => _availableCard(context, bookings, b, ui),
         ),
-        // Keep beyond-tomorrow jobs visible, but outside the two day tabs.
-        if (laterHasJobs) ...[
-          SizedBox(height: dayList.isEmpty ? 4 : AppSpacing.sectionGap),
-          BookingSectionHeader(
-            title: 'Later',
-            count: sections.later.length,
-          ),
-          ...buildSingleDayBookingChildren(
-            bookings: sections.later,
-            itemKey: (b) => _cardKey(b.id),
-            cardBuilder: (b, ui) => _availableCard(context, bookings, b, ui),
-          ),
-        ],
       ],
     );
   }

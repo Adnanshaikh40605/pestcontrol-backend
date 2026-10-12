@@ -197,9 +197,13 @@ class TechnicianDailyTypeReportTests(TestCase):
         self.assertEqual(res.data['summary']['total_completed_jobs'], 0)
         self.assertEqual(res.data['summary']['non_performing_count'], 2)
 
-    def test_done_visit_is_excluded_process_only(self):
+    def test_done_visit_is_performed(self):
         job = self._process_job(self.partner_tech, price='2000', service='Bed Bugs')
-        JobCard.objects.filter(pk=job.pk).update(status=JobCard.JobStatus.DONE)
+        JobCard.objects.filter(pk=job.pk).update(
+            status=JobCard.JobStatus.DONE,
+            client_address='Kondhwa, Pune',
+            time_slot='01:00 PM',
+        )
         res = self.api.get(
             '/api/v1/technicians/daily_type_report/',
             {
@@ -208,8 +212,17 @@ class TechnicianDailyTypeReportTests(TestCase):
             },
         )
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data['summary']['performed_count'], 0)
-        self.assertEqual(res.data['booking_status'], JobCard.JobStatus.ON_PROCESS)
+        self.assertEqual(res.data['summary']['performed_count'], 1)
+        self.assertEqual(res.data['summary']['not_performed_count'], 1)
+        self.assertEqual(res.data['booking_status'], 'On Process, Done')
+        performed = res.data['performed']
+        self.assertEqual(len(performed), 1)
+        bookings = performed[0]['bookings']
+        self.assertEqual(len(bookings), 1)
+        self.assertEqual(bookings[0]['id'], job.id)
+        self.assertEqual(bookings[0]['time_slot'], '01:00 PM')
+        self.assertIn('Kondhwa', bookings[0]['location'])
+        self.assertTrue(bookings[0]['schedule_datetime'])
 
     def test_city_and_date_range_filters(self):
         self._process_job(self.partner_tech, price='1000', city='Mumbai')

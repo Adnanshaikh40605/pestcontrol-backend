@@ -60,7 +60,16 @@ class BookingMapper {
       return '$locality, $city';
     }
     if (locality.isNotEmpty) return locality;
-    if (city.isNotEmpty) return city;
+    if (city.isNotEmpty) {
+      final raw = (b.locationDisplay ?? b.clientAddress ?? '').trim();
+      if (raw.isNotEmpty) {
+        final guessed = _guessShortArea(raw);
+        if (guessed != '—' && guessed.toLowerCase() != city.toLowerCase()) {
+          return guessed;
+        }
+      }
+      return city;
+    }
 
     // Fallback: try to peel a locality,city from a long address string.
     final raw = (b.locationDisplay ?? b.clientAddress ?? '').trim();

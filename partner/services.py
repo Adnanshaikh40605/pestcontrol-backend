@@ -416,7 +416,21 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
     else:
         raise PartnerBookingError('Payment mode must be Cash or Online.', code='invalid_payment')
 
+    from core.payment_utils import (
+        effective_service_total,
+        is_bed_bug_included_visit,
+        partner_booking_display_amount,
+    )
     from core.services import JobCardService
+
+    # The visit row can be ₹0 while the technician card shows the package price.
+    # Record that amount before completion payment, or Cash stores paid ₹0.
+    if not is_bed_bug_included_visit(job) and not getattr(job, 'is_complaint_call', False):
+        display = partner_booking_display_amount(job)
+        if effective_service_total(job) <= 0 and display > 0:
+            job.price = format(display, 'f')
+            job.total_amount = display
+            job.save(update_fields=['price', 'total_amount', 'updated_at'])
 
     job.partner_status = JobCard.PartnerStatus.COMPLETED
     job.status = JobCard.JobStatus.DONE
@@ -501,8 +515,9 @@ def partner_service_city_tokens(partner: Partner) -> set[str]:
 def job_matches_partner_service_area(job: JobCard, partner: Partner) -> bool:
     """
     True when the booking city matches the technician service cities.
-    Prefer City ID match via M2M; fall back to legacy name tokens.
-    Technicians with no service cities configured do not see city-scoped jobs.
+    Prefer City ID match via M2M; fall back to legacy city / service-area text.
+    A technician with neither selected cities nor a legacy city does not see
+    city-scoped jobs.
     """
     tech = getattr(partner, 'core_technician', None)
     if tech is not None:
@@ -511,18 +526,34 @@ def job_matches_partner_service_area(job: JobCard, partner: Partner) -> bool:
             job_city_id = getattr(job, 'master_city_id', None)
             if job_city_id and job_city_id in city_ids:
                 return True
+            location = getattr(job, 'master_location', None)
+            location_city_id = getattr(location, 'city_id', None) if location is not None else None
+            if location_city_id and location_city_id in city_ids:
+                return True
             # Resolve legacy job.city text → master city id when master_city missing
             if not job_city_id and job.city:
                 from core.city_utils import resolve_master_city
                 resolved = resolve_master_city(job.city)
                 if resolved and resolved.id in city_ids:
                     return True
-            if job_city_id or job.city:
+            city_names = {
+                _normalize_area_token(name)
+                for name in tech.service_cities.values_list('name', flat=True)
+                if name
+            }
+            job_name = _normalize_area_token(job.city or '')
+            if not job_name and job_city_id and getattr(job, 'master_city', None):
+                job_name = _normalize_area_token(job.master_city.name)
+            if job_name and any(
+                job_name == token or job_name in token or token in job_name
+                for token in city_names
+                if token
+            ):
+                return True
+            if job_city_id or job.city or location_city_id:
                 return False
             return True  # unscoped job
-        # Linked tech with zero service cities: hide city-scoped bookings
-        if getattr(job, 'master_city_id', None) or job.city:
-            return False
+        # No M2M yet: registration may have saved only the legacy city text.
 
     allowed = partner_service_city_tokens(partner)
     if not allowed:
@@ -560,13 +591,12 @@ def partner_schedule_date(stamp):
 
 
 def filter_jobs_today_tomorrow(jobs, *, now=None):
-    """Keep new-booking jobs the partner app can still show.
+    """Keep new-booking jobs for today and tomorrow only.
 
-    Today and tomorrow are Asia/Kolkata dates. Later dates stay in the app's
-    Later section. Yesterday stays too, so a job near the IST midnight edge
-    is not dropped when the stored instant is still the previous UTC date.
-    Older overdue pool jobs are left out. A missing schedule is kept so a
-    push for that booking does not point at an empty list.
+    Both dates are Asia/Kolkata. Yesterday stays too, so a job near the IST
+    midnight edge is not dropped when the stored instant is still the previous
+    UTC date. Dates after tomorrow are left out. A missing schedule is kept
+    so a push for that booking does not point at an empty list.
 
     ``now`` is only for tests. The available API uses the current IST date.
     """
@@ -577,6 +607,7 @@ def filter_jobs_today_tomorrow(jobs, *, now=None):
             now = timezone.make_aware(now, timezone.utc)
         today = now.astimezone(PARTNER_SCHEDULE_TZ).date()
     earliest = today - timezone.timedelta(days=1)
+    latest = today + timezone.timedelta(days=1)
     kept = []
     for job in jobs:
         stamp = job.schedule_datetime
@@ -584,7 +615,7 @@ def filter_jobs_today_tomorrow(jobs, *, now=None):
             kept.append(job)
             continue
         day = partner_schedule_date(stamp)
-        if day is not None and day >= earliest:
+        if day is not None and earliest <= day <= latest:
             kept.append(job)
     return kept
 

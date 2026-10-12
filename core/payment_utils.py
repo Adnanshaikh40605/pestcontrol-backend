@@ -224,6 +224,33 @@ def partner_booking_display_amount(jobcard) -> Decimal:
     return Decimal('0.00')
 
 
+def customer_invoice_figures(jobcard) -> dict:
+    """
+    Amounts the customer app and invoice should show.
+
+    Cash/online completion used to store ₹0 when the visit row had no price
+    even though the technician card showed the package amount. A collected
+    payment falls back to that display amount. Free complaint and included
+    bed-bug visits stay ₹0.
+    """
+    display = partner_booking_display_amount(jobcard)
+    paid = quantize_money(getattr(jobcard, 'paid_amount', 0) or 0)
+    if is_bed_bug_included_visit(jobcard) or getattr(jobcard, 'is_complaint_call', False):
+        amount = display if display > 0 else paid
+        return {'amount': amount, 'paid_amount': paid}
+
+    mode = (getattr(jobcard, 'payment_mode', None) or '').strip().lower()
+    pay_status = (getattr(jobcard, 'payment_status', None) or '').strip().lower()
+    job_status = (getattr(jobcard, 'status', None) or '').strip().lower()
+    collected = mode in ('cash', 'online') and (
+        pay_status == 'paid' or job_status in ('done', 'completed')
+    )
+    if collected and paid <= 0 and display > 0:
+        paid = display
+    amount = display if display > 0 else paid
+    return {'amount': amount, 'paid_amount': paid}
+
+
 def sync_jobcard_amounts_from_price(jobcard, *, save: bool = True) -> list[str]:
     """
     Keep total_amount / pending_amount aligned with the current quoted service price.

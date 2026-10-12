@@ -388,7 +388,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
                                               ),
                                             ),
                                           ),
-                                          if (b.canCancel) ...[
+                                          if (b.showCancel) ...[
                                             const SizedBox(width: 8),
                                             Expanded(
                                               child: OutlinedButton(

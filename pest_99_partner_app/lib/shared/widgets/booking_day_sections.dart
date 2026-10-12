@@ -126,29 +126,26 @@ List<Widget> buildDaySectionedBookingChildren({
 
 /// Builds list children for a single day bucket (no section header).
 ///
-/// [compactEmpty] is a single short line. Use it when another section (Later)
-/// still has jobs, so the empty Today message does not push those cards down.
+/// [hideEmpty] drops the empty sentence. Use it when Later still has jobs:
+/// "No bookings for today" above those cards reads as a failed list.
 List<Widget> buildSingleDayBookingChildren({
   required List<api.PartnerBooking> bookings,
   required Widget Function(api.PartnerBooking raw, Booking ui) cardBuilder,
   String emptyMessage = 'No bookings',
-  bool compactEmpty = false,
+  bool hideEmpty = false,
   Key? Function(api.PartnerBooking booking)? itemKey,
 }) {
   if (bookings.isEmpty) {
+    if (hideEmpty) return const [];
     return [
       Padding(
         key: const Key('single-day-empty'),
-        padding: EdgeInsets.only(
-          top: compactEmpty ? 2 : 48,
-          bottom: compactEmpty ? 2 : 0,
-        ),
+        padding: const EdgeInsets.only(top: 48),
         child: Text(
           emptyMessage,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: const Color(0xFF6B7280),
-            fontSize: compactEmpty ? 14 : null,
+          style: const TextStyle(
+            color: Color(0xFF6B7280),
             fontWeight: FontWeight.w600,
           ),
         ),

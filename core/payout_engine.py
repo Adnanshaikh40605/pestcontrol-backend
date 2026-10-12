@@ -601,6 +601,34 @@ def move_open_child_visits_to_current_lead(job, previous_technician_id) -> list:
     return moved
 
 
+def _release_removed_technician_to_pool(job) -> None:
+    """Put an open booking back on Available after CRM clears its technician."""
+    if job.status in (job.JobStatus.DONE, job.JobStatus.CANCELLED):
+        return
+    job.technician_id = None
+    job.partner_id = None
+    job.partner_status = job.PartnerStatus.PENDING
+    job.sent_to_app_at = timezone.now()
+    job.is_accepted = False
+    job.accepted_at = None
+    job.started_at = None
+    job.assigned_to = ''
+    # The partner Available list only includes Pending, not Upcoming.
+    job.status = job.JobStatus.PENDING
+    job.save(update_fields=[
+        'technician',
+        'partner',
+        'partner_status',
+        'sent_to_app_at',
+        'is_accepted',
+        'accepted_at',
+        'started_at',
+        'assigned_to',
+        'status',
+        'updated_at',
+    ])
+
+
 def apply_technician_reassignment(job, previous_technician_id) -> None:
     """
     Single source of truth after JobCard.technician changes.
@@ -616,6 +644,19 @@ def apply_technician_reassignment(job, previous_technician_id) -> None:
 
     if previous_technician_id == job.technician_id:
         return
+
+    if job.technician_id is None and previous_technician_id:
+        from core.models import JobCard
+
+        if job.status not in (JobCard.JobStatus.DONE, JobCard.JobStatus.CANCELLED):
+            _release_removed_technician_to_pool(job)
+            open_children = JobCard.objects.filter(parent_job=job).exclude(
+                status__in=[JobCard.JobStatus.DONE, JobCard.JobStatus.CANCELLED]
+            )
+            for child in open_children:
+                if child.technician_id and child.technician_id != previous_technician_id:
+                    continue
+                _release_removed_technician_to_pool(child)
 
     replace_stale_lead_participation(job, previous_technician_id)
     ensure_lead_participation(job)

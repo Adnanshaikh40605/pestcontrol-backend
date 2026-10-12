@@ -823,8 +823,9 @@ class TechnicianViewSet(BaseModelViewSet):
           - technician_type: partner|priority|secondary|salaried
             ("priority" is a product alias for partner)
 
-        Performance rule: ≥1 On Process booking in the selected range
-        (lead or active crew). Cancelled/Done/other statuses are excluded.
+        Performance rule: ≥1 On Process or Done booking in the selected range
+        (lead or active crew). Cancelled bookings are excluded. Each technician
+        row includes bookings with schedule time and customer locality.
         """
         from core.technician_daily_report import (
             _normalize_type,
@@ -4904,7 +4905,9 @@ class ComplaintViewSet(viewsets.ModelViewSet):
     """
     ViewSet for handling Complaint Calls.
     """
-    queryset = JobCard.objects.filter(booking_type=JobCard.BookingType.COMPLAINT_CALL)
+    queryset = JobCard.objects.filter(
+        Q(booking_type=JobCard.BookingType.COMPLAINT_CALL) | Q(is_complaint_call=True)
+    ).order_by('-created_at')
     serializer_class = JobCardSerializer
     permission_classes = [IsCRMOperationalUser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]

@@ -258,7 +258,7 @@ class BookingsProvider extends ChangeNotifier {
       final dayTab = _dayTabFor(booking);
       notificationDayTab = dayTab;
       notificationHintSerial++;
-      focusBookingId = dayTab == null ? id : null;
+      focusBookingId = dayTab == null ? null : id;
     }
     notifyListeners();
   }
@@ -278,6 +278,8 @@ class BookingsProvider extends ChangeNotifier {
         return 0;
       case 'tomorrow':
         return 1;
+      case 'later':
+        return null;
       default:
         return null;
     }

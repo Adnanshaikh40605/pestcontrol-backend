@@ -203,6 +203,10 @@ def create_complaint_jobcard(
                         datetime.combine(day, time(hour=10)),
                         timezone.get_current_timezone(),
                     )
+    # App Support does not send a revisit date. A complaint with no schedule
+    # is saved, then hidden by CRM lists that filter on the visit date.
+    if schedule is None:
+        schedule = timezone.now()
 
     complaint = JobCard(
         client=root.client,

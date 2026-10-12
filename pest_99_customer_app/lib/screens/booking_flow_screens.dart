@@ -55,6 +55,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
   String? _submitMessage;
   bool _busy = false;
   bool _otpOpen = false;
+  int _step = 0;
   bool _otpSending = false;
   bool _otpVerifying = false;
   String _otpError = '';
@@ -289,6 +290,35 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
       return ApiClient.offlineMessage;
     }
     return text;
+  }
+
+  bool get _profileHasContact {
+    final profile = context.read<AuthProvider>().profile;
+    if (profile == null) return false;
+    final mobile = profile.mobile.replaceAll(RegExp(r'\D'), '');
+    return profile.fullName.trim().length >= 2 && mobile.length == 10;
+  }
+
+  Future<void> _continueToDetails() async {
+    final flow = context.read<BookingFlowProvider>();
+    _prefillProfile();
+    if (flow.isOtherPremiseSize) {
+      setState(() {
+        _errors = {
+          ..._errors,
+          'premiseSize': 'Please call or WhatsApp us for a custom quote',
+        };
+        _submitMessage = null;
+      });
+      await _openOtherPremiseHelp();
+      return;
+    }
+    final errors = flow.validate(step: 0);
+    setState(() {
+      _errors = errors;
+      _submitMessage = errors.isEmpty ? null : errors.values.first;
+      if (errors.isEmpty) _step = 1;
+    });
   }
 
   Future<void> _onConfirm() async {
@@ -589,6 +619,18 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                             Colors.red.shade800,
                           ),
                         ],
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8, bottom: 2),
+                          child: Text(
+                            _step == 0 ? 'Step 1 of 2 · Service' : 'Step 2 of 2 · Address',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 12,
+                              color: Color(0xFF087B3D),
+                            ),
+                          ),
+                        ),
+                        if (_step == 0) ...[
                         SizedBox(height: gap),
                         _propToggle(flow, dens),
                         SizedBox(height: gap),
@@ -667,6 +709,14 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                           if (_errors['serviceType'] != null)
                             _fieldError(_errors['serviceType']!),
                         ],
+                        ],
+                        if (_step == 1) ...[
+                        SizedBox(height: gap),
+                        Text(
+                          '${flow.friendlyPreferredDate.isEmpty ? 'Date not selected' : flow.friendlyPreferredDate}'
+                          ' · ${flow.preferredTime.isEmpty ? 'Time not selected' : BookingFlowProvider.formatFriendlyTime(flow.preferredTime)}',
+                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                        ),
                         SizedBox(height: gap),
                         _label('SERVICE ADDRESS *', dens),
                         BookingAddressField(
@@ -679,6 +729,8 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                           errorText: _errors['streetAddress'],
                           errorBorder: _errors['streetAddress'] != null,
                         ),
+                        ],
+                        if (_step == 0) ...[
                         SizedBox(height: gap),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -745,7 +797,15 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                             ),
                           ],
                         ),
+                        ],
+                        if (_step == 1) ...[
                         SizedBox(height: gap),
+                        if (_profileHasContact)
+                          Text(
+                            'Booking for ${flow.fullName} · ${flow.mobile}',
+                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                          )
+                        else
                         // Website `.booking-grid-phone`: 0.9fr / 1.1fr — equal HEIGHT.
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -817,6 +877,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                             ),
                           ],
                         ),
+                        ],
                       ];
 
                   Widget priceAndCta() => Column(
@@ -825,6 +886,14 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                         children: [
                           SizedBox(height: dens.ctaGap),
                           _priceBar(flow, q, dens),
+                          if (_step == 1)
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton(
+                                onPressed: _busy ? null : () => setState(() => _step = 0),
+                                child: const Text('Back to service'),
+                              ),
+                            ),
                           SizedBox(height: dens.ctaGap),
                           SizedBox(
                             height: dens.ctaH,
@@ -847,15 +916,17 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
                                 child: InkWell(
                                   onTap: _busy || _otpSending || _otpVerifying
                                       ? null
-                                      : _onConfirm,
+                                      : (_step == 0 ? _continueToDetails : _onConfirm),
                                   borderRadius: BorderRadius.circular(11),
                                   child: Center(
                                     child: Text(
                                       _busy || _otpSending
                                           ? 'Sending OTP...'
-                                          : flow.isOtherPremiseSize
-                                              ? 'Call / WhatsApp for Quote →'
-                                              : 'Confirm Booking →',
+                                          : _step == 0
+                                              ? 'Continue'
+                                              : flow.isOtherPremiseSize
+                                                  ? 'Call / WhatsApp for Quote →'
+                                                  : 'Confirm Booking →',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w900,
                                         fontSize: dens.ctaFont,

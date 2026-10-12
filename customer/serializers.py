@@ -363,6 +363,7 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
     can_rate = serializers.SerializerMethodField()
     my_rating = serializers.SerializerMethodField()
     invoice_amount = serializers.SerializerMethodField()
+    paid_amount = serializers.SerializerMethodField()
     amc_parent_id = serializers.IntegerField(source='parent_job_id', read_only=True, allow_null=True)
     price_confirmation_pending = serializers.SerializerMethodField()
     technician_name = serializers.SerializerMethodField()
@@ -377,7 +378,7 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
             'property_type', 'bhk_size', 'client_name', 'client_address',
             'city', 'schedule_datetime', 'time_slot',
             'status', 'partner_status', 'payment_status', 'payment_mode',
-            'price', 'total_amount', 'invoice_amount', 'is_price_estimated',
+            'price', 'total_amount', 'invoice_amount', 'paid_amount', 'is_price_estimated',
             'price_confirmation_pending',
             'technician_name', 'technician_mobile', 'technician_photo_url',
             'can_cancel',
@@ -386,9 +387,14 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
         ]
 
     def get_invoice_amount(self, obj):
-        if obj.total_amount is not None:
-            return str(obj.total_amount)
-        return obj.price
+        from core.payment_utils import customer_invoice_figures
+
+        return str(customer_invoice_figures(obj)['amount'])
+
+    def get_paid_amount(self, obj):
+        from core.payment_utils import customer_invoice_figures
+
+        return str(customer_invoice_figures(obj)['paid_amount'])
 
     def get_price_confirmation_pending(self, obj):
         if getattr(obj, 'is_price_estimated', False):
@@ -462,9 +468,13 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
         return image
 
     def get_can_cancel(self, obj):
-        if obj.status in (JobCard.JobStatus.CANCELLED, JobCard.JobStatus.DONE):
+        status = (obj.status or '').strip().lower()
+        if 'cancel' in status or status in ('done', 'completed'):
             return False
-        if (obj.partner_status or '') in (
+        if getattr(obj, 'completed_at', None):
+            return False
+        partner_status = (obj.partner_status or '').strip().lower()
+        if partner_status in (
             JobCard.PartnerStatus.IN_SERVICE,
             JobCard.PartnerStatus.COMPLETED,
         ):

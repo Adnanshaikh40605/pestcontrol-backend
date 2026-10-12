@@ -31,6 +31,16 @@ void main() {
       expect(short.contains('Pune'), isTrue);
     });
 
+    test('city plus address still shows the locality', () {
+      final b = PartnerBooking(
+        id: 4,
+        serviceType: 'Cockroach / Ants',
+        cityName: 'Pune',
+        clientAddress: 'Flat 12, Kondhwa, Pune, Maharashtra 411048, India',
+      );
+      expect(BookingMapper.shortAreaLabel(b), 'Kondhwa, Pune');
+    });
+
     test('city only when locality missing', () {
       final b = PartnerBooking(
         id: 3,
