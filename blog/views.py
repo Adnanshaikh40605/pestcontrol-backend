@@ -150,6 +150,32 @@ class BlogListAdminView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
 
+def _flatten_validation_errors(errors, prefix="") -> list[str]:
+    parts: list[str] = []
+    if isinstance(errors, dict):
+        for key, val in errors.items():
+            label = str(key).replace("_", " ")
+            parts.extend(_flatten_validation_errors(val, f"{prefix} {label}".strip() if prefix else label))
+    elif isinstance(errors, (list, tuple)):
+        for item in errors:
+            if isinstance(item, str):
+                parts.append(f"{prefix}: {item}" if prefix else item)
+            else:
+                parts.extend(_flatten_validation_errors(item, prefix))
+    elif isinstance(errors, str) and errors:
+        parts.append(f"{prefix}: {errors}" if prefix else errors)
+    return parts
+
+
+def _blog_validation_response(errors) -> Response:
+    """Include `detail` so the CRM save banner can show the real field error."""
+    detail = "; ".join(_flatten_validation_errors(errors)) or "Blog could not be saved."
+    logger.warning("Blog validation failed: %s", detail)
+    payload = {key: value for key, value in errors.items()}
+    payload["detail"] = detail
+    return Response(payload, status=status.HTTP_400_BAD_REQUEST)
+
+
 def _blog_save_error_response(exc: Exception) -> Response:
     """Return JSON instead of HTML 500 for storage/upload failures."""
     err = str(exc)
@@ -174,7 +200,7 @@ class BlogCreateView(APIView):
     def post(self, request):
         serializer = BlogAdminSerializer(data=request.data, context={"request": request})
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return _blog_validation_response(serializer.errors)
         try:
             blog = serializer.save(author=request.user)
         except Exception as exc:
@@ -214,7 +240,7 @@ class BlogDetailAdminView(APIView):
         blog = self._get_blog(pk)
         serializer = BlogAdminSerializer(blog, data=request.data, context={"request": request})
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return _blog_validation_response(serializer.errors)
         try:
             blog = serializer.save()
         except Exception as exc:
@@ -235,7 +261,7 @@ class BlogDetailAdminView(APIView):
         blog = self._get_blog(pk)
         serializer = BlogAdminSerializer(blog, data=request.data, partial=True, context={"request": request})
         if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return _blog_validation_response(serializer.errors)
         try:
             blog = serializer.save()
         except Exception as exc:

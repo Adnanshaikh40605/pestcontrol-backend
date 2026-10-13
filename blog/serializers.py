@@ -1,5 +1,7 @@
-from rest_framework import serializers
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import URLValidator
 from django.utils.text import slugify
+from rest_framework import serializers
 
 from .models import Blog, Category, Tag, BlogStatus
 from .fields import AbsoluteImageField
@@ -84,6 +86,9 @@ class BlogAdminSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False,
     )
+    # Model field is a URLField, which rejects "pestcontrol99.com/blog/..." before
+    # validate() runs. Keep this optional and normalize a missing scheme below.
+    canonical_url = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
     class Meta:
         model = Blog
@@ -147,6 +152,19 @@ class BlogAdminSerializer(serializers.ModelSerializer):
             if qs.exists():
                 raise serializers.ValidationError("A blog with this slug already exists.")
             return slugify(value)
+        return value
+
+    def validate_canonical_url(self, value):
+        """Optional SEO field. A pasted site path must not block Publish."""
+        value = (value or "").strip()
+        if not value:
+            return ""
+        if "://" not in value:
+            value = "https://" + value.lstrip("/")
+        try:
+            URLValidator()(value)
+        except DjangoValidationError:
+            return ""
         return value
 
     def validate(self, attrs):
