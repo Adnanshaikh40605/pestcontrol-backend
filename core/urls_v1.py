@@ -39,6 +39,7 @@ from .deepcleaning_views import (
     DeepCleaningInquiryViewSet,
     DeepCleaningInquiryRemarkListCreateView,
     DeepCleaningInquiryRemarkDetailView,
+    DeepCleaningRateViewSet,
 )
 from .theme_views import UserThemeView
 from .media_views import MediaFileView
@@ -64,6 +65,7 @@ router.register(r'clients', ClientViewSet, basename='client')
 router.register(r'inquiries', InquiryViewSet, basename='inquiry')
 router.register(r'website-leads', WebsiteLeadViewSet, basename='website-lead')
 router.register(r'deepcleaning-inquiries', DeepCleaningInquiryViewSet, basename='deepcleaning-inquiry')
+router.register(r'deepcleaning-rates', DeepCleaningRateViewSet, basename='deepcleaning-rate')
 router.register(r'jobcards', JobCardViewSet, basename='jobcard')
 router.register(r'renewals', RenewalViewSet, basename='renewal')
 router.register(r'dashboard', DashboardViewSet, basename='dashboard')

@@ -2382,6 +2382,47 @@ class DeepCleaningInquiryRemark(BaseModel):
         return f"DC99 #{self.inquiry_id} remark @ {self.created_at}"
 
 
+class DeepCleaningRate(BaseModel):
+    """Master price list for Deepcleaning99.com. CRM edits publish to the site."""
+
+    class Segment(models.TextChoices):
+        RESIDENTIAL = 'Residential', 'Residential'
+        COMMERCIAL = 'Commercial', 'Commercial'
+
+    code = models.CharField(max_length=20, unique=True, db_index=True)
+    segment = models.CharField(max_length=20, choices=Segment.choices, db_index=True)
+    service = models.CharField(max_length=120, db_index=True)
+    package_name = models.CharField(max_length=255)
+    billing_unit = models.CharField(max_length=40, default='package')
+    example_qty = models.DecimalField(max_digits=10, decimal_places=2, default=1)
+    rate_per_unit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    min_charge = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    job_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text='One-time list price before the website offer. GST extra.',
+    )
+    technicians = models.PositiveIntegerField(default=1)
+    on_site_hours = models.CharField(max_length=40, blank=True, default='')
+    scope_note = models.TextField(blank=True, default='')
+    amc_visits = models.PositiveIntegerField(default=0)
+    amc_discount = models.DecimalField(max_digits=5, decimal_places=4, default=0)
+    amc_per_visit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    amc_annual = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    amc_interval = models.CharField(max_length=40, blank=True, default='')
+    is_active = models.BooleanField(default=True, db_index=True)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['sort_order', 'code']
+        verbose_name = 'DeepCleaning99 Rate'
+        verbose_name_plural = 'DeepCleaning99 Rates'
+
+    def __str__(self) -> str:
+        return f'{self.code} {self.package_name}'
+
+
 class Reminder(BaseModel):
     class InquiryType(models.TextChoices):
         CRM = 'crm', 'CRM Inquiry'

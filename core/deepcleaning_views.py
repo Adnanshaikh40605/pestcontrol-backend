@@ -14,10 +14,12 @@ from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .deepcleaning_serializers import (
     DeepCleaningInquiryRemarkSerializer,
     DeepCleaningInquirySerializer,
+    DeepCleaningRateSerializer,
+    website_catalog,
 )
 from .deepcleaning_services import DeepCleaningInquiryService
 from .inquiry_filters import InquiryListCountsMixin
-from .models import DeepCleaningInquiry, DeepCleaningInquiryRemark
+from .models import DeepCleaningInquiry, DeepCleaningInquiryRemark, DeepCleaningRate
 from .permissions import IsCRMOperationalUser, IsRemarkAdmin
 from .remark_views import RemarkHistoryPagination, _log_remark_activity
 
@@ -212,3 +214,32 @@ class DeepCleaningInquiryRemarkDetailView(views.APIView):
         return response.Response(
             DeepCleaningInquiryRemarkSerializer(entry, context={'request': request}).data
         )
+
+
+class DeepCleaningRateViewSet(viewsets.ModelViewSet):
+    """CRM master for Deepcleaning99 prices. Public catalog is read-only."""
+
+    queryset = DeepCleaningRate.objects.all()
+    serializer_class = DeepCleaningRateSerializer
+    permission_classes = [IsCRMOperationalUser]
+    pagination_class = None
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['segment', 'service', 'is_active']
+    search_fields = ['code', 'service', 'package_name', 'scope_note']
+    ordering_fields = ['sort_order', 'code', 'job_amount', 'updated_at']
+    ordering = ['sort_order', 'code']
+
+    def get_authenticators(self):
+        if getattr(self, 'action', None) == 'catalog':
+            return []
+        return super().get_authenticators()
+
+    def get_permissions(self):
+        if getattr(self, 'action', None) == 'catalog':
+            return [permissions.AllowAny()]
+        return super().get_permissions()
+
+    @action(detail=False, methods=['get'], url_path='catalog')
+    def catalog(self, request):
+        rates = DeepCleaningRate.objects.filter(is_active=True).order_by('sort_order', 'code')
+        return response.Response(website_catalog(rates))

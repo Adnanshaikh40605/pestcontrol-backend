@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from .models import DeepCleaningInquiry, DeepCleaningInquiryRemark
+from decimal import Decimal
+
+from .models import DeepCleaningInquiry, DeepCleaningInquiryRemark, DeepCleaningRate
 from .serializers import _resolve_latest_remark, _serialize_latest_remark
 
 
@@ -90,3 +92,99 @@ class DeepCleaningInquirySerializer(serializers.ModelSerializer):
         if not obj.created_at:
             return ''
         return obj.created_at.strftime('%d/%m/%Y %I:%M %p')
+
+
+def _money(value) -> float:
+    return float(Decimal(value or 0))
+
+
+def website_rate_payload(rate: DeepCleaningRate) -> dict:
+    return {
+        'id': rate.code,
+        'segment': rate.segment,
+        'service': rate.service,
+        'package': rate.package_name,
+        'unit': rate.billing_unit,
+        'quantity': _money(rate.example_qty),
+        'rate': _money(rate.rate_per_unit),
+        'minimum': _money(rate.min_charge),
+        'base': _money(rate.job_amount),
+        'team': rate.technicians,
+        'hours': rate.on_site_hours,
+        'note': rate.scope_note,
+    }
+
+
+def website_amc_payload(rate: DeepCleaningRate) -> dict | None:
+    if not rate.amc_visits:
+        return None
+    return {
+        'id': rate.code,
+        'segment': rate.segment,
+        'package': f'{rate.service}: {rate.package_name}',
+        'visits': rate.amc_visits,
+        'perVisit': _money(rate.amc_per_visit),
+        'annual': _money(rate.amc_annual),
+        'interval': rate.amc_interval,
+    }
+
+
+def website_catalog(rates) -> dict:
+    services = []
+    for rate in rates:
+        if rate.service not in services:
+            services.append(rate.service)
+    return {
+        'discount': 0.3,
+        'services': services,
+        'rates': [website_rate_payload(rate) for rate in rates],
+        'amc': [item for item in (website_amc_payload(rate) for rate in rates) if item],
+    }
+
+
+class DeepCleaningRateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeepCleaningRate
+        fields = [
+            'id',
+            'code',
+            'segment',
+            'service',
+            'package_name',
+            'billing_unit',
+            'example_qty',
+            'rate_per_unit',
+            'min_charge',
+            'job_amount',
+            'technicians',
+            'on_site_hours',
+            'scope_note',
+            'amc_visits',
+            'amc_discount',
+            'amc_per_visit',
+            'amc_annual',
+            'amc_interval',
+            'is_active',
+            'sort_order',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def validate_code(self, value: str) -> str:
+        code = (value or '').strip().upper()
+        if not code:
+            raise serializers.ValidationError('Enter a rate code such as R1.')
+        qs = DeepCleaningRate.objects.filter(code__iexact=code)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError('A rate with this code already exists.')
+        return code
+
+    def validate(self, attrs):
+        job = attrs.get('job_amount', getattr(self.instance, 'job_amount', 0))
+        minimum = attrs.get('min_charge', getattr(self.instance, 'min_charge', 0))
+        if Decimal(job or 0) < 0 or Decimal(minimum or 0) < 0:
+            raise serializers.ValidationError('Prices cannot be negative.')
+        return attrs

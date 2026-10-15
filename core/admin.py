@@ -9,6 +9,7 @@ from .models import (
     WebsiteLeadRemark,
     DeepCleaningInquiry,
     DeepCleaningInquiryRemark,
+    DeepCleaningRate,
     ECardVisit,
     ECardWhatsAppSend,
 )
@@ -78,6 +79,14 @@ class DeepCleaningInquiryAdmin(admin.ModelAdmin):
     search_fields = ('name', 'mobile', 'service', 'package_name', 'city', 'area', 'address')
     list_filter = ('status', 'is_read', 'city', 'service', 'created_at')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(DeepCleaningRate)
+class DeepCleaningRateAdmin(admin.ModelAdmin):
+    list_display = ('code', 'segment', 'service', 'package_name', 'job_amount', 'amc_annual', 'is_active')
+    list_filter = ('segment', 'service', 'is_active')
+    search_fields = ('code', 'service', 'package_name')
+    ordering = ('sort_order', 'code')
 
 
 @admin.register(DeepCleaningInquiryRemark)
