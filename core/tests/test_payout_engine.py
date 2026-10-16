@@ -65,6 +65,27 @@ class PayoutEngineTests(TestCase):
         defaults.update(kwargs)
         return JobCard.objects.create(**defaults)
 
+    def test_completed_service_call_pays_flat_300(self):
+        tech, partner = self._make_partner_tech('9000000099', 'Service Tech')
+        job = self._base_job(
+            technician=tech,
+            partner=partner,
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            booking_type=JobCard.BookingType.SERVICE_CALL,
+            is_service_call=True,
+            price='1800',
+            total_amount=Decimal('1800.00'),
+        )
+        result = calculate_and_apply_payout(job)
+        job.refresh_from_db()
+        self.assertFalse(result.skipped)
+        self.assertEqual(result.reason, 'service_call_flat_fee')
+        self.assertEqual(job.visit_payout_amount, Decimal('300.00'))
+        self.assertEqual(job.technician_pool_amount, Decimal('300.00'))
+        self.assertEqual(job.payout_status, JobCard.PayoutStatus.PENDING)
+        earning = PartnerEarning.objects.get(job=job, partner=partner)
+        self.assertEqual(earning.amount, Decimal('300.00'))
+
     def test_one_time_full_share_to_lead_partner(self):
         tech, partner = self._make_partner_tech('9000000001', 'Lead Tech')
         job = self._base_job(

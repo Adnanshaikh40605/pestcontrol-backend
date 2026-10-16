@@ -246,6 +246,49 @@ def _amc_visits_from_service_items(job) -> Optional[int]:
     return None
 
 
+SERVICE_CALL_TECHNICIAN_FEE = Decimal('300.00')
+
+
+def is_complaint_job(job) -> bool:
+    """Free complaint / revisit. These do not earn the service-call fee."""
+    from core.models import JobCard
+
+    if getattr(job, 'is_complaint_call', False):
+        return True
+    if getattr(job, 'booking_category', None) == JobCard.BookingCategory.COMPLAINT_CALL:
+        return True
+    return getattr(job, 'booking_type', None) == JobCard.BookingType.COMPLAINT_CALL
+
+
+def is_flat_service_call(job) -> bool:
+    """
+    A completed Service Call pays a flat ₹300.
+
+    AMC visits and Bed Bug follow-ups keep their existing per-visit share.
+    Complaint calls are not service calls.
+    """
+    from core.models import JobCard
+
+    if is_complaint_job(job) or is_bed_bug_multi_visit(job):
+        return False
+    if getattr(job, 'included_in_amc', False):
+        return False
+    if getattr(job, 'service_category', None) == JobCard.ServiceCategory.AMC:
+        return False
+    if getattr(job, 'booking_type', None) in (
+        JobCard.BookingType.AMC_MAIN,
+        JobCard.BookingType.AMC_FOLLOWUP,
+    ):
+        return False
+    if getattr(job, 'booking_category', None) == JobCard.BookingCategory.AMC_FOLLOWUP:
+        return False
+    if getattr(job, 'booking_category', None) == JobCard.BookingCategory.SERVICE_CALL:
+        return True
+    if getattr(job, 'booking_type', None) == JobCard.BookingType.SERVICE_CALL:
+        return True
+    return bool(getattr(job, 'is_service_call', False))
+
+
 def is_amc_economics(job) -> bool:
     from core.booking_schedule_engine import (
         is_amc_plan,
@@ -785,6 +828,86 @@ def _resolve_partner_for_row(row):
 
 
 @transaction.atomic
+def _apply_service_call_fee(job) -> PayoutResult:
+    """Pay the assigned technician a flat ₹300 for one completed service call."""
+    from core.models import JobCard, JobCardTechnicianParticipation
+    from partner.models import PartnerEarning
+
+    fee = SERVICE_CALL_TECHNICIAN_FEE
+    eligible = _eligible_partner_participations(job)
+    lead = None
+    for row in eligible:
+        if row.role == JobCardTechnicianParticipation.Role.LEAD or (
+            job.technician_id and row.technician_id == job.technician_id
+        ):
+            lead = row
+            break
+    if lead is None and eligible:
+        lead = eligible[0]
+
+    line_package = service_line_package_amount(job)
+    visit_revenue = line_package if line_package > 0 else fee
+    company_share = quantize_money(max(visit_revenue - fee, Decimal('0.00')))
+    keep_partner_ids: set[int] = set()
+    lead_amount = Decimal('0.00')
+    result = PayoutResult(
+        economics='service_call',
+        visit_revenue=visit_revenue,
+        technician_pool=fee,
+        company_share=company_share,
+    )
+
+    for row in eligible:
+        amount = fee if row is lead else Decimal('0.00')
+        row.payout_amount_snapshot = amount
+        row.share_percent_snapshot = Decimal('100.00') if amount else Decimal('0.00')
+        row.save(update_fields=[
+            'payout_amount_snapshot', 'share_percent_snapshot', 'updated_at',
+        ])
+        partner = _resolve_partner_for_row(row)
+        if partner and amount > 0:
+            keep_partner_ids.add(partner.id)
+            lead_amount = amount
+            PartnerEarning.objects.update_or_create(
+                job=job,
+                partner=partner,
+                earning_type=PartnerEarning.EarningType.REVENUE_SHARE,
+                defaults={
+                    'amount': amount,
+                    'participation': row,
+                    'is_approved': False,
+                },
+            )
+            result.participant_payouts.append(
+                ParticipantPayout(
+                    participation_id=row.id,
+                    technician_id=row.technician_id,
+                    partner_id=partner.id,
+                    amount=amount,
+                    share_percent=Decimal('100.00'),
+                )
+            )
+
+    if lead_amount == 0 and job.technician_id:
+        lead_amount = fee
+
+    job.visit_revenue_amount = visit_revenue
+    job.technician_pool_amount = fee
+    job.company_share_amount = company_share
+    job.visit_payout_amount = lead_amount
+    job.payout_status = (
+        JobCard.PayoutStatus.PENDING if keep_partner_ids else JobCard.PayoutStatus.HELD
+    )
+    job.save(update_fields=[
+        'visit_revenue_amount', 'technician_pool_amount', 'company_share_amount',
+        'visit_payout_amount', 'payout_status', 'updated_at',
+    ])
+    purge_stale_revenue_share_earnings(job, keep_partner_ids=keep_partner_ids)
+    result.payout_status = job.payout_status
+    result.reason = 'service_call_flat_fee'
+    return result
+
+
 def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
     """
     Idempotent payout application after job completion.
@@ -896,6 +1019,9 @@ def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
 
     ensure_lead_participation(job)
     job.refresh_from_db()
+
+    if is_flat_service_call(job):
+        return _apply_service_call_fee(job)
 
     tech_pct = _tech_share_percent(job)
     company_pct = _company_share_percent(job)

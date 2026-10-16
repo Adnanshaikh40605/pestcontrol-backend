@@ -250,7 +250,7 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
             'priority', 'priority_label', 'booking_tag',
             'status', 'partner_status',
             'can_start_job', 'can_complete_job',
-            'is_complaint_call', 'complaint_type',
+            'is_complaint_call', 'is_service_call', 'complaint_type',
             'property_type', 'bhk_size',
             'price', 'payment_status', 'payment_mode',
             'payment_model', 'visit_payout_amount', 'payout_status',
@@ -293,10 +293,14 @@ class PartnerBookingListSerializer(serializers.ModelSerializer):
 
     def get_booking_tag(self, obj):
         """Returns a tag label for display on the card (e.g., AMC VISIT, High Priority)."""
+        from core.payout_engine import is_flat_service_call
+
+        if obj.is_complaint_call or obj.booking_type == JobCard.BookingType.COMPLAINT_CALL:
+            return "COMPLAINT"
+        if is_flat_service_call(obj):
+            return "SERVICE CALL"
         if obj.booking_type == JobCard.BookingType.AMC_FOLLOWUP:
             return "AMC VISIT"
-        if obj.is_complaint_call:
-            return "COMPLAINT"
         if obj.priority == JobCard.Priority.HIGH:
             return "HIGH PRIORITY"
         return "STANDARD"
@@ -392,7 +396,7 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
             # Service
             'service_type', 'service_category', 'booking_type', 'booking_tag',
             'plan_label', 'total_booking_amount',
-            'is_complaint_call', 'complaint_type', 'complaint_note',
+            'is_complaint_call', 'is_service_call', 'complaint_type', 'complaint_note',
             # Schedule
             'schedule_datetime', 'time_slot',
             # Payment
@@ -455,10 +459,14 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
         return obj.city or ""
 
     def get_booking_tag(self, obj):
+        from core.payout_engine import is_flat_service_call
+
+        if obj.is_complaint_call or obj.booking_type == JobCard.BookingType.COMPLAINT_CALL:
+            return "COMPLAINT"
+        if is_flat_service_call(obj):
+            return "SERVICE CALL"
         if obj.booking_type == JobCard.BookingType.AMC_FOLLOWUP:
             return "AMC VISIT"
-        if obj.is_complaint_call:
-            return "COMPLAINT"
         if obj.priority == JobCard.Priority.HIGH:
             return "HIGH PRIORITY"
         return "STANDARD"

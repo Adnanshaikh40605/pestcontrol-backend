@@ -303,6 +303,11 @@ def job_needs_payout_heal(job) -> bool:
     if job.payout_status == JobCard.PayoutStatus.LEGACY_EXEMPT:
         return False
 
+    from core.payout_engine import SERVICE_CALL_TECHNICIAN_FEE, is_flat_service_call
+
+    if is_flat_service_call(job):
+        return quantize_money(job.visit_payout_amount) != SERVICE_CALL_TECHNICIAN_FEE
+
     visit_pay = quantize_money(job.visit_payout_amount)
     visit_rev = quantize_money(job.visit_revenue_amount)
     package = service_line_package_amount(job)
@@ -687,11 +692,18 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
     service_number = None
     booking_type_label = _booking_type_label(economics)
 
+    from core.payout_engine import SERVICE_CALL_TECHNICIAN_FEE, is_flat_service_call
+
+    flat_service_call = is_flat_service_call(job)
+
     if bed_bug_line:
         planned = max(int(planned or 0), 2)
         cycle = int(cycle or 1)
         service_number = f'Service {cycle} of {planned}'
         booking_type_label = '2-Service Package'
+    elif flat_service_call:
+        booking_type_label = 'Service Call'
+        service_number = f'₹{SERVICE_CALL_TECHNICIAN_FEE.quantize(Decimal("1"))} on completion'
     # Termite / true one-time must never show "Service 1 of 5" from stale max_cycle.
     elif economics == 'one_time':
         service_number = 'One-Time'
@@ -710,6 +722,8 @@ def serialize_ledger_row(job: JobCard, technician: Technician) -> dict:
         'client_mobile': client_mobile,
         'client_number': client_mobile,
         'is_complaint_call': is_complaint,
+        'is_service_call': flat_service_call,
+        'service_call_fee': str(SERVICE_CALL_TECHNICIAN_FEE if flat_service_call else Decimal('0.00')),
         'property_type': job.property_type or job.commercial_type or '',
         'service_type': job.service_type or '',
         'city': job.master_city.name if job.master_city_id else (job.city or ''),
@@ -749,6 +763,8 @@ def summarize_rows(rows: list[dict]) -> dict:
     totals = {field: Decimal('0.00') for field in money_fields}
     job_types = defaultdict(int)
     completed = 0
+    service_call_completed = 0
+    service_call_earning = Decimal('0.00')
     ratings = []
     for row in rows:
         # Contract AMC uses AMC visit economics — count it under AMC for summary cards.
@@ -756,6 +772,9 @@ def summarize_rows(rows: list[dict]) -> dict:
         job_types['amc' if bt == 'contract_amc' else bt] += 1
         if row['is_completed_visit']:
             completed += 1
+            if row.get('is_service_call'):
+                service_call_completed += 1
+                service_call_earning += Decimal(row['technician_share'])
         if row['customer_rating'] is not None:
             ratings.append(Decimal(str(row['customer_rating'])))
         for field in money_fields:
@@ -766,6 +785,8 @@ def summarize_rows(rows: list[dict]) -> dict:
         'one_time_jobs': job_types['one_time'],
         'amc_jobs': job_types['amc'],
         'contract_jobs': job_types['contract'],
+        'service_call_jobs': service_call_completed,
+        'service_call_earning': str(quantize_money(service_call_earning)),
         'total_revenue_generated': str(quantize_money(totals['visit_revenue'])),
         'booking_amount': str(quantize_money(totals['booking_amount'])),
         'technician_share': str(quantize_money(totals['technician_share'])),
