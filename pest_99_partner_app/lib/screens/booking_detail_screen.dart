@@ -48,7 +48,12 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
 
   Future<void> _startJob() async {
     final picker = ImagePicker();
-    final file = await picker.pickImage(source: ImageSource.camera, imageQuality: 85);
+    final file = await picker.pickImage(
+      source: ImageSource.camera,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 85,
+    );
     if (file == null || !mounted) return;
 
     final result = await context.read<BookingsProvider>().startJob(widget.bookingId, file.path);

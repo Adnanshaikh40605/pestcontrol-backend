@@ -226,16 +226,18 @@ class BookingFlowProvider extends ChangeNotifier {
     if (!selectionsComplete) return 'Select options for price';
     if (isOtherPremiseSize) return 'Custom quote — call / WhatsApp';
     if (isInspectionQuote) return 'Site inspection';
+    final extra = pestTypes.length > 1 ? ' • ${pestTypes.length} services' : '';
     if (serviceType == 'amc') {
       final quality = treatmentQuality == 'premium' ? 'Premium' : 'Standard';
-      return '$quality AMC • 3 visits';
+      return '$quality AMC • 3 visits$extra';
     }
     if (serviceType == 'one-time') {
       if (isBedBugsPrimaryPlan) return '2-Service Package • 2 visits';
       if (showTreatmentQuality) {
         final quality = treatmentQuality == 'premium' ? 'Premium' : 'Standard';
-        return '$quality • One-Time';
+        return '$quality • One-Time$extra';
       }
+      if (pestTypes.length > 1) return '${pestTypes.length} services • One-Time';
       return 'One-Time service';
     }
     return 'Select options for price';

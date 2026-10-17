@@ -224,6 +224,11 @@ class CustomerBookSerializer(serializers.Serializer):
     timezone = serializers.CharField(max_length=64, required=False, allow_blank=True, default='Asia/Kolkata')
     place_id = serializers.CharField(max_length=255, required=False, allow_blank=True, default='')
     pricing_rate_id = serializers.IntegerField(required=False, allow_null=True)
+    pricing_rate_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        allow_empty=True,
+    )
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     notes = serializers.CharField(required=False, allow_blank=True, default='')
     booking_type = serializers.ChoiceField(
@@ -469,7 +474,7 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
 
     def get_can_cancel(self, obj):
         status = (obj.status or '').strip().lower()
-        if 'cancel' in status or status in ('done', 'completed'):
+        if 'cancel' in status or 'done' in status or 'complete' in status:
             return False
         if getattr(obj, 'completed_at', None):
             return False
@@ -477,7 +482,7 @@ class CustomerBookingSerializer(serializers.ModelSerializer):
         if partner_status in (
             JobCard.PartnerStatus.IN_SERVICE,
             JobCard.PartnerStatus.COMPLETED,
-        ):
+        ) or 'complete' in partner_status:
             return False
         return True
 

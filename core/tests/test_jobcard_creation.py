@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from core.models import City, Client, Country, CRMInquiry, JobCard, Location, State
+from core.models import City, Client, Country, CRMInquiry, Inquiry, JobCard, Location, State
 from core.payment_utils import parse_jobcard_price
 from core.services import CRMInquiryService, JobCardService
 
@@ -68,6 +68,73 @@ class JobCardCreationTests(TestCase):
         )
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data['max_cycle'], 2)
+
+    def _booking_payload(self, mobile='9123456780'):
+        return {
+            'client_data': {
+                'full_name': 'Lead Client',
+                'mobile': mobile,
+            },
+            'service_type': 'Cockroach Standard',
+            'service_category': 'One-Time Service',
+            'schedule_datetime': self.schedule.isoformat(),
+            'price': '1475',
+            'reference': 'Website',
+            'status': 'Pending',
+            'master_location': self.location.id,
+            'client_address': 'Lokhandwala, Andheri West',
+        }
+
+    def test_website_lead_becomes_a_booking_only_when_the_form_is_saved(self):
+        inquiry = Inquiry.objects.create(
+            name='Akshay Vaidya',
+            mobile='9890871343',
+            message='Lokhandwala, Andheri West',
+            service_interest='Cockroach / Ants',
+            city='Mumbai',
+        )
+        before = JobCard.objects.count()
+
+        created = self.api.post(
+            '/api/v1/jobcards/',
+            {**self._booking_payload(), 'website_inquiry_id': inquiry.id},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.data)
+        self.assertEqual(JobCard.objects.count(), before + 1)
+
+        inquiry.refresh_from_db()
+        job = JobCard.objects.get(pk=created.data['id'])
+        self.assertEqual(inquiry.status, Inquiry.InquiryStatus.CONVERTED)
+        self.assertEqual(inquiry.linked_jobcard_id, job.id)
+        self.assertEqual(job.client_address, 'Lokhandwala, Andheri West')
+        self.assertEqual(job.service_type, 'Cockroach Standard')
+
+        again = self.api.post(
+            '/api/v1/jobcards/',
+            {**self._booking_payload(mobile='9890871344'), 'website_inquiry_id': inquiry.id},
+            format='json',
+        )
+        self.assertEqual(again.status_code, 400, again.data)
+        self.assertEqual(JobCard.objects.count(), before + 1)
+
+    def test_crm_lead_becomes_a_booking_only_when_the_form_is_saved(self):
+        inquiry = CRMInquiry.objects.create(
+            name='Priyanka Bade',
+            mobile='7977020842',
+            location='Andheri',
+            pest_type='Cockroach / Ants',
+            created_by=self.user,
+        )
+        created = self.api.post(
+            '/api/v1/jobcards/',
+            {**self._booking_payload(mobile='7977020842'), 'crm_inquiry_id': inquiry.id},
+            format='json',
+        )
+        self.assertEqual(created.status_code, 201, created.data)
+        inquiry.refresh_from_db()
+        self.assertEqual(inquiry.status, CRMInquiry.InquiryStatus.CONVERTED)
+        self.assertEqual(inquiry.converted_by_id, self.user.id)
 
     def test_complete_booking_records_price_from_job_card(self):
         job = JobCard.objects.create(

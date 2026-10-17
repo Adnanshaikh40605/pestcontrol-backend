@@ -893,6 +893,30 @@ class InquiryService:
         )
 
     @staticmethod
+    def assert_open_for_conversion(inquiry_id: int) -> Inquiry:
+        """Lock the lead. A second confirm must not create another booking."""
+        try:
+            inquiry = Inquiry.objects.select_for_update().get(id=inquiry_id)
+        except Inquiry.DoesNotExist:
+            raise ValidationError("Inquiry not found")
+        if inquiry.status == Inquiry.InquiryStatus.CONVERTED:
+            raise ValidationError("This inquiry has already been converted to a booking.")
+        return inquiry
+
+    @staticmethod
+    def mark_converted_to_jobcard(inquiry_id: int, jobcard: JobCard, user=None) -> Inquiry:
+        """Link a booking that was just saved from the confirm form. Does not create a job."""
+        inquiry = InquiryService.assert_open_for_conversion(inquiry_id)
+        inquiry.status = Inquiry.InquiryStatus.CONVERTED
+        inquiry.converted_by = user
+        inquiry.linked_jobcard = jobcard
+        inquiry.is_read = True
+        inquiry.save(update_fields=[
+            'status', 'converted_by', 'linked_jobcard', 'is_read', 'updated_at',
+        ])
+        return inquiry
+
+    @staticmethod
     @transaction.atomic
     def convert_to_jobcard(inquiry_id: int, conversion_data: Dict[str, Any], user=None) -> JobCard:
         """Convert a website inquiry to a job card (idempotent under concurrent clicks)."""
@@ -2073,6 +2097,7 @@ class DashboardService:
 
             job_totals = JobCard.objects.filter(jobcard_filters).aggregate(
                 total=Count('id'),
+                amount=Sum('total_amount'),
                 one_time=Count('id', filter=Q(service_category=JobCard.ServiceCategory.ONE_TIME)),
                 amc=Count('id', filter=Q(service_category=JobCard.ServiceCategory.AMC)),
                 individual=Count('id', filter=Q(commercial_type=JobCard.CommercialType.HOME)),
@@ -2137,13 +2162,19 @@ class DashboardService:
                 | Q(booking_category=JobCard.BookingCategory.COMPLAINT_CALL)
                 | Q(booking_type=JobCard.BookingType.COMPLAINT_CALL)
             )
+            # Service calls only. AMC follow-ups are a separate visit type and
+            # must not inflate the Service Call count.
             service_q = (
-                Q(booking_category__in=JobCard.UPCOMING_SERVICE_CATEGORIES)
-                | Q(is_service_call=True)
+                Q(booking_category=JobCard.BookingCategory.SERVICE_CALL)
                 | Q(booking_type=JobCard.BookingType.SERVICE_CALL)
-                | Q(booking_type=JobCard.BookingType.AMC_FOLLOWUP)
-                | Q(is_followup_visit=True)
-            ) & ~complaint_q
+                | Q(is_service_call=True)
+            ) & ~complaint_q & ~Q(
+                booking_category=JobCard.BookingCategory.AMC_FOLLOWUP
+            ) & ~Q(
+                booking_type=JobCard.BookingType.AMC_FOLLOWUP
+            ) & ~Q(included_in_amc=True) & ~Q(
+                service_category=JobCard.ServiceCategory.AMC
+            )
 
             # Initial billable bookings only (not follow-ups / service / complaint).
             new_booking_type_q = Q(
@@ -2343,6 +2374,7 @@ class DashboardService:
                 'total_web_inquiries': total_web_inquiries,
                 'total_crm_inquiries': total_crm_inquiries,
                 'total_job_cards': total_job_cards,
+                'selected_booking_amount': float(job_totals['amount'] or 0),
                 'total_clients': total_clients,
                 'total_technicians': total_technicians,
                 'renewals': renewals,
@@ -2450,8 +2482,11 @@ class DashboardService:
             start_date = today
             end_date = today + timedelta(days=1)
 
-        # Get all active staff/admins
-        staff_users = list(User.objects.filter(is_active=True).order_by('first_name', 'username'))
+        # Active CRM staff only. Inactive logins and non-staff users stay off this report.
+        staff_users = list(
+            User.objects.filter(is_active=True, is_staff=True)
+            .order_by('first_name', 'username')
+        )
         date_filter_created = Q(created_at__date__gte=start_date, created_at__date__lt=end_date)
         date_filter_updated = Q(updated_at__date__gte=start_date, updated_at__date__lt=end_date)
 
@@ -2466,9 +2501,30 @@ class DashboardService:
         crm_created_by = _by_user(CRMInquiry.objects.filter(date_filter_created), 'created_by')
         website_converted_by = _by_user(Inquiry.objects.filter(date_filter_updated), 'converted_by')
         crm_converted_by = _by_user(CRMInquiry.objects.filter(date_filter_updated), 'converted_by')
-        bookings_by = _by_user(JobCard.objects.filter(date_filter_created), 'created_by')
-        on_process_by = _by_user(JobCard.objects.filter(date_filter_updated), 'on_process_by')
-        done_by = _by_user(JobCard.objects.filter(date_filter_updated), 'done_by')
+        # One parent booking = 1. Visit clones and cancelled rows are not extra bookings.
+        booking_rows = JobCard.objects.filter(
+            date_filter_created,
+            parent_job_id__isnull=True,
+        ).exclude(status=JobCard.JobStatus.CANCELLED)
+        bookings_by = _by_user(booking_rows, 'created_by')
+        # On Process is who set that status. Done uses the completion time, not a later edit.
+        on_process_by = _by_user(
+            JobCard.objects.filter(
+                date_filter_updated,
+                status=JobCard.JobStatus.ON_PROCESS,
+                parent_job_id__isnull=True,
+            ),
+            'on_process_by',
+        )
+        done_by = _by_user(
+            JobCard.objects.filter(
+                completed_at__date__gte=start_date,
+                completed_at__date__lt=end_date,
+                status=JobCard.JobStatus.DONE,
+                parent_job_id__isnull=True,
+            ),
+            'done_by',
+        )
         complaints_by = _by_user(
             JobCard.objects.filter(
                 date_filter_created,
@@ -2534,6 +2590,33 @@ class CRMInquiryService:
         for key, value in data.items():
             setattr(inquiry, key, value)
         inquiry.save()
+        return inquiry
+
+    @staticmethod
+    def assert_open_for_conversion(inquiry_id: int) -> CRMInquiry:
+        """Lock the lead. A second confirm must not create another booking."""
+        try:
+            inquiry = CRMInquiry.objects.select_for_update().get(id=inquiry_id)
+        except CRMInquiry.DoesNotExist:
+            raise ValidationError("Inquiry not found")
+        if inquiry.status == CRMInquiry.InquiryStatus.CONVERTED:
+            raise ValidationError("This inquiry has already been converted to a booking.")
+        return inquiry
+
+    @staticmethod
+    def mark_converted_to_jobcard(inquiry_id: int, jobcard: JobCard, user=None) -> CRMInquiry:
+        """Mark the CRM lead converted after the booking form is saved."""
+        inquiry = CRMInquiryService.assert_open_for_conversion(inquiry_id)
+        inquiry.status = CRMInquiry.InquiryStatus.CONVERTED
+        inquiry.converted_by = user
+        inquiry.is_read = True
+        inquiry.save(update_fields=['status', 'converted_by', 'is_read', 'updated_at'])
+        InquiryRemark.objects.create(
+            inquiry=inquiry,
+            remark=f'[Converted to Booking {jobcard.code}]',
+            created_by=user,
+            remark_type=RemarkType.CONVERT,
+        )
         return inquiry
 
     @staticmethod

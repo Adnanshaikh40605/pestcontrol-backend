@@ -168,6 +168,12 @@ class CustomerBooking {
   /// Hide cancel once the visit is finished or already underway.
   bool get showCancel {
     if (!canCancel || isDone || isCancelled) return false;
+    final raw = (status ?? '').toLowerCase();
+    if (raw.contains('done') || raw.contains('complete')) return false;
+    final partner = (partnerStatus ?? '').toLowerCase();
+    if (partner == 'completed' || partner == 'in_service' || partner.contains('complete')) {
+      return false;
+    }
     final label = visitStatusLabel;
     return label != 'Completed' && label != 'In progress' && label != 'Cancelled';
   }

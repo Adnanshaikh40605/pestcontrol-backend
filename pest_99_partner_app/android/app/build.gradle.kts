@@ -56,8 +56,15 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // R8 on the release DEX. Play measures shrinking, obfuscation, and
+            // optimization. The optimize ruleset is required; a blanket keep
+            // rule would leave obfuscation near zero.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

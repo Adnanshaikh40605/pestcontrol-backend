@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/accepted/accepted_screen.dart';
+import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/pending_approval_screen.dart';
 import '../../features/auth/register_screen.dart';
@@ -42,6 +43,10 @@ class AppRouter {
         GoRoute(
           path: '/login',
           pageBuilder: (context, state) => _slidePage(state, const LoginScreen()),
+        ),
+        GoRoute(
+          path: '/forgot-password',
+          pageBuilder: (context, state) => _slidePage(state, const ForgotPasswordScreen()),
         ),
         GoRoute(
           path: '/register',
@@ -163,6 +168,7 @@ class AppRouter {
 
     if (!_auth.ready) return null;
     final onAuth = path == '/login' ||
+        path == '/forgot-password' ||
         path == '/register' ||
         path == '/registration-success';
     final onSplash = path == '/splash';

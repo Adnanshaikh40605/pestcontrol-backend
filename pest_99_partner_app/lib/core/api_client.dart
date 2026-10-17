@@ -288,9 +288,9 @@ class ApiClient {
         return false;
       }
 
-      final access = data['access'] as String?;
-      final newRefresh = data['refresh'] as String? ?? refresh;
-      if (access == null || access.isEmpty) {
+      final access = data['access']?.toString();
+      final newRefresh = data['refresh']?.toString() ?? refresh;
+      if (access == null || access.isEmpty || access == 'null') {
         _refreshCompleter!.complete(false);
         return false;
       }

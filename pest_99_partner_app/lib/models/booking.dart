@@ -33,6 +33,8 @@ class PartnerBooking {
     this.visitRevenueAmount,
     this.companyShareAmount,
     this.bookingTag,
+    this.isComplaintCallFlag = false,
+    this.isServiceCallFlag = false,
     this.canViewClientPhone = false,
     this.canStartJob = false,
     this.canCompleteJob = false,
@@ -78,6 +80,8 @@ class PartnerBooking {
   final String? visitRevenueAmount;
   final String? companyShareAmount;
   final String? bookingTag;
+  final bool isComplaintCallFlag;
+  final bool isServiceCallFlag;
   final bool canViewClientPhone;
   final bool canStartJob;
   final bool canCompleteJob;
@@ -108,7 +112,29 @@ class PartnerBooking {
         payoutStatus == 'held';
   }
 
+  bool get isComplaintCall {
+    if (isComplaintCallFlag) return true;
+    final tag = (bookingTag ?? '').toLowerCase();
+    final type = (bookingType ?? '').toLowerCase();
+    return tag.contains('complaint') || type.contains('complaint');
+  }
+
+  /// Flat ₹300 service call. Later AMC visits also have [isServiceCallFlag], so the
+  /// flag alone must not put them in the Service Calls section.
+  bool get isServiceCall {
+    if (isComplaintCall) return false;
+    final tag = (bookingTag ?? '').toLowerCase();
+    final type = (bookingType ?? '').toLowerCase();
+    if (tag.contains('amc') || type.contains('amc')) return false;
+    if (tag.contains('service call') || type.contains('service call')) return true;
+    if (!isServiceCallFlag) return false;
+    final plan = (planLabel ?? '').toLowerCase();
+    final category = (serviceCategory ?? '').toLowerCase();
+    return plan != 'amc' && category != 'amc';
+  }
+
   String get yourShareLabel {
+    if (isServiceCall) return 'Service call earning';
     final pct = technicianSharePercent?.trim();
     if (pct != null && pct.isNotEmpty && pct != '0' && pct != '0.00') {
       final clean = pct.endsWith('.00') ? pct.substring(0, pct.length - 3) : pct;
@@ -166,6 +192,8 @@ class PartnerBooking {
       visitRevenueAmount: json['visit_revenue_amount']?.toString(),
       companyShareAmount: json['company_share_amount']?.toString(),
       bookingTag: json['booking_tag']?.toString(),
+      isComplaintCallFlag: json['is_complaint_call'] == true,
+      isServiceCallFlag: json['is_service_call'] == true,
       canViewClientPhone: json['can_view_client_phone'] == true,
       canStartJob: canStart,
       canCompleteJob: canComplete,

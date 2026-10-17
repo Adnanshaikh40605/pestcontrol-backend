@@ -21,10 +21,10 @@ class EditProfileScreen extends StatefulWidget {
 
 ImageProvider? _avatarImage(String? pickedPath, String? url) {
   if (pickedPath != null && pickedPath.isNotEmpty) {
-    return FileImage(File(pickedPath));
+    return ResizeImage(FileImage(File(pickedPath)), width: 480);
   }
   if (url != null && url.isNotEmpty) {
-    return NetworkImage(url);
+    return ResizeImage(NetworkImage(url), width: 480);
   }
   return null;
 }
@@ -55,6 +55,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final file = await picker.pickImage(
       source: ImageSource.gallery,
       maxWidth: 1200,
+      maxHeight: 1200,
       imageQuality: 85,
     );
     if (file != null && mounted) {

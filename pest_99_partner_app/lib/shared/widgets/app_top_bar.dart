@@ -110,7 +110,7 @@ class _AvatarChip extends StatelessWidget {
       return CircleAvatar(
         radius: 20,
         backgroundColor: AppColors.surfaceContainerHigh,
-        backgroundImage: NetworkImage(url!),
+        backgroundImage: ResizeImage(NetworkImage(url!), width: 160),
         onBackgroundImageError: (_, _) {},
         child: url!.isEmpty ? Text(initials) : null,
       );

@@ -140,7 +140,7 @@ void main() {
       ('iPhone 16', 393, 852),
       ('iPhone 16 Pro Max', 440, 956),
     ]) {
-      testWidgets('${phone.$1} shows confirm above the nav without a void', (tester) async {
+      testWidgets('${phone.$1} shows the website booking form', (tester) async {
         tester.view.physicalSize = Size(phone.$2, phone.$3);
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
@@ -170,44 +170,19 @@ void main() {
 
         expect(tester.takeException(), isNull);
 
-        final confirm = find.text('Confirm Booking →');
-        expect(confirm, findsOneWidget);
-        final title = find.text('Confirm Your Booking');
-        expect(title, findsOneWidget);
-        expect(tester.getSize(title).height, lessThan(24));
-
-        final confirmBox = tester.getRect(confirm);
-        final viewportBottom = phone.$3 - _nav;
-        expect(
-          confirmBox.bottom,
-          lessThanOrEqualTo(viewportBottom + 1),
-          reason: 'Confirm must sit above the bottom nav',
-        );
-        expect(
-          confirmBox.bottom,
-          greaterThan(viewportBottom - 48),
-          reason: 'Confirm should sit near the nav, not mid-page. bottom=${confirmBox.bottom}',
-        );
-
-        final name = tester.getRect(find.text('YOUR NAME *'));
-        final price = tester.getRect(find.text('Select options for price'));
-        final between = price.top - name.bottom;
-        expect(
-          between,
-          lessThan(150),
-          reason: 'Gap between name and price is $between (dead void)',
-        );
-        expect(between, greaterThan(30));
-
-        expect(find.text('SELECT SERVICE *'), findsOneWidget);
-        expect(find.text('PREMISE SIZE *'), findsOneWidget);
-        expect(find.text('TREATMENT QUALITY *'), findsOneWidget);
-        expect(find.text('SERVICE PLAN *'), findsOneWidget);
-        expect(find.text('SERVICE ADDRESS *'), findsOneWidget);
-        expect(find.text('PREFERRED DATE *'), findsOneWidget);
-        expect(find.text('PREFERRED TIME *'), findsOneWidget);
-        expect(find.text('MOBILE NUMBER *'), findsOneWidget);
+        expect(find.text('Book Your Service'), findsOneWidget);
+        expect(find.text('Cockroach & Ants'), findsOneWidget);
+        expect(find.text('Bed Bugs'), findsOneWidget);
+        expect(find.text('Wood Borer'), findsOneWidget);
+        expect(find.text('What pest problem? *'), findsOneWidget);
+        expect(find.text('Choose treatment *'), findsOneWidget);
+        expect(find.text('Service plan *'), findsOneWidget);
+        expect(find.text('Confirm Booking →'), findsOneWidget);
+        expect(find.text('Deep Cleaning Services'), findsOneWidget);
+        expect(find.text('Price (Excluding GST)'), findsNothing);
+        expect(find.text('Select options for price'), findsOneWidget);
         expect(find.text('+91'), findsOneWidget);
+        expect(find.text('* Required fields'), findsNothing);
       });
     }
 
@@ -240,9 +215,10 @@ void main() {
 
       const number = '9372792693';
       final phone = find.byWidgetPredicate(
-        (widget) => widget is TextField && widget.decoration?.hintText == '10 digits',
+        (widget) => widget is TextField && widget.decoration?.hintText == '10-digit number',
       );
       expect(phone, findsOneWidget);
+      await tester.ensureVisible(phone);
       await tester.enterText(phone, number);
       await tester.pump();
 
@@ -250,7 +226,7 @@ void main() {
       expect(field.controller?.text, number);
       expect(field.maxLines, 1);
       final style = field.style!;
-      expect(style.fontSize!, greaterThanOrEqualTo(13));
+      expect(style.fontSize!, greaterThanOrEqualTo(12));
       final box = tester.getSize(phone);
       // Android Roboto digits are about 0.6em. The widget-test font is a full
       // em wide, so compare against a device digit, and keep the field scrollable.

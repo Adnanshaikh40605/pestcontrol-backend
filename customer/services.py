@@ -27,52 +27,136 @@ class CustomerAppError(Exception):
 def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
     from customer.catalog_match import sanitize_home_booking_rate
 
+    def _catalog_total(priced_rate: PricingRate) -> Decimal:
+        return Decimal(str(gst_breakdown(
+            priced_rate.amount,
+            gst_percent=priced_rate.gst_percent,
+            price_includes_gst=priced_rate.price_includes_gst,
+        )['total_with_gst']))
+
     amount = data.get('amount')
     rate = None
     rate_id = data.get('pricing_rate_id')
-    if rate_id:
+    ordered_rate_ids: list[int] = []
+    seen_rate_ids: set[int] = set()
+    for raw_id in data.get('pricing_rate_ids') or []:
         try:
-            rate = PricingRate.objects.select_related('region').get(id=rate_id, is_active=True)
-        except PricingRate.DoesNotExist as exc:
-            raise CustomerAppError('Pricing rate not found.', code='invalid_rate') from exc
+            parsed_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if parsed_id <= 0 or parsed_id in seen_rate_ids:
+            continue
+        seen_rate_ids.add(parsed_id)
+        ordered_rate_ids.append(parsed_id)
 
-    # Home / website bookings must never bill addon, society, hospital, or
-    # Integrated IPM rates that substring-matched (e.g. rat ⊂ integrated).
     property_type = data.get('property_type') or JobCard.PropertyType.HOME_FLAT
-    rate, force_pending = sanitize_home_booking_rate(
-        rate,
-        service_type=(data.get('service_type') or ''),
-        bhk_size=(data.get('bhk_size') or ''),
-        booking_type=(data.get('booking_type') or 'one_time'),
-        package_tier=(data.get('package_tier') or JobCard.PackageTier.STANDARD),
-        property_type=property_type,
-        region_id=rate.region_id if rate else None,
-    )
-    if force_pending:
-        rate_id = None
-        amount = Decimal('0.00')
-        data = {**data, 'pricing_rate_id': None, 'price_confirmation_pending': True}
-    elif rate is not None:
-        rate_id = rate.id
-        data = {**data, 'pricing_rate_id': rate.id}
-        # Bill what the catalog quoted the customer. Reading rate.amount charged the
-        # base on any GST-exclusive rate, losing the tax on every such booking.
-        amount = Decimal(str(gst_breakdown(
-            rate.amount,
-            gst_percent=rate.gst_percent,
-            price_includes_gst=rate.price_includes_gst,
-        )['total_with_gst']))
-        # Always store the live Pricing Master package (e.g. Cockroach Standard /
-        # Premium). Website used to send marketing copy "Cockroach Control, Ant
-        # Control", which CRM split into two RETIRED checkboxes on Edit Job Card.
-        data = {**data, 'service_type': rate.service_package}
+    booking_type = data.get('booking_type') or 'one_time'
+    package_tier_hint = data.get('package_tier') or JobCard.PackageTier.STANDARD
+    bhk_size = data.get('bhk_size') or ''
+    multi_rates: list[PricingRate] = []
+
+    if len(ordered_rate_ids) > 1:
+        # One job, every selected pest. The first rate alone used to become
+        # the whole booking, so a 3-service quote was saved at the first price.
+        pending_multi = False
+        for parsed_id in ordered_rate_ids:
+            try:
+                line_rate = PricingRate.objects.select_related('region').get(
+                    id=parsed_id,
+                    is_active=True,
+                )
+            except PricingRate.DoesNotExist as exc:
+                raise CustomerAppError('Pricing rate not found.', code='invalid_rate') from exc
+            line_rate, line_pending = sanitize_home_booking_rate(
+                line_rate,
+                service_type=line_rate.service_package or '',
+                bhk_size=bhk_size,
+                booking_type=booking_type,
+                package_tier=package_tier_hint,
+                property_type=property_type,
+                region_id=line_rate.region_id,
+            )
+            if line_pending or line_rate is None:
+                pending_multi = True
+                break
+            multi_rates.append(line_rate)
+
+        if pending_multi or len(multi_rates) != len(ordered_rate_ids):
+            rate = None
+            rate_id = None
+            amount = Decimal('0.00')
+            multi_rates = []
+            data = {**data, 'pricing_rate_id': None, 'price_confirmation_pending': True}
+        else:
+            rate = multi_rates[0]
+            rate_id = rate.id
+            amount = sum((_catalog_total(line) for line in multi_rates), Decimal('0.00'))
+            plan_label = (
+                'AMC 3 Services'
+                if str(booking_type).lower() == 'amc'
+                else 'One Time Service'
+            )
+            packages: list[str] = []
+            service_items = []
+            for line in multi_rates:
+                package_name = (line.service_package or '').strip() or 'General Pest'
+                if package_name not in packages:
+                    packages.append(package_name)
+                line_total = _catalog_total(line)
+                service_items.append({
+                    'service': package_name,
+                    'plan': (line.plan_type or '').strip() or plan_label,
+                    'area': bhk_size or (line.area_key or ''),
+                    'base_amount': float(line_total),
+                    'discount': 0,
+                    'amount': float(line_total),
+                })
+            data = {
+                **data,
+                'pricing_rate_id': rate_id,
+                'service_type': ', '.join(packages),
+                'service_items': service_items,
+            }
+    else:
+        if rate_id:
+            try:
+                rate = PricingRate.objects.select_related('region').get(id=rate_id, is_active=True)
+            except PricingRate.DoesNotExist as exc:
+                raise CustomerAppError('Pricing rate not found.', code='invalid_rate') from exc
+
+        # Home / website bookings must never bill addon, society, hospital, or
+        # Integrated IPM rates that substring-matched (e.g. rat ⊂ integrated).
+        rate, force_pending = sanitize_home_booking_rate(
+            rate,
+            service_type=(data.get('service_type') or ''),
+            bhk_size=bhk_size,
+            booking_type=booking_type,
+            package_tier=package_tier_hint,
+            property_type=property_type,
+            region_id=rate.region_id if rate else None,
+        )
+        if force_pending:
+            rate_id = None
+            amount = Decimal('0.00')
+            data = {**data, 'pricing_rate_id': None, 'price_confirmation_pending': True}
+        elif rate is not None:
+            rate_id = rate.id
+            data = {**data, 'pricing_rate_id': rate.id}
+            # Bill what the catalog quoted the customer. Reading rate.amount charged the
+            # base on any GST-exclusive rate, losing the tax on every such booking.
+            amount = _catalog_total(rate)
+            # Always store the live Pricing Master package (e.g. Cockroach Standard /
+            # Premium). Website used to send marketing copy "Cockroach Control, Ant
+            # Control", which CRM split into two RETIRED checkboxes on Edit Job Card.
+            data = {**data, 'service_type': rate.service_package}
 
     if amount is None and not data.get('price_confirmation_pending'):
         raise CustomerAppError('amount or pricing_rate_id is required.', code='amount_required')
 
     service_type = (data.get('service_type') or '').strip()
-    if rate:
+    if rate and not multi_rates:
         # Prefer catalog package even when the client still sends a legacy label.
+        # Multi-pest bookings already joined every package name above.
         service_type = (rate.service_package or service_type).strip()
     if not service_type:
         raise CustomerAppError('service_type is required.', code='service_required')
@@ -181,6 +265,7 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         'notes': data.get('notes') or '',
         'price': str(amount),
         'total_amount': amount,
+        'service_items': data.get('service_items') or [],
         'status': JobCard.JobStatus.PENDING,
         'payment_status': (
             JobCard.PaymentStatus.PENDING

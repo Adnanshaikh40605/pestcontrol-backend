@@ -5,6 +5,8 @@ class Booking {
     required this.id,
     required this.pestType,
     required this.area,
+    this.locality,
+    this.cityName,
     required this.dateLabel,
     required this.timeLabel,
     this.customerName,
@@ -41,6 +43,8 @@ class Booking {
   final String id;
   final String pestType;
   final String area;
+  final String? locality;
+  final String? cityName;
   final String dateLabel;
   final String timeLabel;
   final String? customerName;

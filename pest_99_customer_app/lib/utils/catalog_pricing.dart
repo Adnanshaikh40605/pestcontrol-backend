@@ -36,6 +36,10 @@ const Map<String, Map<String, List<String>>> pestPreferredPackages = {
     'standard': ['Bed Bugs'],
     'premium': ['Bed Bugs'],
   },
+  'wood-borer': {
+    'standard': ['Wood Borer'],
+    'premium': ['Wood Borer'],
+  },
 };
 
 /// Website pest slug → fallback service_type when no Pricing Master row matched.
@@ -47,7 +51,7 @@ const Map<String, String> pestServiceLabels = {
   'rodent': 'Rodent / Rat Control',
   'bedbugs': 'Bed Bug Control',
   'honey-bee': 'Honey Bee / Wasp Removal',
-  'wood-borer': 'Wood Borer Control',
+  'wood-borer': 'Wood Borer',
   'house-fly': 'Fly Control',
   'hotel-commercial': 'General Pest Control',
   'other': 'General Pest Control',

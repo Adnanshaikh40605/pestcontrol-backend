@@ -32,6 +32,11 @@ Future<void> main() async {
 
 Future<void> _startApp() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  // Camera photos were decoded at full size and pushed low-memory phones
+  // into Play's "bad behavior" memory bucket. Cap the decoded-image cache.
+  final imageCache = PaintingBinding.instance.imageCache;
+  imageCache.maximumSize = 80;
+  imageCache.maximumSizeBytes = 32 * 1024 * 1024;
   // Native splash is mobile-only (web: false in pubspec). Calling preserve()
   // defers the first frame forever on web because SplashScreen never remove()s.
   if (!kIsWeb) {

@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../models/partner_earnings.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/bookings_provider.dart';
 import '../../providers/profile_provider.dart';
@@ -62,13 +61,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _ProfileHeader(
                     fullName: profile.displayName,
                     mobile: p?.mobile ?? '',
-                    role: p?.role ?? 'technician',
                     avatarUrl: profile.avatarUrl,
                     isActive: p?.isActive ?? true,
-                    statusLabel: p?.statusLabel ?? 'Active',
-                    presenceStatus: p?.presence?.presenceStatus,
                     serviceCities: p?.serviceCities ?? const [],
-                    baseServices: p?.baseServices ?? const [],
                   ),
                   if (p?.isUnavailable == true) ...[
                     const SizedBox(height: AppSpacing.elementGap),
@@ -133,52 +128,26 @@ class _ProfileHeader extends StatelessWidget {
   const _ProfileHeader({
     required this.fullName,
     required this.mobile,
-    required this.role,
     this.avatarUrl,
     required this.isActive,
-    this.statusLabel = 'Active',
-    this.presenceStatus,
     this.serviceCities = const [],
-    this.baseServices = const [],
   });
 
   final String fullName;
   final String mobile;
-  final String role;
   final String? avatarUrl;
   final bool isActive;
-
-  /// "Active" / "On Leave" / "Suspended", as set by the CRM desk.
-  final String statusLabel;
-  final String? presenceStatus;
   final List<String> serviceCities;
-  final List<String> baseServices;
-
-  bool get _onLeave => presenceStatus == PartnerPresence.statusOnLeave;
-  bool get _suspended => presenceStatus == PartnerPresence.statusSuspended;
-
-  Color get _statusBackground {
-    if (_suspended) return AppColors.errorContainer;
-    if (_onLeave) return const Color(0xFFFFFBE6);
-    return AppColors.successBg;
-  }
-
-  Color get _statusForeground {
-    if (_suspended) return AppColors.onErrorContainer;
-    if (_onLeave) return const Color(0xFF874D00);
-    return AppColors.primaryDark;
-  }
 
   @override
   Widget build(BuildContext context) {
     final initials = _profileInitials(fullName);
-    final roleLabel = role == 'technician_admin' ? 'Technician Admin' : 'Technician';
     const avatarSize = 88.0;
 
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.cardPadding,
-        vertical: 20,
+        vertical: 16,
       ),
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -218,6 +187,7 @@ class _ProfileHeader extends StatelessWidget {
                             avatarUrl!,
                             width: avatarSize,
                             height: avatarSize,
+                            cacheWidth: (avatarSize * MediaQuery.devicePixelRatioOf(context)).round(),
                             fit: BoxFit.cover,
                             errorBuilder: (_, _, _) => _InitialAvatar(initials: initials),
                           )
@@ -246,7 +216,7 @@ class _ProfileHeader extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           Text(
             fullName,
             textAlign: TextAlign.center,
@@ -257,7 +227,7 @@ class _ProfileHeader extends StatelessWidget {
                 ),
           ),
           if (mobile.isNotEmpty) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               mobile,
               textAlign: TextAlign.center,
@@ -267,83 +237,8 @@ class _ProfileHeader extends StatelessWidget {
                   ),
             ),
           ],
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            alignment: WrapAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.successBg,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Text(
-                  roleLabel,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: AppColors.primaryDark,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-              // Shown for every status, not just the bad ones, so a technician
-              // can always confirm what the office has them set to.
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(
-                  color: _statusBackground,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Text(
-                  statusLabel,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: _statusForeground,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ),
-            ],
-          ),
-          if (baseServices.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text(
-              'Base Services',
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: baseServices
-                  .map(
-                    (service) => Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppColors.successBg,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: AppColors.border),
-                      ),
-                      child: Text(
-                        service,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              color: AppColors.primaryDark,
-                              fontWeight: FontWeight.w600,
-                            ),
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
           if (serviceCities.isNotEmpty) ...[
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             Text(
               'Service Areas',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
@@ -351,7 +246,7 @@ class _ProfileHeader extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -442,32 +337,44 @@ class _StatsGrid extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       mainAxisSpacing: AppSpacing.elementGap,
       crossAxisSpacing: AppSpacing.elementGap,
-      childAspectRatio: 1.35,
+      // Slightly taller cells so icon + count + label fit phone widths
+      // without the 11px bottom overflow on AVAILABLE / ACCEPTED.
+      childAspectRatio: 1.22,
       children: stats.map((s) {
         return Container(
-          padding: const EdgeInsets.all(AppSpacing.cardPadding),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: AppColors.border),
           ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(s.$1, size: 32, color: s.$4),
-              const SizedBox(height: 8),
-              Text(s.$2, style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 4),
-              Text(
-                s.$3.toUpperCase(),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: AppColors.textSecondary,
-                      fontSize: 11,
-                      letterSpacing: 0.5,
-                    ),
-              ),
-            ],
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(s.$1, size: 28, color: s.$4),
+                const SizedBox(height: 6),
+                Text(
+                  s.$2,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        height: 1.1,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  s.$3.toUpperCase(),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: AppColors.textSecondary,
+                        fontSize: 11,
+                        letterSpacing: 0.5,
+                        height: 1.1,
+                      ),
+                ),
+              ],
+            ),
           ),
         );
       }).toList(),

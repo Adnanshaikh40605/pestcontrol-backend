@@ -26,12 +26,11 @@ class NoInternetView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.screenEdge),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(AppSpacing.screenEdge),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
             const StitchIllustration(
               asset: AppAssets.noInternetIllustration,
               height: 200,
@@ -60,7 +59,6 @@ class NoInternetView extends StatelessWidget {
             ],
           ],
         ),
-      ),
     );
   }
 }

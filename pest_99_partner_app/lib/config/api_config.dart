@@ -9,6 +9,8 @@ class ApiConfig {
 
   static String get register => '$partnerPrefix/register/';
   static String get login => '$partnerPrefix/login/';
+  static String get passwordOtp => '$partnerPrefix/password/otp/';
+  static String get passwordReset => '$partnerPrefix/password/reset/';
   static String get tokenRefresh => '$partnerPrefix/token/refresh/';
   static String get saveFcmToken => '$partnerPrefix/save-fcm-token/';
   static String get removeFcmToken => '$partnerPrefix/remove-fcm-token/';

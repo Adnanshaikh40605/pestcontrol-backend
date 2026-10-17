@@ -54,6 +54,7 @@ class NotificationOpenPlan {
 const Set<String> bookingNavigationBlockedPaths = {
   '/splash',
   '/login',
+  '/forgot-password',
   '/register',
   '/registration-success',
   '/pending-approval',

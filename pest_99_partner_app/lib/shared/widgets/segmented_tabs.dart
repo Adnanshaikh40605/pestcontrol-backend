@@ -50,6 +50,8 @@ class SegmentedTabs extends StatelessWidget {
                 child: Text(
                   labels[index],
                   textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
                         color: selected ? AppColors.primary : AppColors.onSurfaceVariant,
                         fontWeight: selected ? FontWeight.w700 : FontWeight.w600,

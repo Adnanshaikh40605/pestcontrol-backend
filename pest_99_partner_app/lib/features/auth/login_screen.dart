@@ -109,6 +109,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 obscureText: true,
                 controller: _password,
               ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => context.push('/forgot-password'),
+                  child: const Text('Forgot password?'),
+                ),
+              ),
               const SizedBox(height: AppSpacing.sectionGap),
               PrimaryButton(
                 label: auth.loading ? 'Signing in…' : 'Login',

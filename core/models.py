@@ -1514,9 +1514,14 @@ class JobCard(BaseModel):
         """Keep booking_type aligned with flags (legacy field used in reports/revenue)."""
         if self.is_complaint_call:
             self.booking_type = self.BookingType.COMPLAINT_CALL
-        elif self.included_in_amc or (
-            self.is_followup_visit
-            and self.service_category == self.ServiceCategory.AMC
+        elif (
+            self.included_in_amc
+            or self.booking_category == self.BookingCategory.AMC_FOLLOWUP
+            or self.booking_type == self.BookingType.AMC_FOLLOWUP
+            or (
+                self.is_followup_visit
+                and self.service_category == self.ServiceCategory.AMC
+            )
         ):
             self.booking_type = self.BookingType.AMC_FOLLOWUP
         elif self.is_followup_visit or self.is_service_call or self.service_cycle > 1:
@@ -1615,8 +1620,14 @@ class JobCard(BaseModel):
         elif self.status == self.JobStatus.DONE:
             self.completed_at = timezone.now()
 
-        # Auto-set is_service_call if it's a follow-up cycle
-        if self.service_cycle > 1:
+        # Later cycles are service calls, except AMC follow-ups.
+        amc_followup = (
+            self.included_in_amc
+            or self.booking_category == self.BookingCategory.AMC_FOLLOWUP
+            or self.booking_type == self.BookingType.AMC_FOLLOWUP
+            or self.service_category == self.ServiceCategory.AMC
+        )
+        if self.service_cycle > 1 and not amc_followup:
             self.is_service_call = True
             
         self.sync_booking_type()

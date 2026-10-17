@@ -619,6 +619,53 @@ class CustomerApiTests(TestCase):
         self.assertEqual(job.service_type, 'Cockroach Standard')
         self.assertEqual(Decimal(str(job.total_amount)), Decimal('1475.00'))
 
+    def test_website_booking_sums_every_selected_service(self):
+        """A multi-pest website booking bills each catalog rate, not only the first."""
+        termite = PricingRate.objects.create(
+            region=self.region,
+            service_package='Termite Spot Treatment',
+            plan_type='One Time Service',
+            area_key='1 BHK',
+            property_category='residential',
+            amount=Decimal('100.00'),
+            gst_percent=Decimal('18.00'),
+            price_includes_gst=False,
+            is_active=True,
+        )
+        rodent = PricingRate.objects.create(
+            region=self.region,
+            service_package='Regular Rodent',
+            plan_type='One Time Service',
+            area_key='1 BHK',
+            property_category='residential',
+            amount=Decimal('200.00'),
+            gst_percent=Decimal('18.00'),
+            price_includes_gst=False,
+            is_active=True,
+        )
+        res = self.api.post(
+            '/api/customer/website-bookings/',
+            self._website_booking_payload(
+                mobile='9111222666',
+                service_type='Cockroach Standard',
+                pricing_rate_id=termite.id,
+                pricing_rate_ids=[termite.id, rodent.id],
+            ),
+            format='json',
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        job = JobCard.objects.get(id=res.data['booking']['id'])
+        self.assertEqual(job.service_type, 'Termite Spot Treatment, Regular Rodent')
+        self.assertEqual(Decimal(str(job.total_amount)), Decimal('354.00'))
+        self.assertEqual(
+            [item['service'] for item in job.service_items],
+            ['Termite Spot Treatment', 'Regular Rodent'],
+        )
+        self.assertEqual(
+            sum(Decimal(str(item['amount'])) for item in job.service_items),
+            Decimal('354.00'),
+        )
+
     def test_website_booking_pending_price_still_resolves_legacy_cockroach_label(self):
         """Even without a rate, dual marketing label must become Cockroach Standard."""
         res = self.api.post(

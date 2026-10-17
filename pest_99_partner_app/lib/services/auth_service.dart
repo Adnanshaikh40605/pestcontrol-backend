@@ -25,12 +25,14 @@ class AuthService {
       },
       auth: false,
     );
-    final access = data['access'] as String?;
-    final refresh = data['refresh'] as String?;
-    if (access == null || access.isEmpty) {
+    // Use toString() — web JSON maps can yield non-Dart-String values that
+    // fail a hard `as String?` cast (TypeError → misleading parse error UI).
+    final access = data['access']?.toString();
+    final refresh = data['refresh']?.toString();
+    if (access == null || access.isEmpty || access == 'null') {
       throw ApiException('Login failed — no token received.');
     }
-    if (refresh == null || refresh.isEmpty) {
+    if (refresh == null || refresh.isEmpty || refresh == 'null') {
       throw ApiException('Login failed — no refresh token received.');
     }
     await _api.saveSessionTokens(access: access, refresh: refresh);
@@ -53,6 +55,30 @@ class AuthService {
         'mobile': normalizeMobile(mobile),
         'password': password,
         'role': role,
+      },
+      auth: false,
+    );
+  }
+
+  Future<Map<String, dynamic>> sendPasswordOtp(String mobile) {
+    return _api.post(
+      ApiConfig.passwordOtp,
+      body: {'mobile': normalizeMobile(mobile)},
+      auth: false,
+    );
+  }
+
+  Future<void> resetPassword({
+    required String mobile,
+    required String otp,
+    required String newPassword,
+  }) async {
+    await _api.post(
+      ApiConfig.passwordReset,
+      body: {
+        'mobile': normalizeMobile(mobile),
+        'otp': otp.replaceAll(RegExp(r'\D'), ''),
+        'new_password': newPassword,
       },
       auth: false,
     );

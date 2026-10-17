@@ -5,7 +5,6 @@ import 'app_lifecycle.dart';
 import 'core/theme/app_theme.dart';
 import 'debug/debug_config.dart';
 import 'debug/debug_dio_interceptor.dart';
-import 'debug/debug_overlay.dart';
 
 class Pest99PartnerApp extends StatelessWidget {
   const Pest99PartnerApp({super.key, required this.router});
@@ -27,10 +26,9 @@ class Pest99PartnerApp extends StatelessWidget {
             } catch (_) {}
           });
         }
-        return DebugOverlay(
-          child: PartnerAppLifecycle(
-            child: child ?? const SizedBox.shrink(),
-          ),
+        // Debug floating bug FAB removed — do not reintroduce a Stack overlay.
+        return PartnerAppLifecycle(
+          child: child ?? const SizedBox.shrink(),
         );
       },
     );

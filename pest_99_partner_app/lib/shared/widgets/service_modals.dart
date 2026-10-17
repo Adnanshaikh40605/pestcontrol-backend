@@ -81,6 +81,8 @@ class _SelfieVerificationSheetState extends State<_SelfieVerificationSheet> {
     try {
       final file = await ImagePicker().pickImage(
         source: ImageSource.camera,
+        maxWidth: 1600,
+        maxHeight: 1600,
         imageQuality: 85,
         preferredCameraDevice: CameraDevice.front,
       );
@@ -127,7 +129,10 @@ class _SelfieVerificationSheetState extends State<_SelfieVerificationSheet> {
                 border: Border.all(color: AppColors.border, width: 2),
                 image: _previewPath != null
                     ? DecorationImage(
-                        image: FileImage(File(_previewPath!)),
+                        image: ResizeImage(
+                          FileImage(File(_previewPath!)),
+                          width: 1080,
+                        ),
                         fit: BoxFit.cover,
                       )
                     : null,

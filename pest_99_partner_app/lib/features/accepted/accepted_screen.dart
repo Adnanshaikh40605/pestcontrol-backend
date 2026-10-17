@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/mappers/booking_mapper.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../models/booking.dart' as api;
 import '../../providers/bookings_provider.dart';
@@ -13,6 +14,7 @@ import '../../shared/widgets/no_internet_view.dart';
 import '../../shared/widgets/profile_aware_top_bar.dart';
 import '../../shared/widgets/booking_cards.dart';
 import '../../shared/widgets/booking_day_sections.dart';
+import '../../shared/widgets/call_sections.dart';
 
 class AcceptedScreen extends StatefulWidget {
   const AcceptedScreen({super.key});
@@ -115,35 +117,85 @@ class _AcceptedScreenState extends State<AcceptedScreen> {
                         ],
                       ),
                       const SizedBox(height: AppSpacing.sectionGap),
-                      ...buildDaySectionedBookingChildren(
-                        bookings: bookings.accepted,
-                        emptyMessage: 'No accepted jobs yet',
-                        cardBuilder: (raw, ui) {
-                          final processing = bookings.isProcessing(raw.id);
-                          final label = bookings.processingLabel(raw.id);
-                          return AcceptedBookingCard(
-                            booking: ui,
-                            onViewDetails: processing
-                                ? null
-                                : () => context.push('/booking/${raw.id}'),
-                            onCall: processing || !raw.canViewClientPhone
-                                ? null
-                                : () => _call(context, raw),
-                            onMaps: processing
-                                ? null
-                                : () => _maps(context, raw),
-                            onPrimaryAction:
-                                (raw.allowsStart || raw.allowsComplete)
-                                    ? () => _onPrimary(context, raw)
-                                    : null,
-                            isPrimaryLoading: processing,
-                            primaryLoadingLabel: label,
-                          );
-                        },
-                      ),
+                      ..._jobSections(context, bookings),
                     ],
                   ),
       ),
     );
+  }
+
+  List<Widget> _jobSections(BuildContext context, BookingsProvider bookings) {
+    final split = CallKindSplit.from(bookings.accepted);
+    Widget card(api.PartnerBooking raw) {
+      final processing = bookings.isProcessing(raw.id);
+      final label = bookings.processingLabel(raw.id);
+      final ui = BookingMapper.fromPartner(raw);
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.elementGap),
+        child: AcceptedBookingCard(
+          booking: ui,
+          onViewDetails: processing ? null : () => context.push('/booking/${raw.id}'),
+          onCall: processing || !raw.canViewClientPhone ? null : () => _call(context, raw),
+          onMaps: processing ? null : () => _maps(context, raw),
+          onPrimaryAction: (raw.allowsStart || raw.allowsComplete)
+              ? () => _onPrimary(context, raw)
+              : null,
+          isPrimaryLoading: processing,
+          primaryLoadingLabel: label,
+        ),
+      );
+    }
+
+    List<Widget> section(
+      String title,
+      List<api.PartnerBooking> rows,
+      String subtitle,
+      Color color,
+    ) {
+      return [
+        CallSectionHeader(
+          title: title,
+          count: rows.length,
+          subtitle: subtitle,
+          color: color,
+        ),
+        if (rows.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(bottom: AppSpacing.sectionGap),
+            child: Text(
+              'None right now',
+              style: TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w600),
+            ),
+          )
+        else
+          ...rows.map(card),
+        const SizedBox(height: AppSpacing.elementGap),
+      ];
+    }
+
+    return [
+      ...section(
+        'Service Calls',
+        split.serviceCalls,
+        '₹300 for each completed service call',
+        const Color(0xFF7C3AED),
+      ),
+      ...section(
+        'Complaint Calls',
+        split.complaintCalls,
+        'Separate from service calls. No ₹300 service-call earning.',
+        const Color(0xFFDC2626),
+      ),
+      if (split.other.isNotEmpty)
+        ...buildDaySectionedBookingChildren(
+          bookings: split.other,
+          cardBuilder: (raw, ui) => card(raw),
+        )
+      else if (split.isEmpty)
+        const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: Text('No accepted jobs yet'),
+        ),
+    ];
   }
 }

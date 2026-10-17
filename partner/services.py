@@ -627,6 +627,18 @@ def is_partner_pool_booking(job: JobCard) -> bool:
     Excludes historical service calls, AMC follow-ups, and multi-service day-1
     child rows (the package shell is the single accept target).
     """
+    # A booking the desk sent to the app, including one just unassigned, belongs
+    # back in Available even when it is a service call.
+    if (
+        job.sent_to_app_at
+        and job.partner_id is None
+        and job.partner_status == JobCard.PartnerStatus.PENDING
+        and job.status == JobCard.JobStatus.PENDING
+        and not job.is_complaint_call
+    ):
+        from core.booking_schedule_engine import is_day1_package_service_line
+
+        return not is_day1_package_service_line(job)
     if job.is_followup_visit or job.is_service_call or job.is_complaint_call:
         return False
     if (job.service_cycle or 1) > 1:

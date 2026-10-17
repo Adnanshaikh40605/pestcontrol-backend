@@ -444,13 +444,21 @@ class AcceptedBookingsAPIView(PartnerAPIView):
     )
     def get(self, request):
         partner = request.partner
-        jobs = JobCard.objects.filter(
+        accepted_filter = Q(
             partner=partner,
             partner_status__in=[
                 JobCard.PartnerStatus.ACCEPTED,
                 JobCard.PartnerStatus.IN_SERVICE,
             ],
-        ).select_related('client', 'master_city', 'master_location').order_by('schedule_datetime')
+        )
+        # CRM removal clears the technician. A stale partner link must not keep
+        # the booking on this phone's Accepted tab.
+        tech_id = getattr(partner, 'core_technician_id', None)
+        if tech_id:
+            accepted_filter &= Q(technician_id=tech_id)
+        jobs = JobCard.objects.filter(accepted_filter).select_related(
+            'client', 'master_city', 'master_location',
+        ).order_by('schedule_datetime')
 
         from partner.services import apply_partner_pool_filters
 

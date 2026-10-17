@@ -1,7 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Encrypted storage for JWT access + refresh tokens.
+///
+/// On web, [FlutterSecureStorage] uses Web Crypto + localStorage and can throw
+/// [TypeError] (null-check / crypto failures). Prefer SharedPreferences
+/// (browser localStorage) so login works in Chrome local previews.
 class SecureTokenStorage {
   SecureTokenStorage({FlutterSecureStorage? storage})
       : _storage = storage ??
@@ -16,8 +21,10 @@ class SecureTokenStorage {
   final FlutterSecureStorage _storage;
   bool _migrated = false;
 
+  bool get _usePrefs => kIsWeb;
+
   Future<void> _migrateFromSharedPreferencesIfNeeded() async {
-    if (_migrated) return;
+    if (_migrated || _usePrefs) return;
     _migrated = true;
 
     final existingAccess = await _storage.read(key: _accessKey);
@@ -35,16 +42,30 @@ class SecureTokenStorage {
     required String access,
     required String refresh,
   }) async {
+    if (_usePrefs) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_accessKey, access);
+      await prefs.setString(_refreshKey, refresh);
+      return;
+    }
     await _storage.write(key: _accessKey, value: access);
     await _storage.write(key: _refreshKey, value: refresh);
   }
 
   Future<String?> getAccessToken() async {
+    if (_usePrefs) {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_accessKey);
+    }
     await _migrateFromSharedPreferencesIfNeeded();
     return _storage.read(key: _accessKey);
   }
 
   Future<String?> getRefreshToken() async {
+    if (_usePrefs) {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_refreshKey);
+    }
     await _migrateFromSharedPreferencesIfNeeded();
     return _storage.read(key: _refreshKey);
   }
@@ -55,6 +76,12 @@ class SecureTokenStorage {
   }
 
   Future<void> clearAll() async {
+    if (_usePrefs) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_accessKey);
+      await prefs.remove(_refreshKey);
+      return;
+    }
     await _storage.delete(key: _accessKey);
     await _storage.delete(key: _refreshKey);
     final prefs = await SharedPreferences.getInstance();

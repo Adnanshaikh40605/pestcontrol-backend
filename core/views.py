@@ -2333,6 +2333,19 @@ class FeedbackViewSet(BaseModelViewSet):
         return response.Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
+def _optional_inquiry_id(value):
+    """Read a lead id sent with a completed booking. Blank means a normal create."""
+    if value in (None, '', 'null'):
+        return None
+    try:
+        inquiry_id = int(value)
+    except (TypeError, ValueError):
+        raise ValidationError("Invalid inquiry id")
+    if inquiry_id < 1:
+        raise ValidationError("Invalid inquiry id")
+    return inquiry_id
+
+
 @extend_schema_view(
     list=extend_schema(
         summary="List Job Cards",
@@ -3341,7 +3354,30 @@ class JobCardViewSet(BaseModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            jobcard = JobCardService.create_jobcard(serializer.validated_data, user=request.user)
+            website_inquiry_id = _optional_inquiry_id(request.data.get('website_inquiry_id'))
+            crm_inquiry_id = _optional_inquiry_id(request.data.get('crm_inquiry_id'))
+
+            from django.db import transaction
+
+            # Create and mark the lead converted in one transaction. If the lead
+            # was already converted, nothing is saved and the technician app
+            # never sees a second booking.
+            with transaction.atomic():
+                if website_inquiry_id:
+                    InquiryService.assert_open_for_conversion(website_inquiry_id)
+                if crm_inquiry_id:
+                    CRMInquiryService.assert_open_for_conversion(crm_inquiry_id)
+
+                jobcard = JobCardService.create_jobcard(serializer.validated_data, user=request.user)
+
+                if website_inquiry_id:
+                    InquiryService.mark_converted_to_jobcard(
+                        website_inquiry_id, jobcard, user=request.user,
+                    )
+                if crm_inquiry_id:
+                    CRMInquiryService.mark_converted_to_jobcard(
+                        crm_inquiry_id, jobcard, user=request.user,
+                    )
             
             # Automatically generate renewals for the job card if conditions are met
             try:

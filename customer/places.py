@@ -34,7 +34,7 @@ def _api_key() -> str:
 def _google_get(path: str, params: dict[str, Any]) -> dict[str, Any]:
     params = {**params, 'key': _api_key()}
     try:
-        response = requests.get(f'{PLACES_BASE}/{path}', params=params, timeout=12)
+        response = requests.get(f'{PLACES_BASE}/{path}', params=params, timeout=5)
         response.raise_for_status()
         payload = response.json()
     except requests.RequestException as exc:

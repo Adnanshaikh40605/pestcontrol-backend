@@ -9,6 +9,14 @@ import 'booking_type_tag.dart';
 
 String formatMoneyLabel(String? raw) => MoneyFormat.rupees(raw);
 
+String _areaLine(Booking booking) {
+  final locality = (booking.locality ?? '').trim();
+  if (locality.isNotEmpty) return 'Area: $locality';
+  final area = booking.area.trim();
+  if (area.isEmpty || area == '—') return 'Area: —';
+  return 'Area: $area';
+}
+
 class AvailableBookingCard extends StatelessWidget {
   const AvailableBookingCard({
     super.key,
@@ -105,14 +113,29 @@ class AvailableBookingCard extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               Expanded(
-                child: Text(
-                  booking.area,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _areaLine(booking),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.onSurfaceVariant,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                    if ((booking.cityName ?? '').trim().isNotEmpty)
+                      Text(
+                        'City: ${booking.cityName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
+                  ],
                 ),
               ),
             ],

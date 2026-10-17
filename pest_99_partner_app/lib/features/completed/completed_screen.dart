@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/mappers/booking_mapper.dart';
-import '../../core/theme/app_colors.dart';
+import '../../models/booking.dart' as api;
 import '../../core/theme/app_spacing.dart';
-import '../../core/utils/money_format.dart';
 import '../../providers/bookings_provider.dart';
 import '../../shared/widgets/async_error_view.dart';
 import '../../shared/widgets/no_internet_view.dart';
 import '../../shared/widgets/profile_aware_top_bar.dart';
 import '../../shared/widgets/booking_cards.dart';
+import '../../shared/widgets/call_sections.dart';
 
 class CompletedScreen extends StatefulWidget {
   const CompletedScreen({super.key});
@@ -32,11 +32,7 @@ class _CompletedScreenState extends State<CompletedScreen> {
   Widget build(BuildContext context) {
     final bookings = context.watch<BookingsProvider>();
     final completed = bookings.completed;
-    final uiBookings = completed.map(BookingMapper.fromPartner).toList();
-    final yourShareTotal = MoneyFormat.sumRupees(
-      uiBookings.where((b) => b.hasRevenuePayout).map((b) => b.yourShareAmount),
-    );
-    final earningJobs = uiBookings.where((b) => b.hasRevenuePayout).length;
+    final split = CallKindSplit.from(completed);
 
     return Scaffold(
       appBar: const ProfileAwareTopBar(),
@@ -77,128 +73,76 @@ class _CompletedScreenState extends State<CompletedScreen> {
                         style: Theme.of(context).textTheme.headlineSmall,
                       ),
                       const SizedBox(height: AppSpacing.elementGap),
-                      _ProgressBanner(
-                        jobsDone: completed.length,
-                        earningJobs: earningJobs,
-                        yourShareTotal: yourShareTotal,
-                      ),
-                      const SizedBox(height: AppSpacing.sectionGap),
-                      if (completed.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 48),
-                          child: Center(child: Text('No completed jobs yet')),
-                        )
-                      else
-                        ...uiBookings.map(
-                          (b) => Padding(
-                            padding: const EdgeInsets.only(
-                              bottom: AppSpacing.elementGap,
-                            ),
-                            child: CompletedBookingCard(booking: b),
-                          ),
-                        ),
+                      ..._completedSections(split),
                     ],
                   ),
       ),
     );
   }
-}
 
-class _ProgressBanner extends StatelessWidget {
-  const _ProgressBanner({
-    required this.jobsDone,
-    required this.earningJobs,
-    required this.yourShareTotal,
-  });
+  List<Widget> _completedSections(CallKindSplit split) {
+    List<Widget> cards(List<api.PartnerBooking> rows) {
+      return rows.map((raw) {
+        final ui = BookingMapper.fromPartner(raw);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: AppSpacing.elementGap),
+          child: CompletedBookingCard(booking: ui),
+        );
+      }).toList();
+    }
 
-  final int jobsDone;
-  final int earningJobs;
-  final String yourShareTotal;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Your progress',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primary,
-                ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _ProgressStat(
-                  value: '$jobsDone',
-                  label: 'Jobs done',
-                ),
-              ),
-              Container(width: 1, height: 36, color: AppColors.border),
-              Expanded(
-                child: _ProgressStat(
-                  value: yourShareTotal,
-                  label: 'Your share (40%)',
-                ),
-              ),
-              Container(width: 1, height: 36, color: AppColors.border),
-              Expanded(
-                child: _ProgressStat(
-                  value: '$earningJobs',
-                  label: 'Paid services',
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'Amounts below are your technician share only (excl. GST) — not the full customer job price.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ProgressStat extends StatelessWidget {
-  const _ProgressStat({required this.value, required this.label});
-
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+    List<Widget> section(
+      String title,
+      List<api.PartnerBooking> rows,
+      String subtitle,
+      Color color,
+    ) {
+      return [
+        CallSectionHeader(
+          title: title,
+          count: rows.length,
+          subtitle: subtitle,
+          color: color,
         ),
-        const SizedBox(height: 2),
+        if (rows.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(bottom: AppSpacing.sectionGap),
+            child: Text(
+              'None yet',
+              style: TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w600),
+            ),
+          )
+        else
+          ...cards(rows),
+        const SizedBox(height: AppSpacing.elementGap),
+      ];
+    }
+
+    return [
+      ...section(
+        'Service Calls',
+        split.serviceCalls,
+        '₹300 recorded for each completed service call',
+        const Color(0xFF7C3AED),
+      ),
+      ...section(
+        'Complaint Calls',
+        split.complaintCalls,
+        'Complaint visits stay separate and do not earn ₹300',
+        const Color(0xFFDC2626),
+      ),
+      if (split.other.isNotEmpty) ...[
         Text(
-          label,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: AppColors.textSecondary,
-              ),
+          'Other jobs (${split.other.length})',
+          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
         ),
-      ],
-    );
+        const SizedBox(height: AppSpacing.elementGap),
+        ...cards(split.other),
+      ] else if (split.isEmpty)
+        const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: Text('No completed jobs yet'),
+        ),
+    ];
   }
 }

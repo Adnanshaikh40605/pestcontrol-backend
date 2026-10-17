@@ -32,12 +32,12 @@ class BookingAddressField extends StatefulWidget {
 }
 
 class _BookingAddressFieldState extends State<BookingAddressField> {
-  static const _green = Color(0xFF087B3D);
-  static const _line = Color(0xFFDBE8DF);
-  static const _soft = Color(0xFFEFFAF3);
+  static const _green = Color(0xFF078B4F);
+  static const _line = Color(0xFFE4E9F0);
+  static const _navy = Color(0xFF102E68);
 
   final _focus = FocusNode();
-  final _debouncer = Debouncer(milliseconds: 300);
+  final _debouncer = Debouncer(milliseconds: 700);
   PlacesService? _places;
 
   List<PlaceSuggestion> _suggestions = [];
@@ -188,10 +188,9 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
 
   @override
   Widget build(BuildContext context) {
-    // Website `.booking-gps-btn`: 28×28, right 4, soft green.
-    const gpsSize = 28.0;
+    const gpsSize = 22.0;
     final deco = widget.decoration.copyWith(
-      contentPadding: const EdgeInsets.fromLTRB(10, 0, gpsSize + 10, 0),
+      contentPadding: const EdgeInsets.fromLTRB(26, 0, gpsSize + 8, 0),
       suffixIcon: null,
     );
 
@@ -202,10 +201,9 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
           height: widget.height,
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(9),
             border: Border.all(
-              color: widget.errorBorder ? Colors.red.shade400 : _line,
-              width: 1.5,
+              color: widget.errorBorder ? const Color(0xFFE23B3B) : _line,
             ),
           ),
           child: Stack(
@@ -216,22 +214,25 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
                 focusNode: _focus,
                 textInputAction: TextInputAction.search,
                 textAlignVertical: TextAlignVertical.center,
-                style: TextStyle(
-                  fontSize: widget.height < 36 ? 12 : 13,
+                style: const TextStyle(
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                   height: 1.2,
-                  color: const Color(0xFF1B2A22),
+                  color: _navy,
                 ),
                 decoration: deco,
               ),
+              const Positioned(
+                left: 8,
+                child: Icon(Icons.location_on_outlined, size: 16, color: _green),
+              ),
               Positioned(
-                right: 4,
+                right: 2,
                 child: Material(
-                  color: _soft,
-                  borderRadius: BorderRadius.circular(7),
+                  color: Colors.transparent,
                   child: InkWell(
                     onTap: _locating ? null : _useCurrentLocation,
-                    borderRadius: BorderRadius.circular(7),
+                    customBorder: const CircleBorder(),
                     child: SizedBox(
                       width: gpsSize,
                       height: gpsSize,
@@ -245,11 +246,7 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
                                   color: _green,
                                 ),
                               )
-                            : const Icon(
-                                Icons.my_location_rounded,
-                                size: 16,
-                                color: _green,
-                              ),
+                            : const _LocateGlyph(),
                       ),
                     ),
                   ),
@@ -367,4 +364,38 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
       ],
     );
   }
+}
+
+/// Website locate mark: outer ring, inner ring, and four ticks.
+class _LocateGlyph extends StatelessWidget {
+  const _LocateGlyph();
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      size: const Size(16, 16),
+      painter: _LocateGlyphPainter(),
+    );
+  }
+}
+
+class _LocateGlyphPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF078B4F)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+    final c = Offset(size.width / 2, size.height / 2);
+    canvas.drawCircle(c, 2.1, paint);
+    canvas.drawCircle(c, 4.8, paint);
+    canvas.drawLine(Offset(c.dx, 0.6), Offset(c.dx, 2.4), paint);
+    canvas.drawLine(Offset(c.dx, size.height - 2.4), Offset(c.dx, size.height - 0.6), paint);
+    canvas.drawLine(Offset(0.6, c.dy), Offset(2.4, c.dy), paint);
+    canvas.drawLine(Offset(size.width - 2.4, c.dy), Offset(size.width - 0.6, c.dy), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
