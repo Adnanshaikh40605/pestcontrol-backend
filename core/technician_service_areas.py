@@ -257,6 +257,12 @@ def crm_assign_technicians_queryset(*, include_on_leave: bool = False) -> QueryS
         )
         .filter(is_active=True)
     )
+    # A downloaded-app signup stays pending until CRM approves it. An active
+    # technician with no partner account (desk-created) is unchanged.
+    qs = qs.exclude(
+        partner_account__isnull=False,
+        partner_account__is_app_approved=False,
+    )
     if include_on_leave:
         qs = qs.exclude(presence_status=Technician.PresenceStatus.SUSPENDED)
     else:
@@ -293,6 +299,10 @@ def eligible_technicians_queryset(
     )
     if active_only:
         qs = qs.filter(is_active=True)
+        qs = qs.exclude(
+            partner_account__isnull=False,
+            partner_account__is_app_approved=False,
+        )
     qs = qs.prefetch_related(
         Prefetch(
             'service_cities',

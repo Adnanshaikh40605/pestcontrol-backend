@@ -76,6 +76,34 @@ class Partner(models.Model):
         return check_password(raw_password, self.password)
 
 
+class PartnerOTPChallenge(models.Model):
+    """Short-lived OTP for technician app password reset."""
+
+    PURPOSE_PASSWORD_RESET = 'password_reset'
+
+    mobile = models.CharField(max_length=10, db_index=True)
+    purpose = models.CharField(max_length=32, default=PURPOSE_PASSWORD_RESET, db_index=True)
+    otp_hash = models.CharField(max_length=255)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    expires_at = models.DateTimeField(db_index=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Partner OTP Challenge'
+        verbose_name_plural = 'Partner OTP Challenges'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['mobile', 'purpose', '-created_at']),
+        ]
+
+    def set_otp(self, otp: str) -> None:
+        self.otp_hash = make_password(otp)
+
+    def check_otp(self, otp: str) -> bool:
+        return check_password(otp, self.otp_hash)
+
+
 class PartnerEarning(models.Model):
     """
     Tracks earnings for each partner per completed job.

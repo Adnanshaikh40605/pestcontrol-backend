@@ -629,6 +629,9 @@ class TechnicianViewSet(BaseModelViewSet):
         partner.is_active = True
         partner.core_technician = technician
         partner.save(update_fields=['is_app_approved', 'is_active', 'core_technician', 'updated_at'])
+        if not technician.is_active:
+            technician.is_active = True
+            technician.save(update_fields=['is_active', 'updated_at'])
         serializer = self.get_serializer(technician)
         return response.Response({
             'success': True,

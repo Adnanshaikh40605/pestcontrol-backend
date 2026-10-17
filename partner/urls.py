@@ -1,5 +1,6 @@
 from django.urls import path
 from . import apis
+from . import password_reset
 from . import revenue_apis
 
 app_name = 'partner'
@@ -8,6 +9,8 @@ urlpatterns = [
     # ──────────────── AUTH ─────────────────
     path('register/', apis.RegisterAPIView.as_view(), name='register'),
     path('login/', apis.LoginAPIView.as_view(), name='login'),
+    path('password/otp/', password_reset.PasswordOtpAPIView.as_view(), name='password-otp'),
+    path('password/reset/', password_reset.PasswordResetAPIView.as_view(), name='password-reset'),
     path('token/refresh/', apis.RefreshTokenAPIView.as_view(), name='token-refresh'),
     path('save-fcm-token/', apis.SaveFCMTokenAPIView.as_view(), name='save-fcm-token'),
     path('remove-fcm-token/', apis.RemoveFCMTokenAPIView.as_view(), name='remove-fcm-token'),

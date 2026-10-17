@@ -149,10 +149,18 @@ class PartnerRegisterSerializer(serializers.Serializer):
         mobile = normalize_mobile(validated_data['mobile'])
         name = validated_data['full_name'].strip()
 
-        tech, _ = Technician.objects.update_or_create(
-            mobile=mobile,
-            defaults={'name': name, 'is_active': True},
-        )
+        tech = Technician.objects.filter(mobile=mobile).first()
+        if tech is None:
+            # App self-registration stays off the CRM assignment list until an
+            # admin approves the partner app and the account is activated.
+            tech = Technician.objects.create(
+                name=name,
+                mobile=mobile,
+                is_active=False,
+            )
+        elif tech.name != name:
+            tech.name = name
+            tech.save(update_fields=['name', 'updated_at'])
 
         partner = Partner(
             full_name=name,
@@ -175,6 +183,38 @@ class PartnerLoginSerializer(serializers.Serializer):
 class PartnerRefreshSerializer(serializers.Serializer):
     """Serializer for partner token refresh."""
     refresh = serializers.CharField()
+
+
+class PartnerPasswordOtpSerializer(serializers.Serializer):
+    mobile = serializers.CharField()
+
+    def validate_mobile(self, value):
+        from core.staff_partner_sync import normalize_mobile
+
+        mobile = normalize_mobile(value)
+        if len(mobile) != 10:
+            raise serializers.ValidationError('Enter a valid 10-digit mobile number.')
+        return mobile
+
+
+class PartnerPasswordResetSerializer(serializers.Serializer):
+    mobile = serializers.CharField()
+    otp = serializers.CharField()
+    new_password = serializers.CharField(min_length=6, write_only=True)
+
+    def validate_mobile(self, value):
+        from core.staff_partner_sync import normalize_mobile
+
+        mobile = normalize_mobile(value)
+        if len(mobile) != 10:
+            raise serializers.ValidationError('Enter a valid 10-digit mobile number.')
+        return mobile
+
+    def validate_otp(self, value):
+        digits = ''.join(ch for ch in str(value or '') if ch.isdigit())
+        if len(digits) != 4:
+            raise serializers.ValidationError('Enter the 4-digit OTP.')
+        return digits
 
 
 class PartnerFCMSerializer(serializers.Serializer):
