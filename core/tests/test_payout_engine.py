@@ -27,6 +27,11 @@ class SplitPoolTests(TestCase):
 
 @override_settings(REVENUE_MODEL_V2=True)
 class PayoutEngineTests(TestCase):
+    def test_apply_payout_locks_the_job_inside_a_transaction(self):
+        # Ledger repair calls this on a normal request, which is not already
+        # inside a transaction. select_for_update requires atomic.
+        self.assertIsNotNone(getattr(calculate_and_apply_payout, '__wrapped__', None))
+
     def setUp(self):
         self.client_obj = Client.objects.create(
             full_name='Test Client',

@@ -908,6 +908,7 @@ def _apply_service_call_fee(job) -> PayoutResult:
     return result
 
 
+@transaction.atomic
 def calculate_and_apply_payout(job, *, force: bool = False) -> PayoutResult:
     """
     Idempotent payout application after job completion.

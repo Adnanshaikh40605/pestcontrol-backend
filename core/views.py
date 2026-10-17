@@ -1125,7 +1125,15 @@ class TechnicianViewSet(BaseModelViewSet):
             list(filtered_queryset.order_by('-schedule_datetime', '-id'))
         )
         # Auto-repair Held / missing Tech 40% rows for Done jobs in this range.
-        if heal_stuck_payouts(filtered_jobs, limit=LEDGER_HEAL_BATCH):
+        # A repair failure must not blank the report the staff just opened.
+        try:
+            healed = heal_stuck_payouts(filtered_jobs, limit=LEDGER_HEAL_BATCH)
+        except Exception:
+            logger.exception(
+                'Ledger payout repair failed for technician %s', technician.id,
+            )
+            healed = False
+        if healed:
             filtered_jobs = exclude_package_shells(
                 list(filtered_queryset.order_by('-schedule_datetime', '-id'))
             )
