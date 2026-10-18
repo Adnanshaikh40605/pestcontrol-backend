@@ -133,6 +133,78 @@ void main() {
     expect(tester.widget<SegmentedTabs>(find.byType(SegmentedTabs)).selectedIndex, 1);
   });
 
+  testWidgets('service and complaint calls leave Today and Tomorrow', (tester) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final tomorrow = DateTime.now().toUtc().add(const Duration(days: 1)).toIso8601String();
+    PartnerBooking call(int id, String type, String schedule) => PartnerBooking(
+          id: id,
+          serviceType: type,
+          bookingType: type,
+          scheduleDatetime: schedule,
+          timeSlot: '11:00 AM',
+          price: '300.00',
+          localityName: 'Vile Parle West',
+          cityName: 'Mumbai',
+        );
+
+    final bookings = await _pumpBookings(
+      tester,
+      size: const Size(400, 1400),
+      jobs: [
+        _job(11, now),
+        call(21, 'Service Call', now),
+        call(22, 'Complaint Call', tomorrow),
+        call(23, 'Service Call', _laterThanNow),
+        _job(12, tomorrow),
+        PartnerBooking(
+          id: 30,
+          serviceType: 'Cockroach Standard',
+          bookingType: 'AMC Followup',
+          bookingTag: 'AMC VISIT',
+          planLabel: 'AMC',
+          serviceCategory: 'amc',
+          isServiceCallFlag: true,
+          scheduleDatetime: now,
+          timeSlot: '02:00 PM',
+          price: '0.00',
+          localityName: 'Dadar',
+          cityName: 'Mumbai',
+        ),
+      ],
+    );
+
+    expect(find.text('Today (2)'), findsOneWidget);
+    expect(find.text('Tomorrow (1)'), findsOneWidget);
+    expect(find.text('Service Call (3)'), findsOneWidget);
+    expect(find.text('#11'), findsOneWidget);
+    expect(find.text('#30'), findsOneWidget);
+    expect(find.text('#21'), findsNothing);
+    expect(find.text('#22'), findsNothing);
+    expect(find.text('#23'), findsNothing);
+
+    await tester.tap(find.text('Tomorrow (1)'));
+    await tester.pump();
+    expect(find.text('#12'), findsOneWidget);
+    expect(find.text('#21'), findsNothing);
+    expect(find.text('#22'), findsNothing);
+
+    await tester.tap(find.text('Service Call (3)'));
+    await tester.pump();
+    expect(find.text('Service Calls (2)'), findsOneWidget);
+    expect(find.text('Complaint Calls (1)'), findsOneWidget);
+    expect(find.text('#21'), findsOneWidget);
+    expect(find.text('#22'), findsOneWidget);
+    expect(find.text('#23'), findsOneWidget);
+    expect(find.text('#11'), findsNothing);
+    expect(find.text('#12'), findsNothing);
+    expect(tester.widget<SegmentedTabs>(find.byType(SegmentedTabs)).selectedIndex, 2);
+
+    bookings.showNotificationBooking(id: 11, dayTab: 0, scrollToCard: false);
+    await tester.pump();
+    expect(tester.widget<SegmentedTabs>(find.byType(SegmentedTabs)).selectedIndex, 0);
+    expect(find.text('#21'), findsNothing);
+  });
+
   testWidgets('jobs after tomorrow stay off Today and Tomorrow', (tester) async {
     await _pumpBookings(
       tester,

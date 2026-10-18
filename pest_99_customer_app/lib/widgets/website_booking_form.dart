@@ -95,7 +95,7 @@ class _WebsiteStyleBookingFormState extends State<WebsiteStyleBookingForm> {
     final residential = !flow.isInspectionQuote;
 
     final card = Container(
-        padding: const EdgeInsets.fromLTRB(8, 6, 8, 4),
+        padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -192,7 +192,8 @@ class _WebsiteStyleBookingFormState extends State<WebsiteStyleBookingForm> {
             const SizedBox(height: 4),
             BookingAddressField(
               controller: widget.addressCtrl,
-              height: 28,
+              height: 32,
+              scrollPadding: EdgeInsets.only(bottom: _keyboardInset(context) + 32, top: 72),
               errorText: widget.errors['streetAddress'],
               errorBorder: widget.errors['streetAddress'] != null,
               decoration: const InputDecoration(
@@ -267,24 +268,22 @@ class _WebsiteStyleBookingFormState extends State<WebsiteStyleBookingForm> {
         ),
       );
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final fitted = Padding(
-          padding: const EdgeInsets.fromLTRB(8, 2, 8, 2),
-          child: card,
-        );
-        // Keyboard needs a scroll so the focused field can move up.
-        // With the keyboard closed the whole form stays on one screen.
-        if (MediaQuery.viewInsetsOf(context).bottom > 0) {
-          return SingleChildScrollView(child: fitted);
-        }
-        return FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.topCenter,
-          child: SizedBox(width: constraints.maxWidth, child: fitted),
-        );
-      },
+    final keyboard = _keyboardInset(context);
+    // Always lay the form out at the screen width. FittedBox used to scale
+    // the whole card down when the keyboard opened, and on web that scale
+    // also tiled the form down the page.
+    return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: EdgeInsets.fromLTRB(4, 2, 4, 2 + keyboard),
+      child: card,
     );
+  }
+
+  double _keyboardInset(BuildContext context) {
+    final view = View.of(context);
+    final fromView = view.viewInsets.bottom / view.devicePixelRatio;
+    final fromMedia = MediaQuery.viewInsetsOf(context).bottom;
+    return fromView > fromMedia ? fromView : fromMedia;
   }
 
   Widget _pair({required Widget left, required Widget right}) {
@@ -299,7 +298,7 @@ class _WebsiteStyleBookingFormState extends State<WebsiteStyleBookingForm> {
 
   Widget _pestGrid() {
     return SizedBox(
-      height: 86,
+      height: 88,
       child: Column(
         children: [
           for (var row = 0; row < 2; row++) ...[
@@ -427,7 +426,8 @@ class _WebsiteStyleBookingFormState extends State<WebsiteStyleBookingForm> {
         keyboardType: TextInputType.name,
         textCapitalization: TextCapitalization.words,
         textAlignVertical: TextAlignVertical.center,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _navy),
+        scrollPadding: EdgeInsets.only(bottom: _keyboardInset(context) + 32, top: 72),
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _navy),
         inputFormatters: [
           FilteringTextInputFormatter.allow(RegExp(r'[\p{L}\s]', unicode: true)),
         ],
@@ -452,7 +452,8 @@ class _WebsiteStyleBookingFormState extends State<WebsiteStyleBookingForm> {
         onChanged: flow.setMobile,
         keyboardType: TextInputType.phone,
         textAlignVertical: TextAlignVertical.center,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: _navy),
+        scrollPadding: EdgeInsets.only(bottom: _keyboardInset(context) + 32, top: 72),
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: _navy),
         inputFormatters: [
           FilteringTextInputFormatter.digitsOnly,
           LengthLimitingTextInputFormatter(10),
@@ -820,7 +821,7 @@ class _PairButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(9),
         child: Container(
-          height: 28,
+          height: 32,
           padding: const EdgeInsets.symmetric(horizontal: 8),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(9),
@@ -949,7 +950,7 @@ class _SizeChip extends StatelessWidget {
         onTap: enabled ? onTap : null,
         borderRadius: BorderRadius.circular(8),
         child: Container(
-          height: 28,
+          height: 32,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
@@ -1004,7 +1005,7 @@ class _IconField extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(9),
         child: Container(
-          height: 28,
+          height: 32,
           padding: const EdgeInsets.symmetric(horizontal: 6),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(9),
@@ -1044,7 +1045,7 @@ class _FieldShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 28,
+      height: 32,
       alignment: Alignment.center,
       decoration: BoxDecoration(
         color: Colors.white,

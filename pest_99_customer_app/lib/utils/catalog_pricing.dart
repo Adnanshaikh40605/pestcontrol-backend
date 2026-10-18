@@ -107,6 +107,7 @@ class QuotePriceResult {
     required this.matchedRate,
     required this.serviceTypeLabel,
     required this.packageTier,
+    this.matchedRates = const [],
   });
 
   final double listPrice;
@@ -117,6 +118,14 @@ class QuotePriceResult {
   final CatalogRate? matchedRate;
   final String serviceTypeLabel;
   final String packageTier;
+
+  /// Every catalog row included in [offerPrice], in pest-selection order.
+  final List<CatalogRate> matchedRates;
+
+  List<int> get pricingRateIds => [
+        for (final rate in matchedRates)
+          if (rate.id > 0) rate.id,
+      ];
 }
 
 bool packageTokenMatches(List<String> keys, String servicePackage) {
@@ -287,6 +296,8 @@ double tierAmount(
   final pkg = rate.servicePackage.toLowerCase();
   final namedPremium = pkg.contains('premium');
   final namedStandard = pkg.contains('standard');
+  // A package already named Premium or Standard is the catalog price.
+  // Multiplying it again (here and on the server) was charging 15% twice.
   if (namedPremium || namedStandard) {
     return (amount: tierAmount(rate, treatmentQuality: 'standard'), packageTier: 'standard');
   }
@@ -350,7 +361,9 @@ QuotePriceResult calculateCatalogQuotePrice({
   var total = 0.0;
   var anyMissing = false;
   CatalogRate? firstRate;
-  var packageTier = quality;
+  final matched = <CatalogRate>[];
+  var packageTier = 'standard';
+  var anyPremiumTier = false;
 
   for (final pest in pestTypes) {
     final rate = matchRateForPest(
@@ -366,11 +379,21 @@ QuotePriceResult calculateCatalogQuotePrice({
       anyMissing = true;
       continue;
     }
-    if (firstRate == null) {
-      firstRate = rate;
-      packageTier = resolved.packageTier;
-    }
+    firstRate ??= rate;
+    matched.add(rate);
+    if (resolved.packageTier == 'premium') anyPremiumTier = true;
     total += resolved.amount;
+  }
+
+  // The server adds 15% to the whole booking when package_tier is premium.
+  // Apply that only when every priced line still needs the uplift. A named
+  // Premium catalog row is already the premium price.
+  if (!anyMissing && matched.isNotEmpty && anyPremiumTier && matched.length == pestTypes.length) {
+    final needsUplift = matched.where((rate) {
+      final pkg = rate.servicePackage.toLowerCase();
+      return !pkg.contains('premium') && !pkg.contains('standard');
+    }).length;
+    if (needsUplift == matched.length) packageTier = 'premium';
   }
 
   final pricePending = anyMissing || total <= 0 || firstRate == null;
@@ -386,12 +409,32 @@ QuotePriceResult calculateCatalogQuotePrice({
     discountPercent: discountPercent,
     pricingRateId: pricePending ? null : firstRate.id,
     pricePending: pricePending,
-    matchedRate: firstRate,
-    serviceTypeLabel: serviceTypeLabelForQuote(
+    matchedRate: pricePending ? null : firstRate,
+    matchedRates: pricePending ? const [] : List.unmodifiable(matched),
+    serviceTypeLabel: _joinedServiceLabel(
       pestTypes,
-      firstRate,
+      pricePending ? const [] : matched,
       treatmentQuality: quality,
     ),
     packageTier: pricePending ? quality : packageTier,
+  );
+}
+
+String _joinedServiceLabel(
+  List<String> pestTypes,
+  List<CatalogRate> matched, {
+  required String treatmentQuality,
+}) {
+  final names = <String>[];
+  for (final rate in matched) {
+    final pkg = rate.servicePackage.trim();
+    if (pkg.isEmpty || names.contains(pkg)) continue;
+    names.add(pkg);
+  }
+  if (names.isNotEmpty) return names.join(', ');
+  return serviceTypeLabelForQuote(
+    pestTypes,
+    null,
+    treatmentQuality: treatmentQuality,
   );
 }

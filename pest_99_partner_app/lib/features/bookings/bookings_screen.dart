@@ -14,6 +14,7 @@ import '../../shared/widgets/async_error_view.dart';
 import '../../shared/widgets/no_internet_view.dart';
 import '../../shared/widgets/booking_cards.dart';
 import '../../shared/widgets/booking_day_sections.dart';
+import '../../shared/widgets/call_sections.dart';
 import '../../shared/widgets/segmented_tabs.dart';
 
 class BookingsScreen extends StatefulWidget {
@@ -62,6 +63,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
     }
     return switch (_dayTab.index) {
       1 => 'No bookings for tomorrow',
+      2 => 'No service calls or complaint calls',
       _ => 'No bookings for today',
     };
   }
@@ -150,7 +152,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
       );
     }
 
-    final sections = BookingDaySections.from(bookings.available);
+    final calls = CallKindSplit.from(bookings.available);
+    final sections = BookingDaySections.from(calls.other);
+    final serviceCallCount = calls.serviceCalls.length + calls.complaintCalls.length;
     final selected = switch (_dayTab.index) {
       1 => sections.tomorrow,
       _ => sections.today,
@@ -223,6 +227,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
           labels: [
             'Today (${sections.today.length})',
             'Tomorrow (${sections.tomorrow.length})',
+            'Service Call ($serviceCallCount)',
           ],
           selectedIndex: _dayTab.index,
           onChanged: (index) {
@@ -231,14 +236,64 @@ class _BookingsScreenState extends State<BookingsScreen> {
           },
         ),
         const SizedBox(height: AppSpacing.elementGap),
+        if (_dayTab.index == 2)
+          ..._serviceCallChildren(context, bookings, calls)
+        else
+          ...buildSingleDayBookingChildren(
+            bookings: selected,
+            emptyMessage: _emptyMessage(bookings),
+            itemKey: (b) => _cardKey(b.id),
+            cardBuilder: (b, ui) => _availableCard(context, bookings, b, ui),
+          ),
+      ],
+    );
+  }
+
+  List<Widget> _serviceCallChildren(
+    BuildContext context,
+    BookingsProvider bookings,
+    CallKindSplit calls,
+  ) {
+    if (calls.serviceCalls.isEmpty && calls.complaintCalls.isEmpty) {
+      return buildSingleDayBookingChildren(
+        bookings: const [],
+        emptyMessage: _emptyMessage(bookings),
+        cardBuilder: (b, ui) => _availableCard(context, bookings, b, ui),
+      );
+    }
+
+    List<Widget> section(String title, List<api.PartnerBooking> rows, String subtitle, Color color) {
+      if (rows.isEmpty) return const [];
+      return [
+        CallSectionHeader(
+          title: title,
+          count: rows.length,
+          subtitle: subtitle,
+          color: color,
+        ),
         ...buildSingleDayBookingChildren(
-          bookings: selected,
-          emptyMessage: _emptyMessage(bookings),
+          bookings: rows,
+          hideEmpty: true,
           itemKey: (b) => _cardKey(b.id),
           cardBuilder: (b, ui) => _availableCard(context, bookings, b, ui),
         ),
-      ],
-    );
+      ];
+    }
+
+    return [
+      ...section(
+        'Service Calls',
+        calls.serviceCalls,
+        'Accept these separately from today and tomorrow.',
+        const Color(0xFF7C3AED),
+      ),
+      ...section(
+        'Complaint Calls',
+        calls.complaintCalls,
+        'Complaint visits. These are not service-call jobs.',
+        const Color(0xFFDC2626),
+      ),
+    ];
   }
 
   Widget _availableCard(

@@ -19,6 +19,7 @@ class BookingAddressField extends StatefulWidget {
     required this.decoration,
     this.errorText,
     this.errorBorder = false,
+    this.scrollPadding = const EdgeInsets.all(20),
   });
 
   final TextEditingController controller;
@@ -26,6 +27,7 @@ class BookingAddressField extends StatefulWidget {
   final InputDecoration decoration;
   final String? errorText;
   final bool errorBorder;
+  final EdgeInsets scrollPadding;
 
   @override
   State<BookingAddressField> createState() => _BookingAddressFieldState();
@@ -214,8 +216,9 @@ class _BookingAddressFieldState extends State<BookingAddressField> {
                 focusNode: _focus,
                 textInputAction: TextInputAction.search,
                 textAlignVertical: TextAlignVertical.center,
+                scrollPadding: widget.scrollPadding,
                 style: const TextStyle(
-                  fontSize: 12,
+                  fontSize: 16,
                   fontWeight: FontWeight.w700,
                   height: 1.2,
                   color: _navy,

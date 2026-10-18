@@ -422,6 +422,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
       final booking = await BookingService(context.read<ApiClient>()).book(
         serviceType: q.serviceTypeLabel,
         pricingRateId: q.pricingRateId ?? 0,
+        pricingRateIds: q.pricingRateIds,
         packageTier: q.packageTier,
         address: flow.streetAddress.trim(),
         fullAddress: flow.serviceFullAddress.isNotEmpty
@@ -519,6 +520,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
         bookingType: flow.bookingTypeForApi,
         otpVerificationToken: token,
         pricingRateId: q.pricingRateId,
+        pricingRateIds: q.pricingRateIds,
         priceConfirmationPending: q.pricePending,
         bookingDate: flow.preferredDate,
         bookingTime: flow.bookingTime24,
@@ -543,6 +545,13 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
     } finally {
       if (mounted) setState(() => _otpVerifying = false);
     }
+  }
+
+  double _keyboardInset(BuildContext context) {
+    final view = View.of(context);
+    final fromView = view.viewInsets.bottom / view.devicePixelRatio;
+    final fromMedia = MediaQuery.viewInsetsOf(context).bottom;
+    return fromView > fromMedia ? fromView : fromMedia;
   }
 
   String _guessCity(String address) {
@@ -572,6 +581,9 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7F5),
+      // The form scrolls itself. Letting the scaffold shrink the body made
+      // FittedBox scale the whole booking card down when the keyboard opened.
+      resizeToAvoidBottomInset: false,
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -641,7 +653,7 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
           20,
           18,
           20,
-          18 + MediaQuery.viewInsetsOf(context).bottom,
+          18 + _keyboardInset(context),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

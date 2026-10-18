@@ -83,16 +83,17 @@ class ScheduleDay {
   }
 }
 
-/// Today / Tomorrow selection for New Bookings.
+/// Today / Tomorrow / Service Call selection for New Bookings.
 ///
-/// A notification hint is applied once per [serial]. Rebuilding while the
-/// provider still holds that hint must not undo a tap on the other tab.
+/// Index 0 is Today, 1 is Tomorrow, and 2 is Service Call. A notification
+/// hint is applied once per [serial]. Rebuilding while the provider still
+/// holds that hint must not undo a tap on another tab.
 class NewBookingDayTab {
   int index = 0;
   int appliedSerial = -1;
 
   bool select(int next) {
-    if (next < 0 || next > 1 || next == index) return false;
+    if (next < 0 || next > 2 || next == index) return false;
     index = next;
     return true;
   }
@@ -101,7 +102,7 @@ class NewBookingDayTab {
   bool applyHint(int? hint, int serial) {
     if (appliedSerial == serial) return false;
     appliedSerial = serial;
-    if (hint == null || hint < 0 || hint > 1) return false;
+    if (hint == null || hint < 0 || hint > 2) return false;
     if (index == hint) return false;
     index = hint;
     return true;

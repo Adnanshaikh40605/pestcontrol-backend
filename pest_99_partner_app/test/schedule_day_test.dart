@@ -227,6 +227,16 @@ void main() {
       expect(tabs.index, 1);
     });
 
+    test('Service Call is the third tab and a hint can open it', () {
+      final tabs = NewBookingDayTab();
+      expect(tabs.select(2), isTrue);
+      expect(tabs.index, 2);
+      expect(tabs.select(2), isFalse);
+      tabs.select(0);
+      expect(tabs.applyHint(2, 3), isTrue);
+      expect(tabs.index, 2);
+    });
+
     test('a newer notification serial selects that job\'s day tab', () {
       final tabs = NewBookingDayTab();
       tabs.applyHint(0, 1);

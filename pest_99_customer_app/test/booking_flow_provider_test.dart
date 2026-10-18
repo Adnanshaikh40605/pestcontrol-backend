@@ -164,6 +164,87 @@ void main() {
       expect(q.listPrice, greaterThan(q.offerPrice));
       expect(q.discountPercent, 30);
       expect(q.pricingRateId, 5);
+      expect(q.pricingRateIds, [5]);
+      expect(q.packageTier, 'standard');
+    });
+
+    test('multi-pest quote sums every matched rate', () {
+      final flow = BookingFlowProvider();
+      flow.setPestTypes(['cockroach-ants', 'rodent']);
+      flow.setPremiseSize('1bhk');
+      flow.setTreatmentQuality('standard');
+      flow.setServiceType('one-time');
+      flow.setRates([
+        CatalogRate(
+          id: 5,
+          servicePackage: 'Cockroach Standard',
+          planType: 'One Time Service',
+          areaKey: '1 BHK',
+          amount: '1250',
+          baseAmount: '1250',
+          standardAmount: '1475',
+          premiumAmount: '1696',
+          propertyCategory: 'residential',
+          priceIncludesGst: false,
+        ),
+        CatalogRate(
+          id: 9,
+          servicePackage: 'Regular Rodent',
+          planType: 'One Time Service',
+          areaKey: '1 BHK',
+          amount: '800',
+          baseAmount: '800',
+          standardAmount: '944',
+          premiumAmount: '1086',
+          propertyCategory: 'residential',
+          priceIncludesGst: false,
+        ),
+      ]);
+      final q = flow.quote;
+      expect(q.pricePending, isFalse);
+      expect(q.offerPrice, 2050);
+      expect(q.pricingRateId, 5);
+      expect(q.pricingRateIds, [5, 9]);
+      expect(q.serviceTypeLabel, 'Cockroach Standard, Regular Rodent');
+      expect(q.packageTier, 'standard');
+      expect(q.listPrice, (2050 / 0.7).roundToDouble());
+    });
+
+    test('named premium catalog price is not marked up again', () {
+      final flow = BookingFlowProvider();
+      flow.setPremiseSize('2bhk');
+      flow.setTreatmentQuality('premium');
+      flow.setServiceType('one-time');
+      flow.setRates([
+        CatalogRate(
+          id: 11,
+          servicePackage: 'Cockroach Premium',
+          planType: 'One Time Service',
+          areaKey: '2 BHK',
+          amount: '2100',
+          baseAmount: '2100',
+          standardAmount: '2100',
+          premiumAmount: '2415',
+          propertyCategory: 'residential',
+          priceIncludesGst: false,
+        ),
+        CatalogRate(
+          id: 12,
+          servicePackage: 'Cockroach Standard',
+          planType: 'One Time Service',
+          areaKey: '2 BHK',
+          amount: '1600',
+          baseAmount: '1600',
+          standardAmount: '1888',
+          premiumAmount: '2171',
+          propertyCategory: 'residential',
+          priceIncludesGst: false,
+        ),
+      ]);
+      final q = flow.quote;
+      expect(q.offerPrice, 2100);
+      expect(q.pricingRateIds, [11]);
+      expect(q.packageTier, 'standard');
     });
 
     test('other premise size flags custom quote path', () {

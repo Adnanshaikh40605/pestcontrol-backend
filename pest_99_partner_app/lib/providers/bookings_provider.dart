@@ -273,6 +273,7 @@ class BookingsProvider extends ChangeNotifier {
   }
 
   int? _dayTabFor(PartnerBooking booking) {
+    if (booking.isComplaintCall || booking.isServiceCall) return 2;
     switch (BookingMapper.fromPartner(booking).dayBucket) {
       case 'today':
         return 0;

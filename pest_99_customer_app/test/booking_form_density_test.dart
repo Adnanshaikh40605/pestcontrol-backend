@@ -238,6 +238,50 @@ void main() {
         reason: 'field=${box.width} font=${style.fontSize}',
       );
     });
+
+    testWidgets('open keyboard keeps the booking form full width', (tester) async {
+      tester.view.physicalSize = const Size(360, 740);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+
+      final dio = Dio();
+      dio.httpClientAdapter = _ImmediateAdapter();
+      final api = ApiClient(dio: dio);
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            Provider<ApiClient>.value(value: api),
+            ChangeNotifierProvider(create: (_) => AuthProvider(api)),
+            ChangeNotifierProvider(create: (_) => BookingFlowProvider()),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(
+              resizeToAvoidBottomInset: false,
+              body: WebsiteBookingScreen(embeddedInShell: true),
+              bottomNavigationBar: SizedBox(height: _nav),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 9));
+
+      final title = find.text('Book Your Service');
+      final restingWidth = tester.getSize(title).width;
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(SingleChildScrollView), findsOneWidget);
+      final openWidth = tester.getSize(title).width;
+      // The open keyboard must not scale the title down into a tiny card.
+      expect(openWidth, greaterThanOrEqualTo(restingWidth - 0.5));
+      expect(openWidth, greaterThan(130));
+    });
   });
 }
 

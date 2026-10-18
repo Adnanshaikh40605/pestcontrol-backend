@@ -29,6 +29,7 @@ class HomeShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       body: shell,
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
