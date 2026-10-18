@@ -2434,6 +2434,148 @@ class DeepCleaningRate(BaseModel):
         return f'{self.code} {self.package_name}'
 
 
+class DeepCleaningTechnician(BaseModel):
+    """Cleaning staff for Deepcleaning99. Separate from pest technicians."""
+
+    SERVICES = (
+        'Full Home Deep Cleaning',
+        'Kitchen Deep Cleaning',
+        'Bathroom Deep Cleaning',
+        'Sofa Cleaning',
+        'Mattress Cleaning',
+        'Carpet Cleaning',
+        'Office Deep Cleaning',
+    )
+    CITIES = ('Mumbai', 'Thane', 'Navi Mumbai', 'Pune', 'Lonavala')
+
+    class PresenceStatus(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        ON_LEAVE = 'on_leave', 'On Leave'
+        SUSPENDED = 'suspended', 'Suspended'
+
+    name = models.CharField(max_length=255, db_index=True)
+    mobile = models.CharField(
+        max_length=10,
+        unique=True,
+        validators=[validate_mobile_number],
+        db_index=True,
+    )
+    age = models.PositiveSmallIntegerField(null=True, blank=True)
+    alternative_mobile = models.CharField(
+        max_length=10,
+        blank=True,
+        null=True,
+        validators=[validate_mobile_number],
+    )
+    address = models.TextField(blank=True, default='')
+    location = models.CharField(max_length=255, blank=True, default='')
+    cities = models.JSONField(default=list, blank=True)
+    services = models.JSONField(default=list, blank=True)
+    presence_status = models.CharField(
+        max_length=20,
+        choices=PresenceStatus.choices,
+        default=PresenceStatus.ACTIVE,
+        db_index=True,
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'DeepCleaning99 Technician'
+        verbose_name_plural = 'DeepCleaning99 Technicians'
+
+    def __str__(self) -> str:
+        return f'{self.name} ({self.mobile})'
+
+    @property
+    def is_available_for_work(self) -> bool:
+        return self.is_active and self.presence_status == self.PresenceStatus.ACTIVE
+
+
+class DeepCleaningBooking(BaseModel):
+    """A confirmed Deep Cleaning job. Separate from pest job cards."""
+
+    class Status(models.TextChoices):
+        PENDING = 'Pending', 'Pending'
+        ON_PROCESS = 'On Process', 'On Process'
+        DONE = 'Done', 'Done'
+        CANCELLED = 'Cancelled', 'Cancelled'
+
+    code = models.CharField(max_length=20, unique=True, blank=True, db_index=True)
+    inquiry = models.OneToOneField(
+        DeepCleaningInquiry,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='booking',
+    )
+    technician = models.ForeignKey(
+        DeepCleaningTechnician,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bookings',
+    )
+    name = models.CharField(max_length=255, db_index=True)
+    mobile = models.CharField(
+        max_length=10,
+        validators=[validate_mobile_number],
+        db_index=True,
+    )
+    email = models.EmailField(blank=True, null=True)
+    city = models.CharField(max_length=100, db_index=True, default='Mumbai')
+    area = models.CharField(max_length=150, blank=True, default='')
+    address = models.TextField(blank=True, default='')
+    segment = models.CharField(max_length=50, blank=True, default='Residential')
+    service = models.CharField(max_length=255, db_index=True)
+    package_name = models.CharField(max_length=255, blank=True, default='')
+    package_id = models.CharField(max_length=50, blank=True, default='')
+    quantity = models.CharField(max_length=50, blank=True, default='')
+    unit = models.CharField(max_length=50, blank=True, default='')
+    plan = models.CharField(max_length=50, blank=True, default='one')
+    property_size = models.CharField(max_length=50, blank=True, default='')
+    property_type = models.CharField(max_length=50, blank=True, default='')
+    preferred_date = models.DateField(null=True, blank=True, db_index=True)
+    preferred_time = models.CharField(max_length=100, blank=True, default='')
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[validate_non_negative_decimal],
+    )
+    notes = models.TextField(blank=True, default='')
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='deepcleaning_bookings',
+    )
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        verbose_name = 'DeepCleaning99 Booking'
+        verbose_name_plural = 'DeepCleaning99 Bookings'
+
+    def __str__(self) -> str:
+        return f'{self.code or self.pk} {self.name}'
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if not self.code:
+            self.code = f'DC-{self.pk:05d}'
+            super().save(update_fields=['code'])
+
+
 class Reminder(BaseModel):
     class InquiryType(models.TextChoices):
         CRM = 'crm', 'CRM Inquiry'

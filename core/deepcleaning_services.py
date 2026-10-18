@@ -8,9 +8,17 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 
-from .models import DeepCleaningInquiry, DeepCleaningInquiryRemark, RemarkType
+from .models import (
+    DeepCleaningBooking,
+    DeepCleaningInquiry,
+    DeepCleaningInquiryRemark,
+    DeepCleaningTechnician,
+    RemarkType,
+)
 
 
 class DeepCleaningInquiryService:
@@ -123,3 +131,106 @@ class DeepCleaningInquiryService:
         )
         DeepCleaningInquiry.objects.filter(pk=inquiry.pk).update(updated_at=entry.updated_at)
         return entry
+
+
+class DeepCleaningBookingService:
+    """Desk workflow for Deep Cleaning bookings. No partner app."""
+
+    COPY_FIELDS = (
+        'name', 'mobile', 'email', 'city', 'area', 'address',
+        'segment', 'service', 'package_name', 'package_id',
+        'quantity', 'unit', 'plan', 'property_size', 'property_type',
+        'preferred_date', 'preferred_time', 'notes',
+    )
+
+    @classmethod
+    def confirm_inquiry(cls, inquiry: DeepCleaningInquiry, user=None) -> tuple[DeepCleaningBooking, bool]:
+        with transaction.atomic():
+            locked = DeepCleaningInquiry.objects.select_for_update().get(pk=inquiry.pk)
+            existing = DeepCleaningBooking.objects.filter(inquiry=locked).first()
+            if existing:
+                return existing, False
+            if locked.status == DeepCleaningInquiry.InquiryStatus.CLOSED:
+                raise ValidationError('A closed inquiry cannot become a booking.')
+            payload = {field: getattr(locked, field) for field in cls.COPY_FIELDS}
+            booking = DeepCleaningBooking.objects.create(
+                inquiry=locked,
+                created_by=user if getattr(user, 'is_authenticated', False) else None,
+                status=DeepCleaningBooking.Status.PENDING,
+                price=locked.estimated_price,
+                **payload,
+            )
+            locked.status = DeepCleaningInquiry.InquiryStatus.CONVERTED
+            locked.is_read = True
+            locked.save(update_fields=['status', 'is_read', 'updated_at'])
+            return booking, True
+
+    @staticmethod
+    def _lock_booking(booking: DeepCleaningBooking) -> DeepCleaningBooking:
+        return DeepCleaningBooking.objects.select_for_update().get(pk=booking.pk)
+
+    @classmethod
+    def assign(cls, booking: DeepCleaningBooking, technician: DeepCleaningTechnician) -> DeepCleaningBooking:
+        with transaction.atomic():
+            locked = cls._lock_booking(booking)
+            if locked.status in (
+                DeepCleaningBooking.Status.DONE,
+                DeepCleaningBooking.Status.CANCELLED,
+            ):
+                raise ValidationError('This booking can no longer be assigned.')
+            tech = DeepCleaningTechnician.objects.select_for_update().get(pk=technician.pk)
+            if not tech.is_available_for_work:
+                reason = (
+                    'inactive'
+                    if not tech.is_active
+                    else tech.get_presence_status_display()
+                )
+                raise ValidationError(f'{tech.name} is {reason} and cannot be assigned.')
+            services = tech.services or []
+            if locked.service not in services:
+                raise ValidationError(f'{tech.name} is not set up for {locked.service}.')
+            cities = tech.cities or []
+            if locked.city and locked.city not in cities:
+                raise ValidationError(f'{tech.name} does not cover {locked.city}.')
+            locked.technician = tech
+            locked.status = DeepCleaningBooking.Status.ON_PROCESS
+            locked.assigned_at = timezone.now()
+            locked.save(update_fields=['technician', 'status', 'assigned_at', 'updated_at'])
+            return locked
+
+    @classmethod
+    def unassign(cls, booking: DeepCleaningBooking) -> DeepCleaningBooking:
+        with transaction.atomic():
+            locked = cls._lock_booking(booking)
+            if locked.status != DeepCleaningBooking.Status.ON_PROCESS:
+                raise ValidationError('Only an On Process booking can be unassigned.')
+            locked.technician = None
+            locked.status = DeepCleaningBooking.Status.PENDING
+            locked.assigned_at = None
+            locked.save(update_fields=['technician', 'status', 'assigned_at', 'updated_at'])
+            return locked
+
+    @classmethod
+    def complete(cls, booking: DeepCleaningBooking) -> DeepCleaningBooking:
+        with transaction.atomic():
+            locked = cls._lock_booking(booking)
+            if locked.status != DeepCleaningBooking.Status.ON_PROCESS or not locked.technician_id:
+                raise ValidationError('Assign a technician before marking this booking done.')
+            locked.status = DeepCleaningBooking.Status.DONE
+            locked.completed_at = timezone.now()
+            locked.save(update_fields=['status', 'completed_at', 'updated_at'])
+            return locked
+
+    @classmethod
+    def cancel(cls, booking: DeepCleaningBooking) -> DeepCleaningBooking:
+        with transaction.atomic():
+            locked = cls._lock_booking(booking)
+            if locked.status == DeepCleaningBooking.Status.DONE:
+                raise ValidationError('A finished booking stays in Done.')
+            if locked.status == DeepCleaningBooking.Status.CANCELLED:
+                return locked
+            locked.technician = None
+            locked.status = DeepCleaningBooking.Status.CANCELLED
+            locked.assigned_at = None
+            locked.save(update_fields=['technician', 'status', 'assigned_at', 'updated_at'])
+            return locked

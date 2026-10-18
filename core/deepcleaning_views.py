@@ -5,21 +5,29 @@ from __future__ import annotations
 import logging
 
 from django.core.exceptions import ValidationError
-from django.db.models import BooleanField, Case, Count, F, Max, Prefetch, Value, When
+from django.db.models import BooleanField, Case, Count, F, Max, Prefetch, Q, Value, When
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, permissions, response, status, views, viewsets
 from rest_framework.decorators import action
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
 from .deepcleaning_serializers import (
+    DeepCleaningBookingSerializer,
     DeepCleaningInquiryRemarkSerializer,
     DeepCleaningInquirySerializer,
     DeepCleaningRateSerializer,
+    DeepCleaningTechnicianSerializer,
     website_catalog,
 )
-from .deepcleaning_services import DeepCleaningInquiryService
+from .deepcleaning_services import DeepCleaningBookingService, DeepCleaningInquiryService
 from .inquiry_filters import InquiryListCountsMixin
-from .models import DeepCleaningInquiry, DeepCleaningInquiryRemark, DeepCleaningRate
+from .models import (
+    DeepCleaningBooking,
+    DeepCleaningInquiry,
+    DeepCleaningInquiryRemark,
+    DeepCleaningRate,
+    DeepCleaningTechnician,
+)
 from .permissions import IsCRMOperationalUser, IsRemarkAdmin
 from .remark_views import RemarkHistoryPagination, _log_remark_activity
 
@@ -57,7 +65,7 @@ class DeepCleaningInquiryViewSet(InquiryListCountsMixin, viewsets.ModelViewSet):
         return super().get_permissions()
 
     def get_queryset(self):
-        qs = DeepCleaningInquiry.objects.all().annotate(
+        qs = DeepCleaningInquiry.objects.select_related('booking').annotate(
             remark_count=Count('remarks', distinct=True),
             last_remark_at=Max('remarks__updated_at'),
         ).annotate(
@@ -133,6 +141,17 @@ class DeepCleaningInquiryViewSet(InquiryListCountsMixin, viewsets.ModelViewSet):
     def mark_all_read(self, request):
         count = DeepCleaningInquiry.objects.filter(is_read=False).update(is_read=True)
         return response.Response({'status': 'success', 'updated': count})
+
+    @action(detail=True, methods=['post'], url_path='confirm-booking')
+    def confirm_booking(self, request, pk=None):
+        inquiry = self.get_object()
+        try:
+            booking, created = DeepCleaningBookingService.confirm_inquiry(inquiry, request.user)
+        except ValidationError as exc:
+            message = exc.messages[0] if getattr(exc, 'messages', None) else str(exc)
+            return response.Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+        payload = DeepCleaningBookingSerializer(booking, context={'request': request}).data
+        return response.Response(payload, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
 class DeepCleaningInquiryRemarkListCreateView(views.APIView):
@@ -214,6 +233,111 @@ class DeepCleaningInquiryRemarkDetailView(views.APIView):
         return response.Response(
             DeepCleaningInquiryRemarkSerializer(entry, context={'request': request}).data
         )
+
+
+def _service_error(exc: ValidationError):
+    message = exc.messages[0] if getattr(exc, 'messages', None) else str(exc)
+    return response.Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class DeepCleaningTechnicianViewSet(viewsets.ModelViewSet):
+    """CRM directory for Deep Cleaning technicians."""
+
+    queryset = DeepCleaningTechnician.objects.all()
+    serializer_class = DeepCleaningTechnicianSerializer
+    permission_classes = [IsCRMOperationalUser]
+    pagination_class = None
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'mobile', 'location', 'address']
+    ordering_fields = ['name', 'created_at']
+    ordering = ['name']
+
+    def get_queryset(self):
+        qs = DeepCleaningTechnician.objects.all()
+        available = str(self.request.query_params.get('available') or '').lower()
+        if available in ('1', 'true', 'yes'):
+            qs = qs.filter(
+                is_active=True,
+                presence_status=DeepCleaningTechnician.PresenceStatus.ACTIVE,
+            )
+        service = (self.request.query_params.get('service') or '').strip()
+        city = (self.request.query_params.get('city') or '').strip()
+        if service:
+            qs = qs.filter(services__contains=[service])
+        if city:
+            qs = qs.filter(cities__contains=[city])
+        return qs
+
+
+class DeepCleaningBookingViewSet(viewsets.ModelViewSet):
+    """Pending, On Process, and Done bookings for Deep Cleaning."""
+
+    queryset = DeepCleaningBooking.objects.select_related('technician', 'inquiry')
+    serializer_class = DeepCleaningBookingSerializer
+    permission_classes = [IsCRMOperationalUser]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status', 'city', 'service']
+    search_fields = ['code', 'name', 'mobile', 'address', 'service', 'city', 'technician__name']
+    ordering_fields = ['created_at', 'preferred_date', 'id']
+    ordering = ['-created_at', '-id']
+
+    def list(self, request, *args, **kwargs):
+        resp = super().list(request, *args, **kwargs)
+        count_qs = DeepCleaningBooking.objects.all()
+        search = (request.query_params.get('search') or '').strip()
+        if search:
+            count_qs = count_qs.filter(
+                Q(code__icontains=search)
+                | Q(name__icontains=search)
+                | Q(mobile__icontains=search)
+                | Q(address__icontains=search)
+                | Q(service__icontains=search)
+                | Q(city__icontains=search)
+                | Q(technician__name__icontains=search)
+            )
+        city = (request.query_params.get('city') or '').strip()
+        if city:
+            count_qs = count_qs.filter(city=city)
+        counts = {choice: 0 for choice, _label in DeepCleaningBooking.Status.choices}
+        for row in count_qs.values('status').annotate(total=Count('id')):
+            counts[row['status']] = row['total']
+        counts['all'] = sum(counts[choice] for choice, _label in DeepCleaningBooking.Status.choices)
+        if isinstance(resp.data, dict):
+            resp.data['status_counts'] = counts
+        return resp
+
+    def _act(self, booking, method):
+        try:
+            updated = method(booking)
+        except ValidationError as exc:
+            return _service_error(exc)
+        return response.Response(
+            DeepCleaningBookingSerializer(updated, context={'request': self.request}).data
+        )
+
+    @action(detail=True, methods=['post'])
+    def assign(self, request, pk=None):
+        booking = self.get_object()
+        technician_id = request.data.get('technician_id')
+        if not technician_id:
+            return response.Response({'error': 'technician_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            technician = DeepCleaningTechnician.objects.get(pk=technician_id)
+        except (DeepCleaningTechnician.DoesNotExist, ValueError, TypeError):
+            return response.Response({'error': 'Technician not found'}, status=status.HTTP_404_NOT_FOUND)
+        return self._act(booking, lambda row: DeepCleaningBookingService.assign(row, technician))
+
+    @action(detail=True, methods=['post'])
+    def unassign(self, request, pk=None):
+        return self._act(self.get_object(), DeepCleaningBookingService.unassign)
+
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        return self._act(self.get_object(), DeepCleaningBookingService.complete)
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        return self._act(self.get_object(), DeepCleaningBookingService.cancel)
 
 
 class DeepCleaningRateViewSet(viewsets.ModelViewSet):

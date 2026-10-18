@@ -7,9 +7,11 @@ from .models import (
     CRMInquiry,
     InquiryRemark,
     WebsiteLeadRemark,
+    DeepCleaningBooking,
     DeepCleaningInquiry,
     DeepCleaningInquiryRemark,
     DeepCleaningRate,
+    DeepCleaningTechnician,
     ECardVisit,
     ECardWhatsAppSend,
 )
@@ -79,6 +81,21 @@ class DeepCleaningInquiryAdmin(admin.ModelAdmin):
     search_fields = ('name', 'mobile', 'service', 'package_name', 'city', 'area', 'address')
     list_filter = ('status', 'is_read', 'city', 'service', 'created_at')
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(DeepCleaningTechnician)
+class DeepCleaningTechnicianAdmin(admin.ModelAdmin):
+    list_display = ('name', 'mobile', 'presence_status', 'is_active')
+    search_fields = ('name', 'mobile', 'location')
+    list_filter = ('presence_status', 'is_active')
+
+
+@admin.register(DeepCleaningBooking)
+class DeepCleaningBookingAdmin(admin.ModelAdmin):
+    list_display = ('code', 'name', 'mobile', 'service', 'city', 'status', 'technician', 'preferred_date')
+    search_fields = ('code', 'name', 'mobile', 'service', 'city', 'address')
+    list_filter = ('status', 'city', 'service')
+    readonly_fields = ('code', 'created_at', 'updated_at', 'assigned_at', 'completed_at')
 
 
 @admin.register(DeepCleaningRate)
