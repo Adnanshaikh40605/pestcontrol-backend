@@ -24,6 +24,10 @@ from .models import (
 class DeepCleaningInquiryService:
     """Create DeepCleaning99 leads without touching pest Inquiry tables."""
 
+    PLACEHOLDER_NAME = 'Website Lead'
+    AUTO_NOTE = 'Auto-captured from DeepCleaning99 booking form.'
+    DEFAULT_SERVICE = 'Deep Cleaning'
+
     @staticmethod
     def _normalize_mobile(raw) -> str:
         digits = re.sub(r'\D', '', str(raw or ''))
@@ -113,10 +117,137 @@ class DeepCleaningInquiryService:
     @classmethod
     def create_inquiry(cls, data: dict[str, Any], user=None) -> DeepCleaningInquiry:
         fields = cls.normalize_payload(data)
+        session_id = str(data.get('booking_session_id') or '').strip()
+        if session_id:
+            fields['booking_session_id'] = session_id[:64]
         inquiry = DeepCleaningInquiry(created_by=user, **fields)
         inquiry.full_clean()
         inquiry.save()
+        cls._notify(inquiry)
         return inquiry
+
+    @classmethod
+    def _is_placeholder_name(cls, name) -> bool:
+        cleaned = (name or '').strip()
+        if not cleaned:
+            return True
+        return cleaned.casefold() == cls.PLACEHOLDER_NAME.casefold()
+
+    @classmethod
+    def normalize_capture_payload(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """Mobile-only silent capture. Name and service can be filled in later."""
+        import re
+
+        session_id = str(data.get('booking_session_id') or '').strip()
+        if not re.match(r'^[A-Za-z0-9_-]{8,64}$', session_id):
+            raise ValidationError('booking_session_id must be an 8–64 character session token.')
+
+        mobile = cls._normalize_mobile(data.get('mobile'))
+        if len(mobile) != 10 or mobile[0] not in '6789':
+            raise ValidationError('Enter a valid 10-digit Indian mobile number.')
+
+        name = cls._sanitize_name(data.get('name')) or cls.PLACEHOLDER_NAME
+        service = str(data.get('service') or '').strip() or cls.DEFAULT_SERVICE
+        notes = str(data.get('notes') or data.get('message') or '').strip()
+        if len(notes) < 10:
+            notes = cls.AUTO_NOTE
+
+        fields = cls.normalize_payload({
+            **data,
+            'name': name,
+            'mobile': mobile,
+            'service': service,
+            'notes': notes,
+        })
+        fields['booking_session_id'] = session_id
+        return fields
+
+    @classmethod
+    def upsert_inquiry(cls, data: dict[str, Any], user=None) -> tuple[DeepCleaningInquiry, bool]:
+        """
+        One DeepCleaning99 lead per browser session.
+        A 10-digit mobile creates the lead immediately; later fields update it.
+        """
+        fields = cls.normalize_capture_payload(data)
+        session_id = fields['booking_session_id']
+        existing = (
+            DeepCleaningInquiry.objects.filter(booking_session_id=session_id)
+            .order_by('-created_at')
+            .first()
+        )
+        if existing is not None:
+            if existing.status in (
+                DeepCleaningInquiry.InquiryStatus.CONVERTED,
+                DeepCleaningInquiry.InquiryStatus.CLOSED,
+            ):
+                return existing, False
+
+            update_fields = []
+            previous_mobile = existing.mobile
+            for key, value in fields.items():
+                if key in ('status', 'booking_session_id', 'is_read', 'source'):
+                    continue
+                if key == 'name':
+                    if cls._is_placeholder_name(value):
+                        continue
+                elif key == 'notes' and value == cls.AUTO_NOTE and (existing.notes or '').strip():
+                    continue
+                elif value in (None, '') and key not in ('mobile', 'city', 'service'):
+                    continue
+                if getattr(existing, key) != value:
+                    setattr(existing, key, value)
+                    update_fields.append(key)
+            mobile_changed = 'mobile' in update_fields and previous_mobile != existing.mobile
+            if update_fields:
+                if mobile_changed and existing.is_read:
+                    existing.is_read = False
+                    update_fields.append('is_read')
+                existing.full_clean()
+                update_fields.append('updated_at')
+                existing.save(update_fields=update_fields)
+            if mobile_changed:
+                cls._notify(existing)
+            return existing, False
+
+        inquiry = cls.create_inquiry(fields, user=user)
+        return inquiry, True
+
+    @staticmethod
+    def _notify(inquiry: DeepCleaningInquiry) -> None:
+        """Telegram + staff WhatsApp. Failures stay on the lead and never block capture."""
+        message = inquiry.notes or DeepCleaningInquiryService.AUTO_NOTE
+        service = f"Deep Cleaning — {inquiry.service}"
+        try:
+            from .telegram import notify_new_inquiry
+
+            notify_new_inquiry(
+                name=inquiry.name,
+                mobile=inquiry.mobile,
+                city=inquiry.city,
+                service=service,
+                message=message,
+                email=inquiry.email,
+                premise_type=inquiry.segment,
+                premise_size=inquiry.property_size,
+                estimated_price=str(inquiry.estimated_price) if inquiry.estimated_price else None,
+                service_frequency=inquiry.plan,
+            )
+        except Exception:
+            pass
+        try:
+            from .whatsflow_pc99 import notify_staff_website_lead
+
+            notify_staff_website_lead(
+                inquiry_id=f'dc-{inquiry.id}',
+                name=inquiry.name,
+                mobile=inquiry.mobile,
+                city=inquiry.city,
+                service=service,
+                property_type=inquiry.segment or 'Residential',
+                message=message,
+            )
+        except Exception:
+            pass
 
     @staticmethod
     def add_remark(inquiry: DeepCleaningInquiry, text: str, user=None) -> DeepCleaningInquiryRemark:

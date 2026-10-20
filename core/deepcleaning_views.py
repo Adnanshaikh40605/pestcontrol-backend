@@ -28,6 +28,7 @@ from .models import (
     DeepCleaningRate,
     DeepCleaningTechnician,
 )
+from .auth import WebsiteInquiryUpsertThrottle
 from .permissions import IsCRMOperationalUser, IsRemarkAdmin
 from .remark_views import RemarkHistoryPagination, _log_remark_activity
 
@@ -55,12 +56,12 @@ class DeepCleaningInquiryViewSet(InquiryListCountsMixin, viewsets.ModelViewSet):
     )
 
     def get_authenticators(self):
-        if getattr(self, 'action', None) == 'create':
+        if getattr(self, 'action', None) in ('create', 'upsert'):
             return []
         return super().get_authenticators()
 
     def get_permissions(self):
-        if getattr(self, 'action', None) == 'create':
+        if getattr(self, 'action', None) in ('create', 'upsert'):
             return [permissions.AllowAny()]
         return super().get_permissions()
 
@@ -98,6 +99,34 @@ class DeepCleaningInquiryViewSet(InquiryListCountsMixin, viewsets.ModelViewSet):
             )
         except Exception as exc:
             logger.error('DeepCleaning inquiry create failed: %s', exc, exc_info=True)
+            return response.Response(
+                {'error': 'Could not save booking request. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path='upsert',
+        throttle_classes=[WebsiteInquiryUpsertThrottle],
+    )
+    def upsert(self, request):
+        """Public silent capture. One lead per booking session, as soon as mobile is valid."""
+        try:
+            inquiry, created = DeepCleaningInquiryService.upsert_inquiry(request.data, user=None)
+            data = DeepCleaningInquirySerializer(inquiry, context={'request': request}).data
+            return response.Response(
+                data,
+                status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+            )
+        except ValidationError as exc:
+            details = getattr(exc, 'message_dict', None) or getattr(exc, 'messages', None) or str(exc)
+            return response.Response(
+                {'error': 'Validation failed', 'details': details},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            logger.error('DeepCleaning inquiry upsert failed: %s', exc, exc_info=True)
             return response.Response(
                 {'error': 'Could not save booking request. Please try again.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,

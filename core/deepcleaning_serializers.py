@@ -62,7 +62,7 @@ class DeepCleaningInquirySerializer(serializers.ModelSerializer):
             'property_size', 'property_type',
             'preferred_date', 'preferred_date_display', 'preferred_time',
             'estimated_price', 'regular_price', 'discount_amount',
-            'notes', 'page_url', 'source',
+            'notes', 'booking_session_id', 'page_url', 'source',
             'status', 'is_read',
             'booking_id', 'booking_code',
             'remark', 'latest_remark', 'remark_count',
@@ -71,7 +71,7 @@ class DeepCleaningInquirySerializer(serializers.ModelSerializer):
             'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'source',
+            'id', 'source', 'booking_session_id',
             'remark', 'latest_remark', 'remark_count',
             'needs_comment_update', 'comment_status',
             'preferred_date_display', 'received_display',

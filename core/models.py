@@ -2322,6 +2322,13 @@ class DeepCleaningInquiry(BaseModel):
         validators=[validate_non_negative_decimal],
     )
     notes = models.TextField(blank=True, default='')
+    booking_session_id = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+        db_index=True,
+        help_text='Browser session id from the DeepCleaning99 booking form (silent upsert key)',
+    )
     page_url = models.URLField(max_length=500, blank=True, null=True)
     source = models.CharField(
         max_length=50,
