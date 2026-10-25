@@ -657,6 +657,52 @@ class TechnicianViewSet(BaseModelViewSet):
             'technician': serializer.data,
         })
 
+    @action(detail=True, methods=['post'], url_path='reset-password')
+    def reset_password(self, request, pk=None):
+        """CRM: replace the Partner app password when a technician has forgotten it."""
+        technician = self.get_object()
+        new_password = request.data.get('password')
+        if not isinstance(new_password, str) or len(new_password) < 6 or not new_password.strip():
+            return response.Response(
+                {'error': 'Password must be at least 6 characters.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        partner = _partner_login_for_technician(technician)
+        if partner is None:
+            return response.Response(
+                {'error': 'This technician has no Partner app login yet.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        partner.set_password(new_password)
+        update_fields = ['password', 'updated_at']
+        if partner.core_technician_id is None:
+            partner.core_technician = technician
+            update_fields.append('core_technician')
+        partner.save(update_fields=update_fields)
+
+        from django.contrib.auth.models import User
+        from core.staff_partner_sync import normalize_mobile
+
+        staff = User.objects.filter(username=partner.mobile).first()
+        if staff is not None and normalize_mobile(staff.username) == partner.mobile:
+            staff.set_password(new_password)
+            staff.save(update_fields=['password'])
+
+        log_activity(
+            request.user,
+            'Reset technician password',
+            details=f'Reset Partner app password for {technician.name} ({technician.mobile})',
+        )
+        return response.Response({
+            'success': True,
+            'message': (
+                f'Password updated for {technician.name}. '
+                'They can sign in to the Partner app with this password.'
+            ),
+        })
+
     @action(detail=False, methods=['get'])
     def performance(self, request):
         """Get performance metrics for all technicians with filtering."""
@@ -5468,6 +5514,25 @@ class InvoiceViewSet(BaseModelViewSet):
         if not ok:
             return response.Response({'detail': detail}, status=status.HTTP_400_BAD_REQUEST)
         return response.Response({'status': 'sent', 'email': invoice.customer_email})
+
+
+def _partner_login_for_technician(technician):
+    """Partner row this technician uses to sign in, without taking another technician's login."""
+    from core.staff_partner_sync import normalize_mobile
+    from partner.models import Partner
+
+    linked = getattr(technician, 'partner_account', None)
+    if linked is not None:
+        return linked
+    mobile = normalize_mobile(getattr(technician, 'mobile', '') or '')
+    if not mobile:
+        return None
+    partner = Partner.objects.filter(mobile=mobile).first()
+    if partner is None:
+        return None
+    if partner.core_technician_id not in (None, technician.id):
+        return None
+    return partner
 
 
 def log_activity(user, action, booking_id=None, details=None):
