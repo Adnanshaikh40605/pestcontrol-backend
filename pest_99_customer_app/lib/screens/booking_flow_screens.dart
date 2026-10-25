@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../config/api_config.dart';
 import '../core/api_client.dart';
+import '../widgets/clock_time_picker.dart';
 import '../widgets/website_booking_form.dart';
 import '../core/booking_timezone.dart';
 import '../core/theme/app_colors.dart';
@@ -140,20 +141,13 @@ class _WebsiteBookingScreenState extends State<WebsiteBookingScreen> {
   Future<void> _pickTime() async {
     final flow = context.read<BookingFlowProvider>();
     final parts = flow.preferredTimeParts ?? (10, 0);
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay(hour: parts.$1, minute: parts.$2),
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: Theme.of(context).colorScheme.copyWith(primary: _green),
-        ),
-        child: child!,
-      ),
+    final picked = await showClockTimePicker(
+      context,
+      hour24: parts.$1,
+      minute: parts.$2,
     );
     if (picked != null) {
-      // Snap to 5-minute steps like website ClockTimePicker.
-      final snapped = ((picked.minute / 5).round() * 5).clamp(0, 55);
-      flow.setPreferredTime(picked.hour, snapped);
+      flow.setPreferredTime(picked.$1, picked.$2);
     }
   }
 
