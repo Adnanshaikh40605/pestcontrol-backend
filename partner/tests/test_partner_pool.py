@@ -1,6 +1,7 @@
 """Partner App New Bookings pool — dedupe, filtering, amounts."""
 
 from datetime import date, datetime, timedelta, timezone as dt_timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -11,8 +12,10 @@ from rest_framework.test import APIClient
 from core.models import City, Client, Country, JobCard, Location, State, Technician
 from core.services import JobCardService
 from partner.models import Partner
+from partner.notification_service import notify_partners_new_booking
 from partner.services import (
     auto_send_new_booking_to_partner_app,
+    booking_in_partner_window,
     filter_jobs_today_tomorrow,
     filter_partner_pool_bookings,
     is_partner_pool_booking,
@@ -189,6 +192,41 @@ class PartnerScheduleDateTests(SimpleTestCase):
     def test_ist_midnight_is_not_the_previous_utc_date(self):
         stamp = datetime(2026, 9, 27, 18, 30, tzinfo=dt_timezone.utc)
         self.assertEqual(partner_schedule_date(stamp), datetime(2026, 9, 28).date())
+
+    def test_only_today_and_tomorrow_stay_on_new_bookings(self):
+        ist = ZoneInfo('Asia/Kolkata')
+        now = datetime(2026, 10, 20, 10, 0, tzinfo=ist)
+
+        def job(day):
+            return SimpleNamespace(
+                schedule_datetime=datetime(day.year, day.month, day.day, 4, 30, tzinfo=dt_timezone.utc),
+            )
+
+        yesterday = job(date(2026, 10, 19))
+        today_job = job(date(2026, 10, 20))
+        tomorrow = job(date(2026, 10, 21))
+        later = job(date(2026, 10, 22))
+        undated = SimpleNamespace(schedule_datetime=None)
+        kept = filter_jobs_today_tomorrow(
+            [yesterday, today_job, tomorrow, later, undated],
+            now=now,
+        )
+        self.assertEqual(
+            [partner_schedule_date(row.schedule_datetime) for row in kept],
+            [date(2026, 10, 20), date(2026, 10, 21), None],
+        )
+        self.assertFalse(booking_in_partner_window(later, now=now))
+        self.assertTrue(booking_in_partner_window(tomorrow, now=now))
+
+    def test_future_booking_does_not_send_a_live_notification(self):
+        later = SimpleNamespace(
+            id=3860,
+            schedule_datetime=datetime(2099, 1, 1, 4, 30, tzinfo=dt_timezone.utc),
+        )
+        result = notify_partners_new_booking(later)
+        self.assertTrue(result['skipped'])
+        self.assertEqual(result['reason'], 'outside_today_tomorrow')
+        self.assertEqual(result['partners_notified'], 0)
 
     def test_naive_utc_gets_the_india_date(self):
         stamp = datetime(2026, 9, 26, 19, 0)

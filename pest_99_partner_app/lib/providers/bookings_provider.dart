@@ -141,8 +141,15 @@ class BookingsProvider extends ChangeNotifier {
       ]);
       counts = results[0] as BookingCounts;
       final availableResult = results[1] as AvailableBookingsResult;
-      available = _dedupeById(availableResult.bookings);
+      available = _dedupeById(
+        availableResult.bookings.where(_isTodayOrTomorrow).toList(),
+      );
       _mergePinnedAvailable();
+      counts = BookingCounts(
+        available: available.length,
+        accepted: counts.accepted,
+        completed: counts.completed,
+      );
       isSuspended = availableResult.isSuspended;
       isOnLeave = availableResult.isOnLeave;
       presenceStatus = availableResult.presenceStatus;
@@ -202,12 +209,10 @@ class BookingsProvider extends ChangeNotifier {
     return open;
   }
 
-  /// Load lists, then make [id] visible on New Bookings or Accepted.
+  /// Load lists, then open [id] when it is today, tomorrow, or already accepted.
   ///
-  /// A push is sent for every new booking, but the available list used to
-  /// drop anything outside today/tomorrow. Tapping that notification refreshed
-  /// into an empty Today and Tomorrow tab. This fetches the booking by id when
-  /// the list omits it and points the day tabs at its IST date.
+  /// A later service date must not land on Today, Tomorrow, or Service Call,
+  /// even when an older notification still has that booking id.
   Future<void> revealNotificationBooking(int id) async {
     await refreshListsLight(force: true);
     var booking = _findBooking(id);
@@ -250,6 +255,10 @@ class BookingsProvider extends ChangeNotifier {
       }
       notificationDayTab = null;
       focusBookingId = null;
+    } else if (!_isTodayOrTomorrow(booking)) {
+      _pinnedAvailable.remove(id);
+      notificationDayTab = null;
+      focusBookingId = null;
     } else {
       _pinnedAvailable[id] = booking;
       if (!available.any((b) => b.id == id)) {
@@ -286,11 +295,17 @@ class BookingsProvider extends ChangeNotifier {
     }
   }
 
+  bool _isTodayOrTomorrow(PartnerBooking booking) {
+    final bucket = BookingMapper.fromPartner(booking).dayBucket;
+    return bucket != 'later';
+  }
+
   void _mergePinnedAvailable() {
     if (_pinnedAvailable.isEmpty) return;
     final visible = {for (final booking in available) booking.id};
     final extras = <PartnerBooking>[];
     for (final entry in _pinnedAvailable.entries) {
+      if (!_isTodayOrTomorrow(entry.value)) continue;
       if (accepted.any((b) => b.id == entry.key)) continue;
       if (completed.any((b) => b.id == entry.key)) continue;
       if (!visible.contains(entry.key)) extras.add(entry.value);

@@ -120,4 +120,27 @@ void main() {
     expect(find.text('detail-3860'), findsOneWidget);
     expect(router.canPop(), isTrue);
   });
+
+  testWidgets('a booking after tomorrow does not open from the notification', (
+    tester,
+  ) async {
+    final router = _router(initial: '/bookings');
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+
+    NotificationNavigation.openBookingFromPush(
+      3900,
+      router: router,
+      data: const {
+        'type': 'new_booking',
+        'booking_id': '3900',
+        'schedule_datetime': '2099-01-01T07:30:00+00:00',
+      },
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(router.state.uri.path, '/bookings');
+    expect(find.text('detail-3900'), findsNothing);
+  });
 }

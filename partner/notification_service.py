@@ -217,7 +217,30 @@ def notify_partners_new_booking(
     *,
     force: bool = False,
 ) -> dict[str, Any]:
-    """In-app + FCM when CRM sends a booking to the partner app."""
+    """In-app + FCM when CRM sends a booking to the partner app.
+
+    Bookings after tomorrow (IST) stay in the CRM. They are not pushed and
+    do not appear on the technician's New Bookings list until the service
+    date is today or tomorrow.
+    """
+    from partner.services import booking_in_partner_window
+
+    if not booking_in_partner_window(job):
+        logger.info(
+            'Skipping partner push for job #%s — service date is after tomorrow',
+            job.id,
+        )
+        return {
+            'skipped': True,
+            'reason': 'outside_today_tomorrow',
+            'partners_notified': 0,
+            'approved_partner_count': 0,
+            'fcm_configured': is_fcm_configured(),
+            'push_success': 0,
+            'push_failure': 0,
+            'tokens_targeted': 0,
+        }
+
     if not force and should_skip_duplicate_push(
         job.id,
         PartnerNotification.NotificationType.NEW_BOOKING,

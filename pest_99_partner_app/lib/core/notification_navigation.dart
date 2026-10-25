@@ -10,6 +10,7 @@ import 'constants/notification_channels.dart';
 import 'notification_open_plan.dart';
 import 'routing/app_router.dart';
 import 'routing/booking_open_args.dart';
+import 'schedule_day.dart';
 
 /// Opens booking detail after FCM / system notification tap with fresh API data.
 class NotificationNavigation {
@@ -48,6 +49,18 @@ class NotificationNavigation {
       data,
       bookingId: bookingId,
     );
+
+    // A service date after tomorrow must not open the booking or land on
+    // Today, Tomorrow, or Service Call. Older notifications can still be
+    // tapped; the date in the payload decides.
+    if (_isAfterTomorrow(data)) {
+      if (kDebugMode) {
+        debugPrint(
+          '[NotificationNavigation] ignored booking #$bookingId — after tomorrow',
+        );
+      }
+      return;
+    }
 
     // Select Today/Tomorrow or mark the Later card before any network wait.
     // Awaiting the available list used to leave the technician on an empty
@@ -111,4 +124,11 @@ class NotificationNavigation {
       debugPrint('[NotificationNavigation] reveal booking #$bookingId failed: $e\n$st');
     }
   }
+}
+
+bool _isAfterTomorrow(Map<String, dynamic>? data) {
+  final instant = ScheduleDay.tryParse(data?['schedule_datetime']?.toString());
+  if (instant == null) return false;
+  final diff = ScheduleDay.dayOffset(instant, DateTime.now());
+  return diff != null && diff > 1;
 }

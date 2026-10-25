@@ -593,10 +593,10 @@ def partner_schedule_date(stamp):
 def filter_jobs_today_tomorrow(jobs, *, now=None):
     """Keep new-booking jobs for today and tomorrow only.
 
-    Both dates are Asia/Kolkata. Yesterday stays too, so a job near the IST
-    midnight edge is not dropped when the stored instant is still the previous
-    UTC date. Dates after tomorrow are left out. A missing schedule is kept
-    so a push for that booking does not point at an empty list.
+    Both dates are Asia/Kolkata. ``partner_schedule_date`` already converts
+    the stored instant, so yesterday and any date after tomorrow stay out of
+    New Bookings. A missing schedule is kept so an undated push still has a
+    row to open.
 
     ``now`` is only for tests. The available API uses the current IST date.
     """
@@ -606,7 +606,7 @@ def filter_jobs_today_tomorrow(jobs, *, now=None):
         if timezone.is_naive(now):
             now = timezone.make_aware(now, timezone.utc)
         today = now.astimezone(PARTNER_SCHEDULE_TZ).date()
-    earliest = today - timezone.timedelta(days=1)
+    earliest = today
     latest = today + timezone.timedelta(days=1)
     kept = []
     for job in jobs:
@@ -618,6 +618,11 @@ def filter_jobs_today_tomorrow(jobs, *, now=None):
         if day is not None and earliest <= day <= latest:
             kept.append(job)
     return kept
+
+
+def booking_in_partner_window(job, *, now=None) -> bool:
+    """True when a new booking may be listed and pushed: today or tomorrow IST."""
+    return bool(filter_jobs_today_tomorrow([job], now=now))
 
 
 def is_partner_pool_booking(job: JobCard) -> bool:
@@ -681,9 +686,9 @@ def apply_partner_pool_filters(
 ):
     """
     City/area + base-services filter for partner booking lists.
-    The new-booking pool keeps yesterday onward (IST) so Today, Tomorrow, and
-    Later can all render. Accepted work keeps every date so in-progress jobs
-    never disappear from the Accepted tab.
+    The new-booking pool keeps today and tomorrow in India. A date after
+    tomorrow stays off New Bookings and is not pushed. Accepted work keeps
+    every date so in-progress jobs never disappear from the Accepted tab.
 
     When ``available_only`` is True, also drop follow-ups, service calls, and
     multi-service day-1 child rows so New Bookings shows one card per request,
