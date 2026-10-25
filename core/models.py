@@ -2477,6 +2477,11 @@ class DeepCleaningTechnician(BaseModel):
     address = models.TextField(blank=True, default='')
     location = models.CharField(max_length=255, blank=True, default='')
     cities = models.JSONField(default=list, blank=True)
+    localities = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Areas this technician covers, as {"city", "name"} objects.',
+    )
     services = models.JSONField(default=list, blank=True)
     presence_status = models.CharField(
         max_length=20,

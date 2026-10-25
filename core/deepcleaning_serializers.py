@@ -245,7 +245,7 @@ class DeepCleaningTechnicianSerializer(serializers.ModelSerializer):
         model = DeepCleaningTechnician
         fields = [
             'id', 'name', 'mobile', 'age', 'alternative_mobile',
-            'address', 'location', 'cities', 'services',
+            'address', 'location', 'cities', 'localities', 'services',
             'presence_status', 'presence_label', 'is_active',
             'is_available_for_work',
             'created_at', 'updated_at',
@@ -281,6 +281,37 @@ class DeepCleaningTechnicianSerializer(serializers.ModelSerializer):
     def validate_cities(self, value):
         return _choice_list(value, DeepCleaningTechnician.CITIES, 'city')
 
+    def validate_localities(self, value):
+        if value in (None, ''):
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError('Choose localities from the list.')
+        cleaned = []
+        seen = set()
+        for item in value:
+            if isinstance(item, str):
+                city, name = '', item
+            elif isinstance(item, dict):
+                city = str(item.get('city') or '').strip()
+                name = str(item.get('name') or '').strip()
+            else:
+                raise serializers.ValidationError('Choose localities from the list.')
+            name = name.strip()
+            if not name:
+                continue
+            if len(name) > 150:
+                raise serializers.ValidationError('A locality name is too long.')
+            if city and city not in DeepCleaningTechnician.CITIES:
+                raise serializers.ValidationError(f'{city} is not a Deep Cleaning city.')
+            key = (city.casefold(), name.casefold())
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append({'city': city, 'name': name})
+            if len(cleaned) > 40:
+                raise serializers.ValidationError('Choose up to 40 localities.')
+        return cleaned
+
     def validate_services(self, value):
         return _choice_list(value, DeepCleaningTechnician.SERVICES, 'service')
 
@@ -296,6 +327,13 @@ class DeepCleaningTechnicianSerializer(serializers.ModelSerializer):
         alt = attrs.get('alternative_mobile', getattr(self.instance, 'alternative_mobile', None))
         if alt and alt == mobile:
             raise serializers.ValidationError({'alternative_mobile': 'Use a different alternate mobile.'})
+        cities = attrs.get('cities', getattr(self.instance, 'cities', None) or [])
+        localities = attrs.get('localities', getattr(self.instance, 'localities', None) or [])
+        allowed = {str(city).casefold() for city in cities}
+        attrs['localities'] = [
+            row for row in localities
+            if not row.get('city') or str(row.get('city')).casefold() in allowed
+        ]
         return attrs
 
 

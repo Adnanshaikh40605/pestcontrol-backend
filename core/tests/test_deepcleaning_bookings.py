@@ -179,11 +179,25 @@ class DeepCleaningScenarioTests(APITestCase):
             'mobile': '+91 98765 12001',
             'age': 32,
             'cities': ['Mumbai', 'Thane'],
+            'localities': [
+                {'city': 'Mumbai', 'name': 'Andheri West'},
+                {'city': 'Thane', 'name': 'Ghodbunder Road'},
+            ],
             'services': ['Kitchen Deep Cleaning', 'Bathroom Deep Cleaning'],
             'presence_status': 'active',
         }, format='json')
         self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
         self.assertEqual(created.data['mobile'], '9876512001')
+        self.assertEqual(created.data['localities'][0]['name'], 'Andheri West')
+
+        bad_city = self.client.post('/api/deepcleaning-technicians/', {
+            'name': 'Wrong City',
+            'mobile': '9876512099',
+            'cities': ['Mumbai'],
+            'localities': [{'city': 'Delhi', 'name': 'Dwarka'}],
+            'services': ['Kitchen Deep Cleaning'],
+        }, format='json')
+        self.assertEqual(bad_city.status_code, status.HTTP_400_BAD_REQUEST)
 
         duplicate = self.client.post('/api/deepcleaning-technicians/', {
             'name': 'Copy',
