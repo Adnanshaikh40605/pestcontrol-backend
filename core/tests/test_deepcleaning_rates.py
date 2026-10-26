@@ -15,19 +15,25 @@ class DeepCleaningRateMasterTests(APITestCase):
             is_staff=True,
         )
 
-    def test_public_catalog_matches_launch_sheet(self):
+    def test_public_catalog_matches_diwali_sheet(self):
         res = self.client.get('/api/deepcleaning-rates/catalog/')
         self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
         rates = {row['id']: row for row in res.data['rates']}
-        self.assertEqual(len(rates), 46)
-        self.assertEqual(rates['R2']['base'], 3499)
-        self.assertEqual(rates['R2']['package'], 'Furnished 1BHK up to 600 sq ft')
+        self.assertEqual(len(rates), 104)
+        self.assertNotIn('R2', rates)
+        self.assertEqual(rates['H09']['base'], 4500)
+        self.assertEqual(rates['H09']['package'], 'Furnished 1BHK Standard up to 600 sq ft')
+        self.assertEqual(rates['H11']['base'], 10000)
+        self.assertEqual(rates['H02']['base'], 2000)
+        self.assertEqual(rates['W05']['base'], 2000)
+        self.assertEqual(rates['K03']['base'], 3200)
+        self.assertEqual(rates['A01']['base'], 1000)
         self.assertEqual(rates['C17']['base'], 21000)
+        self.assertNotIn('Vendor', rates['H11']['note'])
         amc = {row['id']: row for row in res.data['amc']}
-        self.assertEqual(amc['R2']['annual'], 6648)
-        self.assertEqual(amc['R2']['perVisit'], 3324)
+        self.assertNotIn('H09', amc)
         self.assertEqual(amc['C2']['visits'], 12)
-        self.assertIn('Full Home Deep Cleaning', res.data['services'])
+        self.assertEqual(res.data['services'][0], 'Full Home Deep Cleaning')
 
     def test_anonymous_cannot_change_rates(self):
         res = self.client.post(

@@ -153,11 +153,25 @@ def website_amc_payload(rate: DeepCleaningRate) -> dict | None:
     }
 
 
+_CATALOG_SERVICE_ORDER = (
+    'Full Home Deep Cleaning',
+    'Kitchen Deep Cleaning',
+    'Bathroom Deep Cleaning',
+    'Sofa Cleaning',
+    'Mattress Cleaning',
+    'Carpet Cleaning',
+    'Home Add-on Cleaning',
+    'Office Deep Cleaning',
+)
+
+
 def website_catalog(rates) -> dict:
-    services = []
+    present = []
     for rate in rates:
-        if rate.service not in services:
-            services.append(rate.service)
+        if rate.service not in present:
+            present.append(rate.service)
+    services = [name for name in _CATALOG_SERVICE_ORDER if name in present]
+    services.extend(name for name in present if name not in services)
     return {
         'discount': 0.3,
         'services': services,
