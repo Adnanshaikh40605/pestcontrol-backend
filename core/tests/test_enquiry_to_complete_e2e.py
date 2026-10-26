@@ -2,7 +2,7 @@
 End-to-end lifecycle: website enquiry → convert → send-to-app → accept → start → complete.
 
 Also covers CRM enquiry convert, double-convert guard, desk-assign vs app-pool conflict,
-and revenue payout after partner complete.
+and revenue payout after staff marks the booking Done.
 """
 from datetime import timedelta
 from decimal import Decimal
@@ -16,11 +16,14 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from core.models import (
+    City,
     Client,
+    Country,
     CRMInquiry,
     Inquiry,
     JobCard,
     JobCardTechnicianParticipation,
+    State,
     Technician,
 )
 from partner.models import Partner, PartnerEarning
@@ -141,6 +144,11 @@ class EnquiryToCompleteE2ETests(TestCase):
         self.assertEqual(job.partner_status, JobCard.PartnerStatus.PENDING)
         self.assertIsNone(job.partner_id)
 
+        country, _ = Country.objects.get_or_create(name='India')
+        state, _ = State.objects.get_or_create(country=country, name='Maharashtra')
+        pune, _ = City.objects.get_or_create(state=state, name='Pune')
+        self.tech.service_cities.add(pune)
+
         available = self.partner_api.get('/api/partner/bookings/available/')
         self.assertEqual(available.status_code, 200, available.data)
         ids = [row['id'] for row in available.data['results']]
@@ -204,7 +212,7 @@ class EnquiryToCompleteE2ETests(TestCase):
         self.assertIsNotNone(job.started_at)
         self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.ACTIVE)
 
-        # 6) Complete → payment + payout
+        # 6) Technician finishes the visit. CRM stays Pending; staff close it.
         complete = self.partner_api.post(
             f'/api/partner/bookings/{job_id}/complete/',
             {'payment_mode': 'Cash'},
@@ -213,9 +221,19 @@ class EnquiryToCompleteE2ETests(TestCase):
         self.assertEqual(complete.status_code, 200, complete.data)
         job.refresh_from_db()
         self.tech.refresh_from_db()
-        self.assertEqual(job.status, JobCard.JobStatus.DONE)
+        self.assertEqual(job.status, JobCard.JobStatus.PENDING)
         self.assertEqual(job.partner_status, JobCard.PartnerStatus.COMPLETED)
         self.assertEqual(job.payment_status, JobCard.PaymentStatus.PAID)
+        self.assertIsNone(PartnerEarning.objects.filter(partner=self.partner, job=job).first())
+
+        closed = self.crm.patch(
+            f'/api/v1/jobcards/{job_id}/',
+            {'status': 'Done', 'payment_mode': 'Cash'},
+            format='json',
+        )
+        self.assertEqual(closed.status_code, 200, closed.data)
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobCard.JobStatus.DONE)
         self.assertEqual(job.payout_status, JobCard.PayoutStatus.PENDING)
         self.assertEqual(job.technician_pool_amount, Decimal('1000.00'))  # 40% of 2500
         earning = PartnerEarning.objects.filter(partner=self.partner, job=job).first()

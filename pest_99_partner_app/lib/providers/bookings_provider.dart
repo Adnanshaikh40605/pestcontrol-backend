@@ -145,11 +145,6 @@ class BookingsProvider extends ChangeNotifier {
         availableResult.bookings.where(_isTodayOrTomorrow).toList(),
       );
       _mergePinnedAvailable();
-      counts = BookingCounts(
-        available: available.length,
-        accepted: counts.accepted,
-        completed: counts.completed,
-      );
       isSuspended = availableResult.isSuspended;
       isOnLeave = availableResult.isOnLeave;
       presenceStatus = availableResult.presenceStatus;
@@ -158,8 +153,13 @@ class BookingsProvider extends ChangeNotifier {
       manualAssignOnly = availableResult.manualAssignOnly;
       manualAssignMessage =
           availableResult.manualAssignOnly ? availableResult.message : '';
-      accepted = results[2] as List<PartnerBooking>;
-      completed = results[3] as List<PartnerBooking>;
+      accepted = (results[2] as List<PartnerBooking>).where(_isTodayOrTomorrow).toList();
+      completed = (results[3] as List<PartnerBooking>).where(_isTodayOrTomorrow).toList();
+      counts = BookingCounts(
+        available: available.length,
+        accepted: accepted.length,
+        completed: completed.length,
+      );
       if (!showGlobalLoader) error = null;
     } on ApiException catch (e) {
       if (e.isSessionExpired) {
@@ -209,9 +209,9 @@ class BookingsProvider extends ChangeNotifier {
     return open;
   }
 
-  /// Load lists, then open [id] when it is today, tomorrow, or already accepted.
+  /// Load lists, then open [id] when its service date is today or tomorrow.
   ///
-  /// A later service date must not land on Today, Tomorrow, or Service Call,
+  /// A later service date must not land on Bookings, Accepted, or Completed,
   /// even when an older notification still has that booking id.
   Future<void> revealNotificationBooking(int id) async {
     await refreshListsLight(force: true);
@@ -248,7 +248,7 @@ class BookingsProvider extends ChangeNotifier {
       return;
     }
 
-    if (accepted) {
+    if (accepted && _isTodayOrTomorrow(booking)) {
       _pinnedAvailable.remove(id);
       if (!this.accepted.any((b) => b.id == id)) {
         this.accepted = [booking, ...this.accepted];
@@ -342,6 +342,15 @@ class BookingsProvider extends ChangeNotifier {
   void applyAcceptedBooking(PartnerBooking booking) {
     _pinnedAvailable.remove(booking.id);
     available = available.where((b) => b.id != booking.id).toList();
+    if (!_isTodayOrTomorrow(booking)) {
+      counts = BookingCounts(
+        available: available.length,
+        accepted: accepted.length,
+        completed: counts.completed,
+      );
+      notifyListeners();
+      return;
+    }
     final idx = accepted.indexWhere((b) => b.id == booking.id);
     if (idx >= 0) {
       final next = List<PartnerBooking>.from(accepted);
@@ -430,7 +439,7 @@ class BookingsProvider extends ChangeNotifier {
 
   Future<BookingActionResult> completeJob(int id, String paymentMode) => _runAction(
         id,
-        initialLabel: 'Ending service…',
+        initialLabel: 'Completing job…',
         action: () async {
           try {
             await _service.complete(id, paymentMode);
@@ -447,20 +456,18 @@ class BookingsProvider extends ChangeNotifier {
             // Complete already succeeded — don't fail UX on detail fetch.
           }
           accepted = accepted.where((b) => b.id != id).toList();
-          if (updated != null) {
+          if (updated != null && _isTodayOrTomorrow(updated)) {
             completed = [updated, ...completed.where((b) => b.id != id)];
           }
           counts = BookingCounts(
             available: counts.available,
             accepted: accepted.length,
-            completed: updated != null
-                ? completed.length
-                : (counts.completed + 1).clamp(0, 999999),
+            completed: completed.length,
           );
           notifyListeners();
           unawaited(_syncCounts());
           return BookingActionResult.ok(
-            message: 'Service completed',
+            message: 'Job marked complete',
             navigateToCompleted: true,
           );
         },
@@ -494,7 +501,7 @@ class BookingsProvider extends ChangeNotifier {
       final next = List<PartnerBooking>.from(accepted);
       next[idx] = updated;
       accepted = next;
-    } else {
+    } else if (_isTodayOrTomorrow(updated)) {
       accepted = [...accepted, updated];
     }
   }

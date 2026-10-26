@@ -562,7 +562,7 @@ class PartnerBookingDetailSerializer(serializers.ModelSerializer):
 
 
 class PartnerCompleteBookingSerializer(serializers.Serializer):
-    """Serializer for completing a booking (End Service)."""
+    """Serializer for the technician Complete Job action."""
     payment_mode = serializers.CharField(
         help_text="Payment mode selected by the customer at the time of service (Cash or Online)"
     )

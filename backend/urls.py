@@ -57,7 +57,7 @@ urlpatterns = [
                     '```\nAuthorization: Bearer <access_token>\n```\n\n'
                     '### Flow\n'
                     '1. Register → Login → Get Token\n'
-                    '2. View Available Bookings → Accept → Start Service → End Service\n'
+                    '2. View Available Bookings → Accept → Start Job → Complete Job\n'
                     '3. View Profile & Earnings'
                 ),
                 'VERSION': '1.0.0',

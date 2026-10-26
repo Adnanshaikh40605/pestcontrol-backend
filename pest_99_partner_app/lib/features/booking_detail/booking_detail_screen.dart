@@ -389,8 +389,8 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
           )
         else
           LoadingActionButton(
-            label: 'End Service',
-            loadingLabel: processingLabel ?? 'Ending service…',
+            label: 'Complete Job',
+            loadingLabel: processingLabel ?? 'Completing job…',
             icon: Icons.check_circle,
             isLoading: processing,
             onPressed: processing

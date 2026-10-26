@@ -307,10 +307,10 @@ class AcceptedBookingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final inService = booking.acceptedState == AcceptedJobState.inService;
-    final primaryLabel = inService ? 'End Service' : 'Start Job';
+    final primaryLabel = inService ? 'Complete Job' : 'Start Job';
     final primaryIcon = inService ? Icons.check : Icons.play_arrow_rounded;
     final loadingLabel = primaryLoadingLabel ??
-        (inService ? 'Ending…' : 'Starting…');
+        (inService ? 'Completing…' : 'Starting…');
 
     return Container(
       width: double.infinity,

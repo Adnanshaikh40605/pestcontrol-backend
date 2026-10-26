@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 
 from core.models import Client, JobCard, Technician
 from partner.models import Partner
-from partner.services import partner_complete_booking
+from partner.services import PartnerBookingError, partner_complete_booking, send_booking_to_partner_app
 from partner.utils import generate_partner_tokens
 
 
@@ -113,18 +113,29 @@ class PartnerCompleteMultiServiceTests(TestCase):
         return job
 
     def test_complete_succeeds_when_day1_children_are_cancelled(self):
-        """#2350 regression: End Service must not 500 on UniqueViolation."""
+        """#2350 regression: Complete Job must not 500 on UniqueViolation."""
         job = self._make_in_service_multi(crm_cancelled=True)
         result = partner_complete_booking(job, self.partner, 'Cash')
         result.refresh_from_db()
-        self.assertEqual(result.status, JobCard.JobStatus.DONE)
+        self.assertEqual(result.status, JobCard.JobStatus.PENDING)
         self.assertEqual(result.partner_status, JobCard.PartnerStatus.COMPLETED)
         self.assertEqual(result.payment_status, JobCard.PaymentStatus.PAID)
         day1 = list(
             JobCard.objects.filter(parent_job=result, service_cycle=1).order_by('id')
         )
         self.assertEqual(len(day1), 2)
-        self.assertTrue(all(c.status == JobCard.JobStatus.DONE for c in day1))
+        self.assertTrue(all(c.status == JobCard.JobStatus.CANCELLED for c in day1))
+
+    def test_finished_visit_stays_with_the_technician(self):
+        job = self._make_in_service_multi(crm_cancelled=True)
+        job = partner_complete_booking(job, self.partner, 'Cash')
+        with self.assertRaises(PartnerBookingError) as caught:
+            send_booking_to_partner_app(job)
+        self.assertEqual(caught.exception.code, 'already_completed')
+        job.refresh_from_db()
+        self.assertEqual(job.partner_id, self.partner.id)
+        self.assertEqual(job.status, JobCard.JobStatus.PENDING)
+        self.assertEqual(job.partner_status, JobCard.PartnerStatus.COMPLETED)
 
     def test_complete_api_end_to_end_multi_cancelled_children(self):
         job = self._make_in_service_multi(crm_cancelled=False)
@@ -136,6 +147,6 @@ class PartnerCompleteMultiServiceTests(TestCase):
         )
         self.assertEqual(res.status_code, 200, res.data)
         job.refresh_from_db()
-        self.assertEqual(job.status, JobCard.JobStatus.DONE)
+        self.assertEqual(job.status, JobCard.JobStatus.PENDING)
         self.assertEqual(job.partner_status, JobCard.PartnerStatus.COMPLETED)
         self.assertEqual(job.payment_mode, JobCard.PaymentMode.ONLINE)

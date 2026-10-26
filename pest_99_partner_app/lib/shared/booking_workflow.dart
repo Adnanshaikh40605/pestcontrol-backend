@@ -172,7 +172,7 @@ class BookingWorkflow {
     final payment = mode == PaymentMode.online ? 'Online' : 'Cash';
     final result = await runWithProcessingOverlay(
       context,
-      title: 'Ending service…',
+      title: 'Completing job…',
       subtitle: 'Saving payment',
       task: () => provider.completeJob(bookingId, payment),
     );

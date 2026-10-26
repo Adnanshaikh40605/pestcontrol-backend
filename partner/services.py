@@ -99,6 +99,11 @@ def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=N
             f'Only Pending bookings can be sent to the app (current: {job.status}).',
             code='invalid_status',
         )
+    if job.partner_status == JobCard.PartnerStatus.COMPLETED:
+        raise PartnerBookingError(
+            'The technician already completed this visit. Mark it Done from CRM before sending it again.',
+            code='already_completed',
+        )
     if job.sent_to_app_at and job.partner_status in (
         JobCard.PartnerStatus.PENDING,
         JobCard.PartnerStatus.ACCEPTED,
@@ -400,12 +405,12 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
         raise PartnerBookingError('Job already completed.', code='already_completed')
     if job.partner_status == JobCard.PartnerStatus.ACCEPTED:
         raise PartnerBookingError(
-            'Start the job with a selfie before ending service.',
+            'Start the job with a selfie before you complete it.',
             code='not_started',
         )
     if job.partner_status != JobCard.PartnerStatus.IN_SERVICE:
         raise PartnerBookingError(
-            'Start the job with a selfie before ending service.',
+            'Start the job with a selfie before you complete it.',
             code='invalid_state',
         )
     normalized = (payment_mode or '').strip()
@@ -432,8 +437,11 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
             job.total_amount = display
             job.save(update_fields=['price', 'total_amount', 'updated_at'])
 
+    # The technician has finished the visit. CRM stays Pending until staff
+    # or an admin marks the booking Done. Payout and the next visit wait
+    # for that office step.
     job.partner_status = JobCard.PartnerStatus.COMPLETED
-    job.status = JobCard.JobStatus.DONE
+    job.status = JobCard.JobStatus.PENDING
     job.completed_at = timezone.now()
     if not job.started_at:
         job.started_at = job.completed_at
@@ -459,24 +467,6 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
     elif normalized and job.payment_mode != normalized:
         job.payment_mode = normalized
         job.save(update_fields=['payment_mode', 'updated_at'])
-    # Nested atomic = savepoint. IntegrityError / other DB errors inside
-    # multi-service sync must not abort the outer complete transaction
-    # (status Done + payment already written above).
-    try:
-        with transaction.atomic():
-            from core.payout_engine import try_apply_payout_after_completion
-            from core.booking_schedule_engine import (
-                BookingScheduleEngine,
-                is_multi_service_booking,
-            )
-
-            if is_multi_service_booking(job):
-                BookingScheduleEngine.sync_multi_service_day1_children(
-                    job, completing=True
-                )
-            try_apply_payout_after_completion(job)
-    except Exception as exc:
-        logger.exception('Payout after partner complete failed #%s: %s', job.id, exc)
     touch_partner_activity(partner)
     try:
         from partner.notification_service import notify_crm_service_completed
@@ -686,9 +676,8 @@ def apply_partner_pool_filters(
 ):
     """
     City/area + base-services filter for partner booking lists.
-    The new-booking pool keeps today and tomorrow in India. A date after
-    tomorrow stays off New Bookings and is not pushed. Accepted work keeps
-    every date so in-progress jobs never disappear from the Accepted tab.
+    New Bookings, Accepted, and Completed keep today and tomorrow in India.
+    A date after tomorrow stays off every partner booking tab and is not pushed.
 
     When ``available_only`` is True, also drop follow-ups, service calls, and
     multi-service day-1 child rows so New Bookings shows one card per request,

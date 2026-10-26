@@ -46,7 +46,6 @@ from .services import (
     partner_complete_booking,
 )
 from core.models import JobCard, Technician
-from core.services import JobCardService
 
 logger = logging.getLogger(__name__)
 
@@ -463,7 +462,7 @@ class AcceptedBookingsAPIView(PartnerAPIView):
         from partner.services import apply_partner_pool_filters
 
         filtered = apply_partner_pool_filters(
-            list(jobs), partner, today_tomorrow_only=False,
+            list(jobs), partner, today_tomorrow_only=True,
         )
         serializer = PartnerBookingListSerializer(filtered, many=True, context={'request': request})
         return Response({"count": len(filtered), "results": serializer.data})
@@ -488,8 +487,11 @@ class CompletedBookingsAPIView(PartnerAPIView):
             partner_status=JobCard.PartnerStatus.COMPLETED,
         ).select_related('client', 'master_city', 'master_location').order_by('-completed_at')
 
-        serializer = PartnerBookingListSerializer(jobs, many=True, context={'request': request})
-        return Response({"count": jobs.count(), "results": serializer.data})
+        from partner.services import filter_jobs_today_tomorrow
+
+        filtered = filter_jobs_today_tomorrow(list(jobs))
+        serializer = PartnerBookingListSerializer(filtered, many=True, context={'request': request})
+        return Response({"count": len(filtered), "results": serializer.data})
 
 
 class BookingDetailAPIView(PartnerAPIView):
@@ -555,13 +557,32 @@ class BookingCountsAPIView(PartnerAPIView):
     )
     def get(self, request):
         partner = request.partner
-        from partner.services import count_partner_available_bookings
+        from partner.services import (
+            apply_partner_pool_filters,
+            count_partner_available_bookings,
+            filter_jobs_today_tomorrow,
+        )
 
         available = count_partner_available_bookings(partner)
-        accepted = JobCard.objects.filter(
-            partner=partner, partner_status__in=['accepted', 'in_service']
-        ).count()
-        completed = JobCard.objects.filter(partner=partner, partner_status='completed').count()
+        accepted_filter = Q(
+            partner=partner,
+            partner_status__in=['accepted', 'in_service'],
+        )
+        tech_id = getattr(partner, 'core_technician_id', None)
+        if tech_id:
+            accepted_filter &= Q(technician_id=tech_id)
+        accepted_jobs = JobCard.objects.filter(accepted_filter).select_related(
+            'client', 'master_city', 'master_location',
+        )
+        accepted = len(apply_partner_pool_filters(
+            list(accepted_jobs), partner, today_tomorrow_only=True,
+        ))
+        completed = len(filter_jobs_today_tomorrow(list(
+            JobCard.objects.filter(
+                partner=partner,
+                partner_status='completed',
+            ).only('id', 'schedule_datetime')
+        )))
 
         return Response({
             "available": available,
@@ -740,7 +761,7 @@ class StartServiceAPIView(PartnerAPIView):
 
         logger.info(f"Partner {partner.full_name} started service for booking #{job.id}")
         return Response({
-            "message": "Service started! Use End Service when finished.",
+            "message": "Service started. Use Complete Job when you finish.",
             "partner_status": job.partner_status,
             "started_at": job.started_at,
         })
@@ -755,11 +776,11 @@ class CompleteBookingAPIView(PartnerAPIView):
 
     @extend_schema(
         tags=["Bookings"],
-        summary="Complete a booking (End Service)",
+        summary="Technician completes a job",
         description=(
-            "Mark the service as completed. Requires payment_mode. "
-            "Sets job status to 'Done', partner_status to 'completed'. "
-            "Triggers AMC follow-up automation if applicable."
+            "The technician finishes the visit and records payment. "
+            "partner_status becomes 'completed'. CRM status stays Pending "
+            "until staff or an admin marks the booking Done."
         ),
         request=PartnerCompleteBookingSerializer,
         responses={
@@ -801,22 +822,14 @@ class CompleteBookingAPIView(PartnerAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        next_service_date = None
-        try:
-            result = JobCardService.handle_job_completion(job)
-            if result and hasattr(result, 'next_service_date'):
-                next_service_date = str(result.next_service_date)
-        except Exception as e:
-            logger.error(f"Failed to trigger follow-up automation for booking #{job.id}: {e}")
-
         logger.info(
-            f"Partner {partner.full_name} completed booking #{job.id} via {payment_mode}"
+            f"Partner {partner.full_name} finished booking #{job.id} via {payment_mode}; CRM stays Pending"
         )
 
         from core.pricing.gst import apply_ledger_base
 
         return Response({
-            "message": f"Service completed! Payment recorded as {payment_mode}.",
+            "message": f"Job marked complete. Payment recorded as {payment_mode}.",
             "status": job.status,
             "partner_status": job.partner_status,
             "payment_mode": job.payment_mode,
@@ -828,7 +841,7 @@ class CompleteBookingAPIView(PartnerAPIView):
                 else None
             ),
             "payout_status": job.payout_status,
-            "next_service_date": next_service_date,
+            "next_service_date": None,
         })
 
 

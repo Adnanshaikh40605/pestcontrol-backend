@@ -385,7 +385,10 @@ def notify_crm_service_started(job: JobCard, partner: Partner) -> None:
 
 
 def notify_crm_service_completed(job: JobCard, partner: Partner) -> None:
-    msg = f'{partner.full_name} completed Booking #{job.code or job.id}'
+    msg = (
+        f'{partner.full_name} finished the visit for Booking #{job.code or job.id}. '
+        'It stays Pending until staff mark it Done.'
+    )
     log_crm_partner_event(job, CrmPartnerEvent.EventType.JOB_COMPLETED, msg, {'partner_id': partner.id})
 
 

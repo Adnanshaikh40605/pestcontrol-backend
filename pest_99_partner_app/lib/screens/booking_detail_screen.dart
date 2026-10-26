@@ -89,7 +89,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     if (!mounted) return;
     if (result.success) {
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Service completed')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Job marked complete')));
     }
   }
 
@@ -133,7 +133,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                         if (b.canStartJob)
                           ElevatedButton(onPressed: _startJob, child: const Text('Start job (selfie)')),
                         if (b.canCompleteJob)
-                          ElevatedButton(onPressed: _endService, child: const Text('End service')),
+                          ElevatedButton(onPressed: _endService, child: const Text('Complete Job')),
                       ],
                     ),
     );

@@ -164,6 +164,39 @@ class PartnerPoolFilterTests(TestCase):
         self.assertEqual(counts.status_code, 200, counts.data)
         self.assertEqual(counts.data['available'], available.data['count'])
 
+    def test_accepted_and_completed_stop_after_tomorrow(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            soon = self._pending_shell()
+            later = self._pending_shell(
+                schedule_datetime=self.schedule + timedelta(days=3),
+            )
+        for job in (soon, later):
+            job.partner = self.partner
+            job.technician = self.tech
+            job.partner_status = JobCard.PartnerStatus.ACCEPTED
+            job.status = JobCard.JobStatus.ON_PROCESS
+            job.save(update_fields=['partner', 'technician', 'partner_status', 'status'])
+
+        accepted = self.partner_api.get('/api/partner/bookings/accepted/')
+        accepted_ids = [row['id'] for row in accepted.data['results']]
+        self.assertIn(soon.id, accepted_ids)
+        self.assertNotIn(later.id, accepted_ids)
+
+        for job in (soon, later):
+            job.partner_status = JobCard.PartnerStatus.COMPLETED
+            job.status = JobCard.JobStatus.PENDING
+            job.completed_at = timezone.now()
+            job.save(update_fields=['partner_status', 'status', 'completed_at'])
+
+        completed = self.partner_api.get('/api/partner/bookings/completed/')
+        completed_ids = [row['id'] for row in completed.data['results']]
+        self.assertIn(soon.id, completed_ids)
+        self.assertNotIn(later.id, completed_ids)
+
+        counts = self.partner_api.get('/api/partner/bookings/counts/')
+        self.assertEqual(counts.data['accepted'], 0)
+        self.assertEqual(counts.data['completed'], completed.data['count'])
+
     def test_auto_send_skips_service_call_rows(self):
         job = JobCard.objects.create(
             client=self.client_record,

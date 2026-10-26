@@ -84,7 +84,7 @@ String _apiExceptionMessage(ApiException e) {
   if (code == 'not_started') {
     return e.message.isNotEmpty
         ? e.message
-        : 'Start the job with a selfie before ending service.';
+        : 'Start the job with a selfie before you complete it.';
   }
   if (code == 'suspended') {
     return e.message.isNotEmpty
