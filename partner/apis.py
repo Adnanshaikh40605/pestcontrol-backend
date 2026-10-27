@@ -779,7 +779,7 @@ class CompleteBookingAPIView(PartnerAPIView):
         summary="Technician completes a job",
         description=(
             "The technician finishes the visit and records payment. "
-            "partner_status becomes 'completed'. CRM status stays Pending "
+            "partner_status becomes 'completed'. CRM status stays On Process "
             "until staff or an admin marks the booking Done."
         ),
         request=PartnerCompleteBookingSerializer,
@@ -823,7 +823,7 @@ class CompleteBookingAPIView(PartnerAPIView):
             )
 
         logger.info(
-            f"Partner {partner.full_name} finished booking #{job.id} via {payment_mode}; CRM stays Pending"
+            f"Partner {partner.full_name} finished booking #{job.id} via {payment_mode}; CRM stays On Process"
         )
 
         from core.pricing.gst import apply_ledger_base

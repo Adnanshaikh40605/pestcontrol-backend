@@ -117,7 +117,7 @@ class PartnerCompleteMultiServiceTests(TestCase):
         job = self._make_in_service_multi(crm_cancelled=True)
         result = partner_complete_booking(job, self.partner, 'Cash')
         result.refresh_from_db()
-        self.assertEqual(result.status, JobCard.JobStatus.PENDING)
+        self.assertEqual(result.status, JobCard.JobStatus.ON_PROCESS)
         self.assertEqual(result.partner_status, JobCard.PartnerStatus.COMPLETED)
         self.assertEqual(result.payment_status, JobCard.PaymentStatus.PAID)
         day1 = list(
@@ -134,7 +134,7 @@ class PartnerCompleteMultiServiceTests(TestCase):
         self.assertEqual(caught.exception.code, 'already_completed')
         job.refresh_from_db()
         self.assertEqual(job.partner_id, self.partner.id)
-        self.assertEqual(job.status, JobCard.JobStatus.PENDING)
+        self.assertEqual(job.status, JobCard.JobStatus.ON_PROCESS)
         self.assertEqual(job.partner_status, JobCard.PartnerStatus.COMPLETED)
 
     def test_complete_api_end_to_end_multi_cancelled_children(self):
@@ -147,6 +147,6 @@ class PartnerCompleteMultiServiceTests(TestCase):
         )
         self.assertEqual(res.status_code, 200, res.data)
         job.refresh_from_db()
-        self.assertEqual(job.status, JobCard.JobStatus.PENDING)
+        self.assertEqual(job.status, JobCard.JobStatus.ON_PROCESS)
         self.assertEqual(job.partner_status, JobCard.PartnerStatus.COMPLETED)
         self.assertEqual(job.payment_mode, JobCard.PaymentMode.ONLINE)

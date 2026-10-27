@@ -94,15 +94,15 @@ def send_booking_to_partner_app(job: JobCard, technician_id=None, sent_by_user=N
     Returns (job, refloated, notify_result) where refloated=True when the booking was already in the
     open pool and in-app notifications were sent again.
     """
-    if job.status != JobCard.JobStatus.PENDING:
-        raise PartnerBookingError(
-            f'Only Pending bookings can be sent to the app (current: {job.status}).',
-            code='invalid_status',
-        )
     if job.partner_status == JobCard.PartnerStatus.COMPLETED:
         raise PartnerBookingError(
             'The technician already completed this visit. Mark it Done from CRM before sending it again.',
             code='already_completed',
+        )
+    if job.status != JobCard.JobStatus.PENDING:
+        raise PartnerBookingError(
+            f'Only Pending bookings can be sent to the app (current: {job.status}).',
+            code='invalid_status',
         )
     if job.sent_to_app_at and job.partner_status in (
         JobCard.PartnerStatus.PENDING,
@@ -437,11 +437,11 @@ def partner_complete_booking(job: JobCard, partner: Partner, payment_mode: str) 
             job.total_amount = display
             job.save(update_fields=['price', 'total_amount', 'updated_at'])
 
-    # The technician has finished the visit. CRM stays Pending until staff
-    # or an admin marks the booking Done. Payout and the next visit wait
+    # The technician has finished the visit. The booking stays On Process
+    # until staff or an admin marks it Done. Payout and the next visit wait
     # for that office step.
     job.partner_status = JobCard.PartnerStatus.COMPLETED
-    job.status = JobCard.JobStatus.PENDING
+    job.status = JobCard.JobStatus.ON_PROCESS
     job.completed_at = timezone.now()
     if not job.started_at:
         job.started_at = job.completed_at

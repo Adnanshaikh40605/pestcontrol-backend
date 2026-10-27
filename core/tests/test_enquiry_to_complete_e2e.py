@@ -212,7 +212,7 @@ class EnquiryToCompleteE2ETests(TestCase):
         self.assertIsNotNone(job.started_at)
         self.assertEqual(self.tech.presence_status, Technician.PresenceStatus.ACTIVE)
 
-        # 6) Technician finishes the visit. CRM stays Pending; staff close it.
+        # 6) Technician finishes the visit. CRM stays On Process; staff close it.
         complete = self.partner_api.post(
             f'/api/partner/bookings/{job_id}/complete/',
             {'payment_mode': 'Cash'},
@@ -221,8 +221,16 @@ class EnquiryToCompleteE2ETests(TestCase):
         self.assertEqual(complete.status_code, 200, complete.data)
         job.refresh_from_db()
         self.tech.refresh_from_db()
-        self.assertEqual(job.status, JobCard.JobStatus.PENDING)
+        self.assertEqual(job.status, JobCard.JobStatus.ON_PROCESS)
         self.assertEqual(job.partner_status, JobCard.PartnerStatus.COMPLETED)
+        on_process = self.crm.get('/api/v1/jobcards/', {'booking_type': 'on_process'})
+        pending = self.crm.get('/api/v1/jobcards/', {'booking_type': 'pending'})
+        self.assertEqual(on_process.status_code, 200, on_process.data)
+        self.assertEqual(pending.status_code, 200, pending.data)
+        on_process_ids = {row['id'] for row in on_process.data.get('results', on_process.data)}
+        pending_ids = {row['id'] for row in pending.data.get('results', pending.data)}
+        self.assertIn(job_id, on_process_ids)
+        self.assertNotIn(job_id, pending_ids)
         self.assertEqual(job.payment_status, JobCard.PaymentStatus.PAID)
         self.assertIsNone(PartnerEarning.objects.filter(partner=self.partner, job=job).first())
 
@@ -234,6 +242,13 @@ class EnquiryToCompleteE2ETests(TestCase):
         self.assertEqual(closed.status_code, 200, closed.data)
         job.refresh_from_db()
         self.assertEqual(job.status, JobCard.JobStatus.DONE)
+        done = self.crm.get('/api/v1/jobcards/', {'booking_type': 'done'})
+        still_open = self.crm.get('/api/v1/jobcards/', {'booking_type': 'on_process'})
+        self.assertEqual(done.status_code, 200, done.data)
+        done_ids = {row['id'] for row in done.data.get('results', done.data)}
+        still_open_ids = {row['id'] for row in still_open.data.get('results', still_open.data)}
+        self.assertIn(job_id, done_ids)
+        self.assertNotIn(job_id, still_open_ids)
         self.assertEqual(job.payout_status, JobCard.PayoutStatus.PENDING)
         self.assertEqual(job.technician_pool_amount, Decimal('1000.00'))  # 40% of 2500
         earning = PartnerEarning.objects.filter(partner=self.partner, job=job).first()
