@@ -21,6 +21,7 @@ class DeepCleaningRateMasterTests(APITestCase):
         rates = {row['id']: row for row in res.data['rates']}
         self.assertEqual(len(rates), 104)
         self.assertNotIn('R2', rates)
+        self.assertNotIn('4999', rates)
         self.assertEqual(rates['H09']['base'], 4500)
         self.assertEqual(rates['H09']['package'], 'Furnished 1BHK Standard up to 600 sq ft')
         self.assertEqual(rates['H11']['base'], 10000)
