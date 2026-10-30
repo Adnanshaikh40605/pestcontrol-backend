@@ -437,8 +437,8 @@ class AcceptedBookingsAPIView(PartnerAPIView):
         tags=["Bookings"],
         summary="Get accepted bookings",
         description=(
-            "Returns bookings the partner has accepted (partner_status='accepted' or 'in_service'). "
-            "These appear in the **Accepted** tab on the app."
+            "Returns bookings this technician has accepted or started. "
+            "They stay on the Accepted tab until the visit is finished or the office removes the technician."
         ),
     )
     def get(self, request):
@@ -455,17 +455,15 @@ class AcceptedBookingsAPIView(PartnerAPIView):
         tech_id = getattr(partner, 'core_technician_id', None)
         if tech_id:
             accepted_filter &= Q(technician_id=tech_id)
-        jobs = JobCard.objects.filter(accepted_filter).select_related(
-            'client', 'master_city', 'master_location',
-        ).order_by('schedule_datetime')
-
-        from partner.services import apply_partner_pool_filters
-
-        filtered = apply_partner_pool_filters(
-            list(jobs), partner, today_tomorrow_only=True,
+        # City, service, and today/tomorrow filters belong on New Bookings.
+        # A job this technician already accepted stays on the Accepted tab.
+        jobs = list(
+            JobCard.objects.filter(accepted_filter).select_related(
+                'client', 'master_city', 'master_location',
+            ).order_by('schedule_datetime')
         )
-        serializer = PartnerBookingListSerializer(filtered, many=True, context={'request': request})
-        return Response({"count": len(filtered), "results": serializer.data})
+        serializer = PartnerBookingListSerializer(jobs, many=True, context={'request': request})
+        return Response({"count": len(jobs), "results": serializer.data})
 
 
 class CompletedBookingsAPIView(PartnerAPIView):
@@ -558,7 +556,6 @@ class BookingCountsAPIView(PartnerAPIView):
     def get(self, request):
         partner = request.partner
         from partner.services import (
-            apply_partner_pool_filters,
             count_partner_available_bookings,
             filter_jobs_today_tomorrow,
         )
@@ -571,12 +568,7 @@ class BookingCountsAPIView(PartnerAPIView):
         tech_id = getattr(partner, 'core_technician_id', None)
         if tech_id:
             accepted_filter &= Q(technician_id=tech_id)
-        accepted_jobs = JobCard.objects.filter(accepted_filter).select_related(
-            'client', 'master_city', 'master_location',
-        )
-        accepted = len(apply_partner_pool_filters(
-            list(accepted_jobs), partner, today_tomorrow_only=True,
-        ))
+        accepted = JobCard.objects.filter(accepted_filter).count()
         completed = len(filter_jobs_today_tomorrow(list(
             JobCard.objects.filter(
                 partner=partner,

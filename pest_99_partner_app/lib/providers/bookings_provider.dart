@@ -47,6 +47,10 @@ class BookingsProvider extends ChangeNotifier {
   /// refresh so a 45s sync cannot make the tapped booking disappear again.
   final Map<int, PartnerBooking> _pinnedAvailable = {};
 
+  /// Bumps when the technician accepts, rejects, or finishes a job.
+  /// A list refresh that started before that action must not overwrite it.
+  int _mutationEpoch = 0;
+
   /// 0 = Today, 1 = Tomorrow. Set when a notification booking is revealed.
   ///
   /// Null means the job is not on those tabs (Later, or the date is unknown).
@@ -117,6 +121,7 @@ class BookingsProvider extends ChangeNotifier {
   }
 
   Future<void> _refreshInternal(bool showGlobalLoader) async {
+    final epoch = _mutationEpoch;
     if (showGlobalLoader) {
       loading = true;
       error = null;
@@ -139,6 +144,7 @@ class BookingsProvider extends ChangeNotifier {
         _service.getAccepted(),
         _service.getCompleted(),
       ]);
+      if (epoch != _mutationEpoch) return;
       counts = results[0] as BookingCounts;
       final availableResult = results[1] as AvailableBookingsResult;
       available = _dedupeById(
@@ -153,7 +159,7 @@ class BookingsProvider extends ChangeNotifier {
       manualAssignOnly = availableResult.manualAssignOnly;
       manualAssignMessage =
           availableResult.manualAssignOnly ? availableResult.message : '';
-      accepted = (results[2] as List<PartnerBooking>).where(_isTodayOrTomorrow).toList();
+      accepted = results[2] as List<PartnerBooking>;
       completed = (results[3] as List<PartnerBooking>).where(_isTodayOrTomorrow).toList();
       counts = BookingCounts(
         available: available.length,
@@ -315,6 +321,7 @@ class BookingsProvider extends ChangeNotifier {
   }
 
   void removeFromAvailable(int id) {
+    _mutationEpoch++;
     _pinnedAvailable.remove(id);
     final next = available.where((b) => b.id != id).toList();
     if (next.length == available.length) return;
@@ -328,6 +335,7 @@ class BookingsProvider extends ChangeNotifier {
   }
 
   void removeFromAccepted(int id) {
+    _mutationEpoch++;
     final next = accepted.where((b) => b.id != id).toList();
     if (next.length == accepted.length) return;
     accepted = next;
@@ -340,17 +348,9 @@ class BookingsProvider extends ChangeNotifier {
   }
 
   void applyAcceptedBooking(PartnerBooking booking) {
+    _mutationEpoch++;
     _pinnedAvailable.remove(booking.id);
     available = available.where((b) => b.id != booking.id).toList();
-    if (!_isTodayOrTomorrow(booking)) {
-      counts = BookingCounts(
-        available: available.length,
-        accepted: accepted.length,
-        completed: counts.completed,
-      );
-      notifyListeners();
-      return;
-    }
     final idx = accepted.indexWhere((b) => b.id == booking.id);
     if (idx >= 0) {
       final next = List<PartnerBooking>.from(accepted);
@@ -455,6 +455,7 @@ class BookingsProvider extends ChangeNotifier {
           } catch (_) {
             // Complete already succeeded — don't fail UX on detail fetch.
           }
+          _mutationEpoch++;
           accepted = accepted.where((b) => b.id != id).toList();
           if (updated != null && _isTodayOrTomorrow(updated)) {
             completed = [updated, ...completed.where((b) => b.id != id)];

@@ -675,9 +675,11 @@ def apply_partner_pool_filters(
     available_only: bool = False,
 ):
     """
-    City/area + base-services filter for partner booking lists.
-    New Bookings, Accepted, and Completed keep today and tomorrow in India.
-    A date after tomorrow stays off every partner booking tab and is not pushed.
+    City/area + base-services filter for the New Bookings pool.
+    New Bookings and Completed keep today and tomorrow in India.
+    A date after tomorrow stays off those tabs and is not pushed.
+    Accepted jobs are listed separately: once the technician accepts, the
+    booking stays on the Accepted tab.
 
     When ``available_only`` is True, also drop follow-ups, service calls, and
     multi-service day-1 child rows so New Bookings shows one card per request,

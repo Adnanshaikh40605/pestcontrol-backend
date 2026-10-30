@@ -180,7 +180,7 @@ class PartnerPoolFilterTests(TestCase):
         accepted = self.partner_api.get('/api/partner/bookings/accepted/')
         accepted_ids = [row['id'] for row in accepted.data['results']]
         self.assertIn(soon.id, accepted_ids)
-        self.assertNotIn(later.id, accepted_ids)
+        self.assertIn(later.id, accepted_ids)
 
         for job in (soon, later):
             job.partner_status = JobCard.PartnerStatus.COMPLETED
@@ -196,6 +196,21 @@ class PartnerPoolFilterTests(TestCase):
         counts = self.partner_api.get('/api/partner/bookings/counts/')
         self.assertEqual(counts.data['accepted'], 0)
         self.assertEqual(counts.data['completed'], completed.data['count'])
+
+    def test_accept_puts_a_later_booking_on_the_accepted_tab(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            job = self._pending_shell(
+                schedule_datetime=self.schedule + timedelta(days=4),
+            )
+        accepted_call = self.partner_api.post(f'/api/partner/bookings/{job.id}/accept/')
+        self.assertEqual(accepted_call.status_code, 200, accepted_call.data)
+
+        accepted = self.partner_api.get('/api/partner/bookings/accepted/')
+        self.assertIn(job.id, [row['id'] for row in accepted.data['results']])
+        available = self.partner_api.get('/api/partner/bookings/available/')
+        self.assertNotIn(job.id, [row['id'] for row in available.data['results']])
+        counts = self.partner_api.get('/api/partner/bookings/counts/')
+        self.assertGreaterEqual(counts.data['accepted'], 1)
 
     def test_auto_send_skips_service_call_rows(self):
         job = JobCard.objects.create(
