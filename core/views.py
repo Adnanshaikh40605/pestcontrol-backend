@@ -2802,6 +2802,20 @@ class JobCardViewSet(BaseModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @extend_schema(
+        summary="Today's technician report",
+        description=(
+            "Active technicians with bookings scheduled today in India, "
+            "grouped with customer, price, location, and status."
+        ),
+        tags=['Job Cards'],
+    )
+    @action(detail=False, methods=['get'], url_path='today-technician-report')
+    def today_technician_report(self, request):
+        from core.today_technician_report import build_today_technician_report
+
+        return response.Response(build_today_technician_report())
+
     @action(detail=True, methods=['post'])
     def assign(self, request, pk=None):
         """Assign technician in CRM only (On Process) — does not use partner app flow.
