@@ -211,6 +211,7 @@ class DashboardTodayCitySplitTests(TestCase):
 
         stats = DashboardService.get_dashboard_statistics()
         self.assertEqual(stats['today_booking_count'], 1)
+        self.assertEqual(stats['today_booking_amount'], 1000)
         self.assertEqual(stats['tomorrow_booking_count'], 1)
         self.assertEqual(stats['today_service_call_count'], 1)
         self.assertEqual(stats['today_complaint_call_count'], 0)
@@ -230,6 +231,92 @@ class DashboardTodayCitySplitTests(TestCase):
         self.assertEqual(range_by_city.get('Mumbai'), 1)
         self.assertEqual(range_by_city.get('Thane'), 1)
         self.assertEqual(stats['range_booking_city_stats'], stats['city_stats'])
+
+    def test_today_booking_amount_skips_other_days_and_revisit_calls(self):
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Bed Bugs',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='2500',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_service_call=False,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Cockroach / Ants',
+            city='Pune',
+            schedule_datetime=self.today,
+            price='2000.50',
+            reference='Other',
+            status=JobCard.JobStatus.ON_PROCESS,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_service_call=False,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Termite',
+            city='Thane',
+            schedule_datetime=self.today + timedelta(days=1),
+            price='9000',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_service_call=False,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Rodent',
+            city='Mumbai',
+            schedule_datetime=self.today - timedelta(days=1),
+            price='6000',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_service_call=False,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='General',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='800',
+            reference='Other',
+            status=JobCard.JobStatus.PENDING,
+            booking_type=JobCard.BookingType.COMPLAINT_CALL,
+            booking_category=JobCard.BookingCategory.COMPLAINT_CALL,
+            is_complaint_call=True,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='General',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='700',
+            reference='Other',
+            status=JobCard.JobStatus.UPCOMING,
+            booking_type=JobCard.BookingType.SERVICE_CALL,
+            booking_category=JobCard.BookingCategory.SERVICE_CALL,
+            is_service_call=True,
+            service_cycle=2,
+        )
+        JobCard.objects.create(
+            client=self.client_record,
+            service_type='Rodent',
+            city='Mumbai',
+            schedule_datetime=self.today,
+            price='4000',
+            reference='Other',
+            status=JobCard.JobStatus.CANCELLED,
+            booking_type=JobCard.BookingType.NEW_BOOKING,
+            is_service_call=False,
+        )
+
+        stats = DashboardService.get_dashboard_statistics()
+        self.assertEqual(stats['today_booking_count'], 2)
+        self.assertEqual(stats['today_booking_amount'], 4500.5)
 
     def test_multi_service_children_count_as_one_new_booking(self):
         """One package with 3 service rows must contribute Mumbai — 1, not 3."""
@@ -252,7 +339,7 @@ class DashboardTodayCitySplitTests(TestCase):
                 service_type=svc,
                 city='Mumbai',
                 schedule_datetime=self.today,
-                price='0',
+                price='1500',
                 reference='Other',
                 status=JobCard.JobStatus.PENDING,
                 booking_type=JobCard.BookingType.NEW_BOOKING,
@@ -284,6 +371,7 @@ class DashboardTodayCitySplitTests(TestCase):
         self.assertEqual(stats['city_stats'], [{'city': 'Mumbai', 'count': 1}])
         self.assertEqual(stats['range_booking_city_stats'], [{'city': 'Mumbai', 'count': 1}])
         self.assertEqual(stats['today_booking_count'], 1)
+        self.assertEqual(stats['today_booking_amount'], 5000)
         self.assertGreaterEqual(stats['today_service_call_count'], 1)
 
     def test_city_stats_merge_case_variants_and_show_proper_names(self):

@@ -7,7 +7,7 @@ import re
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Sum, Count, Value, FloatField, Q
+from django.db.models import Sum, Count, Value, FloatField, Q, Case, When
 from django.db.models.functions import Coalesce, Cast
 from django.utils import timezone
 
@@ -2245,6 +2245,20 @@ class DashboardService:
             today_booking_count = today_split['bookings'] or 0
             today_service_call_count = today_split['services'] or 0
             today_complaint_call_count = today_split['complaints'] or 0
+            # Same rows as the booking count: today's new bookings only. Blank or
+            # non-numeric prices add nothing. Complaints, service calls,
+            # cancelled visits, and other days are not in today_booking_qs.
+            numeric_price = Case(
+                When(
+                    price__regex=r'^\d+(\.\d+)?$',
+                    then=Cast('price', FloatField()),
+                ),
+                default=Value(0.0),
+                output_field=FloatField(),
+            )
+            today_booking_amount = today_booking_qs.aggregate(
+                total=Coalesce(Sum(numeric_price), Value(0.0, output_field=FloatField())),
+            )['total'] or 0
 
             tomorrow = today + timedelta(days=1)
             tomorrow_active = JobCard.objects.filter(
@@ -2406,6 +2420,7 @@ class DashboardService:
                 'today_service_city_stats': today_service_city_stats,
                 'today_complaint_city_stats': today_complaint_city_stats,
                 'today_booking_count': today_booking_count,
+                'today_booking_amount': float(today_booking_amount),
                 'today_service_call_count': today_service_call_count,
                 'today_complaint_call_count': today_complaint_call_count,
                 'tomorrow_booking_count': tomorrow_booking_count,
