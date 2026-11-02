@@ -210,7 +210,49 @@ class PartnerPoolFilterTests(TestCase):
         available = self.partner_api.get('/api/partner/bookings/available/')
         self.assertNotIn(job.id, [row['id'] for row in available.data['results']])
         counts = self.partner_api.get('/api/partner/bookings/counts/')
+        self.assertEqual(counts.data['accepted'], accepted.data['count'])
         self.assertGreaterEqual(counts.data['accepted'], 1)
+
+    def test_accept_moves_today_booking_onto_accepted_tab(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            job = self._pending_shell()
+
+        available = self.partner_api.get('/api/partner/bookings/available/')
+        self.assertIn(job.id, [row['id'] for row in available.data['results']])
+
+        accepted_call = self.partner_api.post(f'/api/partner/bookings/{job.id}/accept/')
+        self.assertEqual(accepted_call.status_code, 200, accepted_call.data)
+        self.assertEqual(accepted_call.data['partner_status'], 'accepted')
+
+        # The old Accepted list reused the New Bookings city filter. Clearing
+        # the technician's cities must not take the job off the Accepted tab.
+        self.tech.service_cities.clear()
+
+        accepted = self.partner_api.get('/api/partner/bookings/accepted/')
+        accepted_ids = [row['id'] for row in accepted.data['results']]
+        self.assertIn(job.id, accepted_ids)
+        row = next(item for item in accepted.data['results'] if item['id'] == job.id)
+        self.assertEqual(row['partner_status'], 'accepted')
+        self.assertTrue(row['can_start_job'])
+
+        available = self.partner_api.get('/api/partner/bookings/available/')
+        self.assertNotIn(job.id, [row['id'] for row in available.data['results']])
+
+        counts = self.partner_api.get('/api/partner/bookings/counts/')
+        self.assertEqual(counts.data['accepted'], accepted.data['count'])
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, JobCard.JobStatus.ON_PROCESS)
+        self.assertEqual(job.technician_id, self.tech.id)
+        self.assertEqual(job.partner_id, self.partner.id)
+
+        job.partner_status = JobCard.PartnerStatus.IN_SERVICE
+        job.save(update_fields=['partner_status'])
+        started = self.partner_api.get('/api/partner/bookings/accepted/')
+        self.assertIn(job.id, [row['id'] for row in started.data['results']])
+        started_row = next(item for item in started.data['results'] if item['id'] == job.id)
+        self.assertEqual(started_row['partner_status'], 'in_service')
+        self.assertTrue(started_row['can_complete_job'])
 
     def test_auto_send_skips_service_call_rows(self):
         job = JobCard.objects.create(

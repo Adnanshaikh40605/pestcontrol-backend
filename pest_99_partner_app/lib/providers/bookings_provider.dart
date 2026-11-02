@@ -111,12 +111,18 @@ class BookingsProvider extends ChangeNotifier {
       return;
     }
 
+    final epoch = _mutationEpoch;
     _refreshInFlight = _refreshInternal(showGlobalLoader);
     try {
       await _refreshInFlight;
     } finally {
       _refreshInFlight = null;
       _lastRefreshAt = DateTime.now();
+      // Accept/reject/complete happened while this fetch was running, so its
+      // payload was ignored. Load the lists again or the Accepted tab stays empty.
+      if (epoch != _mutationEpoch) {
+        unawaited(_refreshLists(showGlobalLoader: false, force: true));
+      }
     }
   }
 
@@ -254,11 +260,18 @@ class BookingsProvider extends ChangeNotifier {
       return;
     }
 
-    if (accepted && _isTodayOrTomorrow(booking)) {
+    if (accepted) {
+      _mutationEpoch++;
       _pinnedAvailable.remove(id);
+      available = available.where((b) => b.id != id).toList();
       if (!this.accepted.any((b) => b.id == id)) {
         this.accepted = [booking, ...this.accepted];
       }
+      counts = BookingCounts(
+        available: available.length,
+        accepted: this.accepted.length,
+        completed: completed.length,
+      );
       notificationDayTab = null;
       focusBookingId = null;
     } else if (!_isTodayOrTomorrow(booking)) {
@@ -383,8 +396,14 @@ class BookingsProvider extends ChangeNotifier {
             final detail = await _service.getDetail(id);
             applyAcceptedBooking(detail);
           } catch (_) {
-            // Accept already succeeded — keep optimistic list update via refresh.
-            removeFromAvailable(id);
+            // Accept already succeeded. Keep the card on Accepted even when
+            // the detail request fails, then confirm it from the list API.
+            final existing = _findBooking(id);
+            if (existing != null) {
+              applyAcceptedBooking(existing);
+            } else {
+              removeFromAvailable(id);
+            }
             unawaited(refreshListsLight(force: true));
           }
           unawaited(_syncCounts());
@@ -497,14 +516,20 @@ class BookingsProvider extends ChangeNotifier {
       userErrorMessage(e, fallback: 'This booking is no longer available.');
 
   void _replaceInAccepted(PartnerBooking updated) {
+    _mutationEpoch++;
     final idx = accepted.indexWhere((b) => b.id == updated.id);
     if (idx >= 0) {
       final next = List<PartnerBooking>.from(accepted);
       next[idx] = updated;
       accepted = next;
-    } else if (_isTodayOrTomorrow(updated)) {
-      accepted = [...accepted, updated];
+    } else {
+      accepted = [updated, ...accepted];
     }
+    counts = BookingCounts(
+      available: available.length,
+      accepted: accepted.length,
+      completed: counts.completed,
+    );
   }
 
   Future<void> _syncCounts() async {
