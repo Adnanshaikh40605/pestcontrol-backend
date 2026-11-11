@@ -756,7 +756,14 @@ class JobCardSerializer(serializers.ModelSerializer):
             return "Included in Service"
         if obj.booking_type == JobCard.BookingType.SERVICE_CALL and obj.service_cycle > 1:
             return "Included in Service"
-        return obj.price
+        from core.pricing.gst import format_customer_price_plus_gst
+        from core.payment_utils import parse_jobcard_price
+
+        if parse_jobcard_price(getattr(obj, 'price', None)) <= 0 and not (
+            getattr(obj, 'taxable_amount', None) or 0
+        ):
+            return obj.price or "0"
+        return format_customer_price_plus_gst(obj, include_rupee=True)
     
     def validate(self, data):
         """Custom validation for JobCard creation with client data."""

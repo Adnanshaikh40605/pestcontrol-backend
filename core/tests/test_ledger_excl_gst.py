@@ -147,6 +147,23 @@ class LedgerExclGstDisplayTests(TestCase):
         self.assertEqual(Decimal(row['technician_share']), Decimal('400.00'))
         self.assertEqual(Decimal(row['company_share']), Decimal('600.00'))
 
+    def test_already_base_payout_snapshots_are_not_double_peeled(self):
+        """After payout stores excl-GST 1000/400/600, ledger must keep ₹400."""
+        job = self._done_job(price='1180', visit='1000', tech='400', company='600')
+        job.taxable_amount = Decimal('1000.00')
+        job.gst_amount = Decimal('180.00')
+        job.gst_rate = Decimal('18.00')
+        job.gst_mode = 'GST_INCLUSIVE'
+        job.final_payable_amount = Decimal('1180.00')
+        job.save(update_fields=[
+            'taxable_amount', 'gst_amount', 'gst_rate', 'gst_mode', 'final_payable_amount',
+        ])
+        row = serialize_ledger_row(job, self.tech)
+        self.assertEqual(Decimal(row['booking_amount']), Decimal('1000.00'))
+        self.assertEqual(Decimal(row['visit_revenue']), Decimal('1000.00'))
+        self.assertEqual(Decimal(row['technician_share']), Decimal('400.00'))
+        self.assertEqual(Decimal(row['company_share']), Decimal('600.00'))
+
     def test_ledger_api_returns_excl_gst(self):
         self._done_job()
         res = self.api.get(f'/api/v1/technicians/{self.tech.id}/ledger/')

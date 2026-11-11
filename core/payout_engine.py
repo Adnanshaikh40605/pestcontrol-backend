@@ -107,17 +107,15 @@ class PayoutResult:
 
 
 def _billable_total(job) -> Decimal:
-    from core.payment_utils import effective_service_total, parse_jobcard_price
+    """GST-exclusive package total used for 40/60 revenue share."""
+    from core.pricing.gst import commission_billable_base
 
-    total = effective_service_total(job)
-    if total and total > 0:
-        return quantize_money(total)
-    return quantize_money(parse_jobcard_price(job.price))
+    return quantize_money(commission_billable_base(job))
 
 
-def service_line_package_amount(job) -> Decimal:
+def _raw_service_line_package_amount(job) -> Decimal:
     """
-    Billable package for THIS service line (not the whole multi-service booking).
+    Stored package/line amount for THIS service line (may still include GST).
 
     - Standalone / priced child → own amount
     - Follow-up child (price 0) → amount from parent.service_items matching source_service
@@ -127,7 +125,7 @@ def service_line_package_amount(job) -> Decimal:
       (that double-bills Cockroach + Rodent the same package amount in the ledger)
     """
     from core.booking_schedule_engine import is_multi_service_booking, service_line_names
-    from core.payment_utils import parse_jobcard_price
+    from core.payment_utils import effective_service_total, parse_jobcard_price
 
     own_price = parse_jobcard_price(getattr(job, 'price', None))
     own_total = quantize_money(getattr(job, 'total_amount', None) or 0)
@@ -166,6 +164,12 @@ def service_line_package_amount(job) -> Decimal:
         for item in items:
             svc = str((item or {}).get('service') or '').strip()
             if svc and svc.lower() == source.lower():
+                # Prefer explicit line base when present (excl GST).
+                base = parse_jobcard_price(
+                    (item or {}).get('base_amount', (item or {}).get('baseAmount'))
+                )
+                if base > 0:
+                    return base
                 amt = parse_jobcard_price((item or {}).get('amount'))
                 if amt > 0:
                     return amt
@@ -175,6 +179,11 @@ def service_line_package_amount(job) -> Decimal:
 
     # Single-item child / parent carrying its line in service_items
     if len(items) == 1:
+        base = parse_jobcard_price(
+            (items[0] or {}).get('base_amount', (items[0] or {}).get('baseAmount'))
+        )
+        if base > 0:
+            return base
         amt = parse_jobcard_price((items[0] or {}).get('amount'))
         if amt > 0:
             return amt
@@ -185,8 +194,24 @@ def service_line_package_amount(job) -> Decimal:
 
     # Classic AMC follow-up (price 0, no line items) → parent package total
     if job.parent_job_id:
-        return _billable_total(root)
-    return _billable_total(job)
+        parent_total = effective_service_total(root) or parse_jobcard_price(root.price)
+        return quantize_money(parent_total)
+    return quantize_money(effective_service_total(job) or parse_jobcard_price(job.price))
+
+
+def service_line_package_amount(job) -> Decimal:
+    """GST-exclusive package/line amount for THIS service line."""
+    from core.pricing.gst import commission_billable_base
+
+    raw = _raw_service_line_package_amount(job)
+    if raw <= 0:
+        return Decimal('0.00')
+    # Prefer the job's own base when this is the priced shell/standalone.
+    if not job.parent_job_id:
+        return quantize_money(commission_billable_base(job, raw))
+    # Child visits: map the raw package/line onto the parent's excl-GST base.
+    root = _package_root(job)
+    return quantize_money(commission_billable_base(root, raw))
 
 
 def _package_root(job):
@@ -444,6 +469,9 @@ def is_one_time_service_line(job) -> bool:
         and not job.included_in_amc
         and not job.is_followup_visit
         and (job.service_cycle or 1) <= 1
+        # Multi-visit society/office packages use contractual ÷N, not one-time.
+        and (job.planned_visit_count or 1) <= 1
+        and (job.max_cycle or 1) <= 1
     ):
         names = service_line_names(items) if items else []
         if len(names) <= 1:

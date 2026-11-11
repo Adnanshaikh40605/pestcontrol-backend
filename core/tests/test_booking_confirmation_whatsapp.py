@@ -69,7 +69,7 @@ class BookingConfirmationHelperTests(TestCase):
         self.assertEqual(params[3], 'Kothrud')
         self.assertEqual(params[4], '05 Aug 2026')
         self.assertEqual(params[5], '10:00 AM')
-        self.assertEqual(params[6], '2500')
+        self.assertEqual(params[6], '2,500 + GST')
         self.assertEqual(params[7], 'Standard service terms apply.')
 
     @patch('core.whatsflow_pc99.send_template_by_phone')
@@ -138,7 +138,7 @@ class BookingConfirmationCreateHookTests(TestCase):
         self.assertEqual(kwargs['body_params'][0], 'CRM Guest')
         self.assertEqual(kwargs['body_params'][1], str(job.code))
         self.assertEqual(kwargs['body_params'][2], 'Cockroach Control')
-        self.assertEqual(kwargs['body_params'][6], '2500')
+        self.assertEqual(kwargs['body_params'][6], '2,500 + GST')
         self.assertEqual(kwargs['body_params'][7], 'Standard service terms apply.')
 
     @patch('core.whatsflow_pc99.send_template_by_phone')
@@ -197,7 +197,7 @@ class BookingConfirmationCrmPriceConfirmTests(TestCase):
         kwargs = send.call_args.kwargs
         self.assertEqual(kwargs['template_name'], 'pc99_booking_confirmation')
         self.assertEqual(kwargs['body_params'][0], 'Draft Customer')
-        self.assertEqual(kwargs['body_params'][6], '3200')
+        self.assertEqual(kwargs['body_params'][6], '3,200 + GST')
 
     @patch('core.whatsflow_pc99.send_template_by_phone')
     def test_price_change_after_confirm_does_not_resend(self, send):
@@ -278,7 +278,7 @@ class WebsiteBookingConfirmationTests(TestCase):
         self.assertEqual(kwargs['body_params'][0], 'Website Guest')
         self.assertEqual(kwargs['body_params'][2], 'General Pest Control')
         self.assertEqual(kwargs['body_params'][5], '10:30 AM')
-        self.assertEqual(kwargs['body_params'][6], '1000')
+        self.assertEqual(kwargs['body_params'][6], '1,000 + GST')
         self.assertEqual(len(kwargs['body_params']), 8)
 
     @patch('core.whatsflow_pc99.send_template_by_phone')
@@ -315,7 +315,7 @@ class WebsiteBookingConfirmationTests(TestCase):
         kwargs = send.call_args.kwargs
         self.assertEqual(kwargs['template_name'], 'pc99_booking_confirmation')
         self.assertEqual(kwargs['body_params'][0], 'App User 2')
-        self.assertEqual(kwargs['body_params'][6], '1000')
+        self.assertEqual(kwargs['body_params'][6], '1,000 + GST')
         self.assertEqual(len(kwargs['body_params']), 8)
 
     @patch('core.whatsflow_pc99.send_template_by_phone')

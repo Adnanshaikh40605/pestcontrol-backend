@@ -241,6 +241,20 @@ def explicit_service_base_total(job) -> Decimal | None:
     return total
 
 
+def known_ledger_base(job) -> Decimal | None:
+    """GST-exclusive base already recorded on the booking (taxable or line base).
+
+    Used so ledger / partner display do not peel GST a second time after the
+    payout engine stores excl-GST visit revenue and 40/60 shares.
+    """
+    if job is None:
+        return None
+    taxable = _money(getattr(job, 'taxable_amount', None))
+    if taxable > 0:
+        return taxable
+    return explicit_service_base_total(job)
+
+
 def chart_quote_for_job(job) -> dict[str, Any] | None:
     """Active Pricing Master quote for this job's service + plan + size.
 
@@ -336,7 +350,7 @@ def ledger_base_ratio(job, amount) -> Decimal:
         return Decimal('1')
 
     chart = chart_quote_for_job(job) if job is not None else None
-    stored = explicit_service_base_total(job) if job is not None else None
+    stored = known_ledger_base(job) if job is not None else None
 
     if chart is not None:
         chart_base = _money(chart['base_amount'])
@@ -403,6 +417,9 @@ def apply_ledger_base(job, amount, reference=None) -> Decimal:
     Uses the same ratio as the ledger (stored/chart base, or one GST peel for
     legacy inclusive totals). Shares are scaled from the booking reference so a
     40% slice is not peeled a second time.
+
+    After payout stores excl-GST visit revenue / 40% shares, figures that already
+    sit on that base scale are returned unchanged (no second peel).
     """
     figure = _money(amount)
     if figure <= 0 or job is None:
@@ -414,9 +431,23 @@ def apply_ledger_base(job, amount, reference=None) -> Decimal:
     if ref <= 0:
         ref = figure
 
-    stored = explicit_service_base_total(job)
+    stored = known_ledger_base(job)
+    stored_visit = _money(getattr(job, 'visit_revenue_amount', None))
     chart = chart_quote_for_job(job)
     chart_total = _money(chart['total_with_gst']) if chart is not None else None
+
+    # Payout engine may already store excl-GST visit revenue + 40/60 shares.
+    # Detect that case and skip a second peel. Do NOT treat a mislabeled
+    # inclusive ``base_amount`` (equal to the customer/chart total) as trusted.
+    already_base_economics = False
+    if stored and stored > 0 and stored_visit > 0 and _close_money(stored_visit, stored):
+        if chart_total and _close_money(stored, chart_total):
+            already_base_economics = False
+        else:
+            already_base_economics = True
+    if already_base_economics and figure <= stored_visit + Decimal('1.00'):
+        return figure
+
     replaces_customer_total = bool(
         chart_total
         and ref > 0
@@ -575,3 +606,130 @@ def earning_amount_excluding_gst(amount, *, earning_type: str | None = None, job
     if job is not None:
         return apply_ledger_base(job, amount)
     return amount_excluding_gst(amount, resolve_job_gst_percent(job))
+
+
+def _format_inr_grouped(amount: Decimal) -> str:
+    """Indian-style grouping without a currency symbol (e.g. 1,000 or 1,00,000)."""
+    figure = _money(amount)
+    negative = figure < 0
+    figure = abs(figure)
+    whole = int(figure.to_integral_value(rounding=ROUND_HALF_UP)) if figure == figure.to_integral_value() else None
+    if whole is None:
+        # Keep two decimals only when needed.
+        text = f"{figure:.2f}".rstrip('0').rstrip('.')
+        if '.' in text:
+            left, right = text.split('.', 1)
+            return ('-' if negative else '') + _group_inr_digits(left) + '.' + right
+        return ('-' if negative else '') + _group_inr_digits(text)
+    return ('-' if negative else '') + _group_inr_digits(str(whole))
+
+
+def _group_inr_digits(digits: str) -> str:
+    raw = ''.join(ch for ch in digits if ch.isdigit()) or '0'
+    if len(raw) <= 3:
+        return raw
+    last3 = raw[-3:]
+    rest = raw[:-3]
+    chunks: list[str] = []
+    while rest:
+        chunks.append(rest[-2:])
+        rest = rest[:-2]
+    return ','.join(reversed(chunks)) + ',' + last3
+
+
+def customer_display_base(job) -> Decimal:
+    """GST-exclusive service base for customer display and 40% commission.
+
+    Prefer saved taxable/base snapshot fields. Peel GST only when the booking
+    clearly stored an inclusive payable (gst_amount / inclusive mode / chart
+    total). Bare cash prices without GST metadata stay as-is so we do not invent
+    an 18% peel on already-base amounts.
+    """
+    if job is None:
+        return Decimal('0.00')
+
+    taxable = _money(getattr(job, 'taxable_amount', None))
+    if taxable > 0:
+        return taxable
+
+    stored = explicit_service_base_total(job)
+    if stored and stored > 0:
+        return stored
+
+    try:
+        from core.payment_utils import effective_service_total, parse_jobcard_price
+    except Exception:
+        parse_jobcard_price = None
+        effective_service_total = None
+
+    price = (
+        parse_jobcard_price(getattr(job, 'price', None))
+        if parse_jobcard_price is not None
+        else _money(getattr(job, 'price', None))
+    )
+    total = _money(getattr(job, 'total_amount', None))
+    final = _money(getattr(job, 'final_payable_amount', None))
+    reference = final if final > 0 else (price if price > 0 else total)
+    if effective_service_total is not None:
+        effective = _money(effective_service_total(job))
+        if effective > 0:
+            reference = effective if reference <= 0 else reference
+
+    gst_amt = _money(getattr(job, 'gst_amount', None))
+    mode = str(getattr(job, 'gst_mode', None) or '').strip().upper().replace(' ', '_').replace('-', '_')
+    inclusive_mode = mode in ('', 'GST_INCLUSIVE', 'INCLUSIVE')
+
+    chart = chart_quote_for_job(job)
+    if chart is not None and reference > 0:
+        chart_base = _money(chart['base_amount'])
+        chart_total = _money(chart['total_with_gst'])
+        if chart_base > 0 and _close_money(reference, chart_base):
+            return chart_base
+        if chart_base > 0 and chart_total > 0 and _close_money(reference, chart_total):
+            return chart_base
+
+    if gst_amt > 0 and reference > 0:
+        return amount_excluding_gst(reference, resolve_job_gst_percent(job))
+
+    if inclusive_mode and reference > 0 and (
+        final > 0 or _money(getattr(job, 'original_service_price', None)) > 0
+    ):
+        # Inclusive snapshot without a usable taxable field.
+        return amount_excluding_gst(reference, resolve_job_gst_percent(job))
+
+    if reference > 0:
+        return reference
+    return Decimal('0.00')
+
+
+def commission_billable_base(job, amount=None) -> Decimal:
+    """Map a package/visit figure onto the excl-GST base used for 40/60 share."""
+    if job is None:
+        return _money(amount)
+    if amount is None:
+        return customer_display_base(job)
+    figure = _money(amount)
+    if figure <= 0:
+        return figure
+    # Prefer proportional mapping from the booking's known base so AMC visit
+    # slices (package ÷ N) keep the same share after GST is removed.
+    booking_base = customer_display_base(job)
+    booking_ref = ledger_reference_amount(job)
+    if booking_base > 0 and booking_ref > 0:
+        if _close_money(figure, booking_ref):
+            return booking_base
+        if _visit_slice_matches(figure, booking_ref):
+            return (booking_base * figure / booking_ref).quantize(
+                MONEY_QUANT, rounding=ROUND_HALF_UP,
+            )
+    return apply_ledger_base(job, figure, reference=booking_ref if booking_ref > 0 else figure)
+
+
+def format_customer_price_plus_gst(job, *, include_rupee: bool = False) -> str:
+    """Customer-facing amount: ``1,000 + GST`` (optional leading ₹)."""
+    base = customer_display_base(job)
+    if base <= 0:
+        return '0'
+    plain = _format_inr_grouped(base)
+    text = f'{plain} + GST'
+    return f'₹{text}' if include_rupee else text

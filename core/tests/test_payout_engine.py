@@ -493,3 +493,44 @@ class PayoutEngineTests(TestCase):
         self.assertFalse(PartnerEarning.objects.filter(job=job, partner=p_o).exists())
         earning = PartnerEarning.objects.get(job=job, partner=p_s)
         self.assertEqual(earning.amount, Decimal('480.00'))
+
+    def test_inclusive_gst_price_pays_forty_percent_of_base_only(self):
+        """₹1,180 customer total → commission on ₹1,000 base = ₹400."""
+        from core.pricing.gst import format_customer_price_plus_gst
+        from core.serializers import JobCardSerializer
+
+        tech, partner = self._make_partner_tech('9000000098', 'GST Tech')
+        job = self._base_job(
+            technician=tech,
+            partner=partner,
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            price='1180',
+            total_amount=Decimal('1180.00'),
+            gst_mode='GST_INCLUSIVE',
+            gst_rate=Decimal('18.00'),
+            taxable_amount=Decimal('1000.00'),
+            gst_amount=Decimal('180.00'),
+            final_payable_amount=Decimal('1180.00'),
+        )
+        result = calculate_and_apply_payout(job)
+        job.refresh_from_db()
+        self.assertFalse(result.skipped)
+        self.assertEqual(job.visit_revenue_amount, Decimal('1000.00'))
+        self.assertEqual(job.technician_pool_amount, Decimal('400.00'))
+        self.assertEqual(job.company_share_amount, Decimal('600.00'))
+        earning = PartnerEarning.objects.get(job=job, partner=partner)
+        self.assertEqual(earning.amount, Decimal('400.00'))
+        self.assertEqual(format_customer_price_plus_gst(job), '1,000 + GST')
+        self.assertEqual(JobCardSerializer().get_price_display(job), '₹1,000 + GST')
+
+        # Ledger must not peel GST a second time after payout stored the base.
+        from core.technician_ledger import serialize_ledger_row
+
+        job.status = JobCard.JobStatus.DONE
+        job.partner_status = JobCard.PartnerStatus.COMPLETED
+        job.completed_at = job.completed_at or job.schedule_datetime
+        job.save(update_fields=['status', 'partner_status', 'completed_at'])
+        row = serialize_ledger_row(job, tech)
+        self.assertEqual(Decimal(row['visit_revenue']), Decimal('1000.00'))
+        self.assertEqual(Decimal(row['technician_share']), Decimal('400.00'))
+        self.assertEqual(Decimal(row['company_share']), Decimal('600.00'))

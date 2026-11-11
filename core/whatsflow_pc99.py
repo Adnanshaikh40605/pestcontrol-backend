@@ -435,13 +435,14 @@ def _format_service_time(job) -> str:
 
 
 def _format_amount_inr(job) -> str:
-    """Plain INR number for template body that already says 'INR {{7}}'."""
-    amount = _booking_amount(job)
-    if amount <= 0:
-        return "0"
-    if amount == amount.to_integral_value():
-        return str(int(amount))
-    return f"{amount:.2f}".rstrip("0").rstrip(".")
+    """Base amount + GST for Meta bodies that already include a ₹ prefix.
+
+    Example customer-visible text: ``₹1,000 + GST``.
+    """
+    from core.pricing.gst import format_customer_price_plus_gst
+
+    text = format_customer_price_plus_gst(job, include_rupee=False)
+    return text if text else "0"
 
 
 def _selected_area(job) -> str:

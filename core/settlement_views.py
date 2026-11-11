@@ -143,10 +143,15 @@ class TechnicianSettlementViewSet(viewsets.ModelViewSet):
             earnings = earnings.filter(created_at__date__gte=date_from)
         if date_to:
             earnings = earnings.filter(created_at__date__lte=date_to)
+        from core.pricing.gst import apply_ledger_base, earning_amount_excluding_gst
+
         rows = []
         for e in earnings.order_by('-created_at')[:2000]:
             job = e.job
             tech = getattr(e.partner, 'core_technician', None)
+            # Export excl-GST figures so Excel matches ledger / 40% base logic
+            # (no-op when payout already stored the base).
+            ref = job.visit_revenue_amount or job.price
             rows.append({
                 'job_code': job.code,
                 'completed_at': job.completed_at.isoformat() if job.completed_at else '',
@@ -154,11 +159,17 @@ class TechnicianSettlementViewSet(viewsets.ModelViewSet):
                 'partner': e.partner.full_name,
                 'payment_model': job.payment_model or '',
                 'payout_status': job.payout_status or '',
-                'visit_revenue': float(job.visit_revenue_amount or 0),
-                'tech_pool': float(job.technician_pool_amount or 0),
-                'company_share': float(job.company_share_amount or 0),
-                'visit_payout': float(job.visit_payout_amount or 0),
-                'earning_amount': float(e.amount or 0),
+                'visit_revenue': float(apply_ledger_base(job, job.visit_revenue_amount or 0, ref)),
+                'tech_pool': float(apply_ledger_base(job, job.technician_pool_amount or 0, ref)),
+                'company_share': float(apply_ledger_base(job, job.company_share_amount or 0, ref)),
+                'visit_payout': float(apply_ledger_base(job, job.visit_payout_amount or 0, ref)),
+                'earning_amount': float(
+                    earning_amount_excluding_gst(
+                        e.amount,
+                        earning_type=getattr(e, 'earning_type', None),
+                        job=job,
+                    )
+                ),
                 'earning_approved': bool(e.is_approved),
             })
         buf = revenue_sharing_workbook(rows)
