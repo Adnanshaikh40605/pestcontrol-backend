@@ -35,6 +35,23 @@ def test_mcp_requires_bearer_token():
         assert allowed.status_code not in (401, 503)
 
 
+def test_mcp_open_access_when_auth_disabled(monkeypatch):
+    monkeypatch.setenv("MCP_REQUIRE_AUTH", "false")
+    from mcp_seo.config import get_settings
+
+    get_settings.cache_clear()
+    app = create_app()
+    with TestClient(app) as client:
+        home = client.get("/")
+        assert home.status_code == 200
+        assert b"PestControl99" in home.content
+        open_post = client.post("/mcp/pestcontrol/", content=b"{}")
+        assert open_post.status_code != 401
+    get_settings.cache_clear()
+    monkeypatch.setenv("MCP_REQUIRE_AUTH", "true")
+
+
+
 def test_rate_limiter_blocks_after_limit():
     limiter = RateLimiter(limit_per_minute=2)
     assert limiter.allow("a") is True

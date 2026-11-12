@@ -1,0 +1,29 @@
+SEO MCP — Production (OPEN ACCESS)
+==================================
+No login. No token. Share these URLs with the SEO team.
+
+Home page
+---------
+https://mcp-seo-production.up.railway.app/
+
+PestControl99 MCP
+-----------------
+https://mcp-seo-production.up.railway.app/mcp/pestcontrol/
+
+DeepCleaning99 MCP
+------------------
+https://mcp-seo-production.up.railway.app/mcp/deepcleaning/
+
+Health check
+------------
+https://mcp-seo-production.up.railway.app/health
+
+How to use
+----------
+1. Open the Home page link above in a browser (anyone can open it).
+2. Add the PestControl99 / DeepCleaning99 MCP URLs in Cursor or Claude
+   as Streamable HTTP MCP servers (no Authorization header needed).
+3. Ask the AI SEO tools about sitemap, meta, blogs, headings, etc.
+
+Note: /mcp/... URLs are MCP API endpoints for AI tools, not a normal
+website dashboard. The home page is the simple staff landing page.

@@ -57,6 +57,8 @@ class Settings:
     host: str = "0.0.0.0"
     port: int = 8100
     allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1")
+    # Open by default so SEO staff can use MCP URLs without tokens.
+    require_auth: bool = False
     public_api_base: str = "https://api.vacationbna.site"
     request_timeout_seconds: float = 10.0
     max_body_bytes: int = 2_000_000
@@ -153,10 +155,12 @@ def get_settings() -> Settings:
         faq_paths=("/faqs/",),
         contact_paths=("/contact-us/", "/about-us/", "/prices/"),
     )
+    require_auth = _env("MCP_REQUIRE_AUTH", "false").lower() in ("1", "true", "yes", "on")
     return Settings(
         host=_env("MCP_HOST", "0.0.0.0"),
         port=_env_int("MCP_PORT", 8100),
         allowed_hosts=hosts or ("localhost", "127.0.0.1"),
+        require_auth=require_auth,
         public_api_base=api,
         request_timeout_seconds=float(_env("MCP_REQUEST_TIMEOUT_SECONDS", "10") or 10),
         max_body_bytes=_env_int("MCP_MAX_BODY_BYTES", 2_000_000),

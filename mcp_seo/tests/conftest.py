@@ -7,6 +7,8 @@ import pytest
 
 os.environ.setdefault("MCP_PESTCONTROL_TOKEN", "test-pest-token")
 os.environ.setdefault("MCP_DEEPCLEANING_TOKEN", "test-deep-token")
+# Auth tests expect locked mode; production defaults to open access.
+os.environ.setdefault("MCP_REQUIRE_AUTH", "true")
 os.environ.setdefault("PESTCONTROL_SITE_BASE", "https://www.pestcontrol99.com")
 os.environ.setdefault("DEEPCLEANING_SITE_BASE", "https://deepcleaning99.com")
 os.environ.setdefault("PUBLIC_API_BASE", "https://api.vacationbna.site")
