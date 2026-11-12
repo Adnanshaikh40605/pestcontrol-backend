@@ -47,19 +47,30 @@ def create_app() -> Starlette:
     pest_mcp = _build_mcp("PestControl99 SEO", "pestcontrol")
     deep_mcp = _build_mcp("DeepCleaning99 SEO", "deepcleaning")
 
+    # Host allowlist from MCP_ALLOWED_HOSTS (must include the public Railway hostname).
+    host_allow = list(settings.allowed_hosts) + [
+        "localhost:*",
+        "127.0.0.1:*",
+        f"{settings.host}:*",
+        "*.up.railway.app",
+        "*.railway.app",
+    ]
+    origin_allow = [
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://localhost:8100",
+        "http://127.0.0.1:8100",
+    ]
+    for host in settings.allowed_hosts:
+        bare = host.split(":")[0].strip()
+        if not bare or bare in {"0.0.0.0", "localhost", "127.0.0.1"}:
+            continue
+        origin_allow.append(f"https://{bare}")
+        origin_allow.append(f"http://{bare}")
     security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
-        allowed_hosts=list(settings.allowed_hosts) + [
-            "localhost:*",
-            "127.0.0.1:*",
-            f"{settings.host}:*",
-        ],
-        allowed_origins=[
-            "http://localhost",
-            "http://127.0.0.1",
-            "http://localhost:8100",
-            "http://127.0.0.1:8100",
-        ],
+        allowed_hosts=host_allow,
+        allowed_origins=origin_allow,
     )
 
     pest_inner = pest_mcp.streamable_http_app(
