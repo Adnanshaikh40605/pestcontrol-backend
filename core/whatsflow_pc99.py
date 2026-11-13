@@ -466,7 +466,7 @@ def build_booking_confirmation_params(job) -> list[str]:
       {{4}} Selected Area
       {{5}} Service Date
       {{6}} Service Time
-      {{7}} Amount (INR number)
+      {{7}} Amount (base + GST, e.g. 1,500 + GST)
       {{8}} Terms & Conditions
     """
     client = getattr(job, "client", None)
