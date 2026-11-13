@@ -484,6 +484,7 @@ class Technician(BaseModel):
 class Inquiry(BaseModel):
     class InquiryStatus(models.TextChoices):
         NEW = 'New', 'New'
+        INSPECTION_REQUESTED = 'Inspection Requested', 'Inspection Requested'
         CONTACTED = 'Contacted', 'Contacted'
         CONVERTED = 'Converted', 'Converted'
         CLOSED = 'Closed', 'Closed'
@@ -533,7 +534,7 @@ class Inquiry(BaseModel):
         help_text="City where the service is required"
     )
     status = models.CharField(
-        max_length=20,
+        max_length=32,
         choices=InquiryStatus.choices,
         default=InquiryStatus.NEW,
         db_index=True,

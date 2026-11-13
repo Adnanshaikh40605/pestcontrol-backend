@@ -83,6 +83,7 @@ def get_status_counts(qs: QuerySet) -> dict[str, int]:
     return {
         'all': total,
         'New': by_status.get('New', 0),
+        'Inspection Requested': by_status.get('Inspection Requested', 0),
         'Contacted': by_status.get('Contacted', 0),
         'Converted': by_status.get('Converted', 0),
         'Closed': by_status.get('Closed', 0),

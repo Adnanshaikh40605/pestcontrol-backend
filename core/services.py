@@ -278,7 +278,7 @@ def _is_cockroach_amc(service: str, plan: str) -> bool:
 
 
 from .telegram import notify_new_inquiry
-from .whatsflow_pc99 import notify_staff_website_lead
+from .whatsflow_pc99 import notify_inquiry_received, notify_staff_website_lead
 
 logger = logging.getLogger(__name__)
 
@@ -601,13 +601,33 @@ class InquiryService:
                 exc_info=True,
             )
 
-        # Staff WhatsApp only (soft-fail). Do NOT send customer WhatsApp on
-        # website inquiry — internal lead alert goes to WEBSITE_LEAD_STAFF_WHATSAPP.
+        # Staff WhatsApp only (soft-fail). Customer confirmation is sent separately
+        # when an inspection form is finalized (Inspection Requested).
         try:
             InquiryService._notify_staff_website_lead_whatsapp(inquiry)
         except Exception as exc:
             logger.error(
                 "Failed staff WhatsApp lead alert for inquiry %s: %s",
+                inquiry.id,
+                exc,
+                exc_info=True,
+            )
+
+    @staticmethod
+    def _notify_customer_inquiry_whatsapp(inquiry: Inquiry) -> None:
+        """Customer WhatsApp confirmation for finalized website inspection leads."""
+        try:
+            notify_inquiry_received(
+                name=inquiry.name,
+                mobile=inquiry.mobile,
+                service=inquiry.service_interest,
+                area=inquiry.city,
+                property_type=inquiry.premise_type or 'Residential',
+                inquiry_id=inquiry.id,
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed customer inquiry WhatsApp for inquiry %s: %s",
                 inquiry.id,
                 exc,
                 exc_info=True,
@@ -640,6 +660,8 @@ class InquiryService:
         # as soon as a valid number is entered; later name upserts update the
         # same lead without a second alert.
         InquiryService._notify_inquiry_channels(inquiry)
+        if inquiry.status == Inquiry.InquiryStatus.INSPECTION_REQUESTED:
+            InquiryService._notify_customer_inquiry_whatsapp(inquiry)
 
         return inquiry
 
@@ -710,6 +732,21 @@ class InquiryService:
         if len(mobile) != 10:
             raise ValidationError('Mobile must be a valid 10-digit number.')
 
+        valid_statuses = {c.value for c in Inquiry.InquiryStatus}
+        raw_status = (data.get('status') or '').strip() or Inquiry.InquiryStatus.NEW
+        status = raw_status if raw_status in valid_statuses else Inquiry.InquiryStatus.NEW
+
+        # Society / commercial inspection forms always need a site visit.
+        premise_l = (premise_type or '').lower()
+        if status == Inquiry.InquiryStatus.INSPECTION_REQUESTED or premise_l in (
+            'commercial',
+            'society-free',
+            'society-paid',
+            'society free',
+            'society paid',
+        ):
+            is_inspection = True
+
         return {
             'booking_session_id': session_id,
             'mobile': mobile,
@@ -730,7 +767,7 @@ class InquiryService:
             'estimated_price': estimated_price,
             'is_inspection_required': bool(is_inspection),
             'remark': remark,
-            'status': Inquiry.InquiryStatus.NEW,
+            'status': status,
         }
 
     @staticmethod
@@ -758,11 +795,23 @@ class InquiryService:
             ):
                 return existing, False
 
-            # Keep Contacted/New status; refresh captured details only.
+            # Keep Contacted/Converted status; refresh captured details only.
+            # Allow New → Inspection Requested when the customer finalizes an
+            # inspection form (Society Free / Society Paid / Commercial).
             update_fields = []
             previous_mobile = existing.mobile
+            previous_status = existing.status
             for key, value in fields.items():
-                if key in ('status', 'booking_session_id'):
+                if key == 'booking_session_id':
+                    continue
+                if key == 'status':
+                    if (
+                        value == Inquiry.InquiryStatus.INSPECTION_REQUESTED
+                        and existing.status == Inquiry.InquiryStatus.NEW
+                        and existing.status != value
+                    ):
+                        setattr(existing, key, value)
+                        update_fields.append(key)
                     continue
                 if key == 'name':
                     # Never replace a real customer name with the silent-capture placeholder
@@ -782,6 +831,11 @@ class InquiryService:
             mobile_changed = (
                 'mobile' in update_fields and previous_mobile != existing.mobile
             )
+            status_to_inspection = (
+                'status' in update_fields
+                and existing.status == Inquiry.InquiryStatus.INSPECTION_REQUESTED
+                and previous_status != Inquiry.InquiryStatus.INSPECTION_REQUESTED
+            )
             if update_fields:
                 # Only reopen as unread when the customer changes mobile —
                 # silent form edits must not undo staff "Mark as Read".
@@ -796,6 +850,10 @@ class InquiryService:
             # staff need a fresh Telegram. Same-mobile name upgrades stay quiet.
             if mobile_changed:
                 InquiryService._notify_inquiry_channels(existing)
+
+            # Customer WhatsApp confirmation when inspection form is finalized.
+            if status_to_inspection:
+                InquiryService._notify_customer_inquiry_whatsapp(existing)
 
             return existing, False
 
