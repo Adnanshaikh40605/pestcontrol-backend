@@ -77,6 +77,34 @@ class DeepCleaningBookingWorkflowTests(APITestCase):
         self.assertEqual(done.data['status'], 'Done')
         self.assertEqual(JobCard.objects.count(), 0)
 
+    def test_booking_list_honors_page_size_for_on_process(self):
+        """CRM Next page must work: page_size > default 10 must return more rows."""
+        for index in range(15):
+            created = self._booking(mobile=f'98765003{index:02d}', name=f'Client {index}')
+            assigned = self.client.post(
+                f"/api/deepcleaning-bookings/{created['id']}/assign/",
+                {'technician_id': self.tech.id},
+                format='json',
+            )
+            self.assertEqual(assigned.status_code, status.HTTP_200_OK, assigned.data)
+
+        page1 = self.client.get(
+            '/api/deepcleaning-bookings/',
+            {'status': 'On Process', 'page': 1, 'page_size': 10},
+        )
+        self.assertEqual(page1.status_code, status.HTTP_200_OK, page1.data)
+        self.assertEqual(page1.data['count'], 15)
+        self.assertEqual(len(page1.data['results']), 10)
+        self.assertIsNotNone(page1.data['next'])
+
+        larger = self.client.get(
+            '/api/deepcleaning-bookings/',
+            {'status': 'On Process', 'page': 1, 'page_size': 20},
+        )
+        self.assertEqual(larger.status_code, status.HTTP_200_OK, larger.data)
+        self.assertEqual(len(larger.data['results']), 15)
+        self.assertIsNone(larger.data['next'])
+
     def test_on_leave_and_wrong_service_cannot_be_assigned(self):
         booking = self._booking(service='Sofa Cleaning', mobile='9876500103')
         sofa_tech = DeepCleaningTechnician.objects.create(

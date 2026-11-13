@@ -9,7 +9,16 @@ from django.db.models import BooleanField, Case, Count, F, Max, Prefetch, Q, Val
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, permissions, response, status, views, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+
+
+class DeepCleaningBookingPagination(PageNumberPagination):
+    """CRM list: honor ?page_size= so Next page works past the first 10 rows."""
+
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 from .deepcleaning_serializers import (
     DeepCleaningBookingSerializer,
@@ -304,6 +313,7 @@ class DeepCleaningBookingViewSet(viewsets.ModelViewSet):
     queryset = DeepCleaningBooking.objects.select_related('technician', 'inquiry')
     serializer_class = DeepCleaningBookingSerializer
     permission_classes = [IsCRMOperationalUser]
+    pagination_class = DeepCleaningBookingPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'city', 'service']
     search_fields = ['code', 'name', 'mobile', 'address', 'service', 'city', 'technician__name']
