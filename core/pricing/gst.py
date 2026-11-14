@@ -255,6 +255,31 @@ def known_ledger_base(job) -> Decimal | None:
     return explicit_service_base_total(job)
 
 
+def _infer_pricing_plan_type(job, item: dict | None = None) -> str:
+    """Map JobCard / line fields onto Pricing Master ``plan_type`` labels."""
+    item = item or {}
+    plan = str(item.get('plan') or item.get('frequency') or '').strip()
+    if plan:
+        normalized = ' '.join(plan.replace('-', ' ').split()).casefold()
+        if 'amc' in normalized:
+            return 'AMC 3 Services'
+        if 'one' in normalized and 'time' in normalized:
+            return 'One Time Service'
+        return plan
+
+    category = str(getattr(job, 'service_category', None) or '').strip()
+    category_key = ' '.join(category.replace('-', ' ').split()).casefold()
+    if category_key == 'amc' or category_key.startswith('amc '):
+        return 'AMC 3 Services'
+    if category_key:
+        return 'One Time Service'
+
+    booking_type = str(getattr(job, 'booking_type', None) or '').strip().casefold()
+    if booking_type == 'amc':
+        return 'AMC 3 Services'
+    return 'One Time Service'
+
+
 def chart_quote_for_job(job) -> dict[str, Any] | None:
     """Active Pricing Master quote for this job's service + plan + size.
 
@@ -265,23 +290,45 @@ def chart_quote_for_job(job) -> dict[str, Any] | None:
         return None
     try:
         from core.models import PricingRate
-        from core.pricing.aliases import canonical_service_line, clean_service_label
+        from core.pricing.aliases import (
+            alias_candidates,
+            canonical_service_line,
+            clean_service_label,
+            resolve_service_package,
+        )
         from core.pricing.db import pricing_region_for_city, resolve_pricing_region_slug
     except Exception:
         return None
 
     items = getattr(job, 'service_items', None) or []
     item = items[0] if isinstance(items, list) and items and isinstance(items[0], dict) else {}
-    service = clean_service_label(
+    raw_service = clean_service_label(
         str(item.get('service') or getattr(job, 'source_service', None) or getattr(job, 'service_type', None) or '')
     )
-    plan = str(item.get('plan') or item.get('frequency') or '').strip()
-    area = str(item.get('area') or getattr(job, 'bhk_size', None) or '').strip()
-    if not service or not plan or not area:
+    if not raw_service:
         return None
 
-    canonical = canonical_service_line(service)
-    names = tuple(sorted({service, canonical}))
+    package_tier = str(getattr(job, 'package_tier', None) or '').strip().casefold()
+    resolved = resolve_service_package(raw_service) or raw_service
+    if package_tier == 'premium' and 'cockroach' in resolved.casefold():
+        resolved = 'Cockroach Premium'
+    elif package_tier == 'standard' and 'cockroach' in resolved.casefold():
+        resolved = 'Cockroach Standard'
+
+    plan = _infer_pricing_plan_type(job, item)
+    area = str(item.get('area') or getattr(job, 'bhk_size', None) or '').strip()
+    if not plan or not area:
+        return None
+
+    names = {
+        raw_service,
+        resolved,
+        canonical_service_line(raw_service),
+        canonical_service_line(resolved),
+        *alias_candidates(raw_service),
+        *alias_candidates(resolved),
+    }
+    names = tuple(sorted({n for n in names if n}))
     city = None
     master_city = getattr(job, 'master_city', None)
     if master_city is not None and getattr(master_city, 'name', None):
@@ -686,6 +733,7 @@ def customer_display_base(job) -> Decimal:
         if chart_base > 0 and _close_money(reference, chart_base):
             return chart_base
         if chart_base > 0 and chart_total > 0 and _close_money(reference, chart_total):
+            # e.g. website stored ₹1,475 incl. GST → show ₹1,250 + GST
             return chart_base
 
     if gst_amt > 0 and reference > 0:
@@ -694,7 +742,7 @@ def customer_display_base(job) -> Decimal:
     if inclusive_mode and reference > 0 and (
         final > 0 or _money(getattr(job, 'original_service_price', None)) > 0
     ):
-        # Inclusive snapshot without a usable taxable field.
+        # Legacy blank gst_mode with an inclusive snapshot — peel GST.
         return amount_excluding_gst(reference, resolve_job_gst_percent(job))
 
     if reference > 0:

@@ -42,6 +42,8 @@ class BookingConfirmationHelperTests(TestCase):
         self.schedule = datetime(2026, 8, 5, 4, 30, tzinfo=dt_timezone.utc)  # 10:00 IST
 
     def _job(self, **kwargs):
+        # GST_EXCLUSIVE: price is the base shown as ``X + GST``.
+        # Inclusive chart totals (e.g. ₹1,475) must set gst_mode=GST_INCLUSIVE.
         fields = {
             'client': self.client_record,
             'service_type': 'Cockroach Control',
@@ -49,6 +51,7 @@ class BookingConfirmationHelperTests(TestCase):
             'time_slot': '10:00 AM',
             'price': '2500',
             'total_amount': Decimal('2500.00'),
+            'gst_mode': JobCard.GstPricingMode.EXCLUSIVE,
             'status': JobCard.JobStatus.PENDING,
             'master_location': self.location,
             'city': 'Pune',
@@ -71,6 +74,87 @@ class BookingConfirmationHelperTests(TestCase):
         self.assertEqual(params[5], '10:00 AM')
         self.assertEqual(params[6], '2,500 + GST')
         self.assertEqual(params[7], 'Standard service terms apply.')
+
+    def test_inclusive_customer_total_shows_base_then_plus_gst_text(self):
+        """₹1,475 incl. GST must become ``1,250 + GST`` — never ``1,475 + GST``."""
+        from core.models import PricingRate, PricingRegion
+        from core.pricing.gst import customer_display_base, format_customer_price_plus_gst
+
+        region, _ = PricingRegion.objects.get_or_create(
+            slug='wa-incl-gst-region',
+            defaults={'name': 'WA Incl GST Region', 'is_default': True, 'is_active': True},
+        )
+        PricingRate.objects.update_or_create(
+            region=region,
+            service_package='Cockroach Standard',
+            plan_type='One Time Service',
+            area_key='1 BHK',
+            defaults={
+                'amount': Decimal('1250.00'),
+                'gst_percent': Decimal('18.00'),
+                'price_includes_gst': False,
+                'is_active': True,
+            },
+        )
+
+        job = self._job(
+            service_type='Cockroach Standard',
+            price='1475',
+            total_amount=Decimal('1475.00'),
+            gst_mode='GST_INCLUSIVE',
+            gst_rate=Decimal('18.00'),
+            bhk_size='1 BHK',
+            city='Mumbai',
+            master_location=None,
+            service_category=JobCard.ServiceCategory.ONE_TIME,
+            package_tier=JobCard.PackageTier.STANDARD,
+        )
+        job.refresh_from_db()
+        self.assertEqual(customer_display_base(job), Decimal('1250.00'))
+        self.assertEqual(format_customer_price_plus_gst(job), '1,250 + GST')
+        params = build_booking_confirmation_params(job)
+        self.assertEqual(params[6], '1,250 + GST')
+
+    def test_inclusive_with_taxable_snapshot_shows_base_then_plus_gst_text(self):
+        """Website catalog snapshot: taxable base wins even without chart match."""
+        from core.pricing.gst import customer_display_base, format_customer_price_plus_gst
+
+        job = self._job(
+            service_type='Cockroach Standard',
+            price='1475',
+            total_amount=Decimal('1475.00'),
+            gst_mode='GST_INCLUSIVE',
+            gst_rate=Decimal('18.00'),
+            taxable_amount=Decimal('1250.00'),
+            gst_amount=Decimal('225.00'),
+            final_payable_amount=Decimal('1475.00'),
+            original_service_price=Decimal('1475.00'),
+            bhk_size='1 BHK',
+        )
+        job.refresh_from_db()
+        self.assertEqual(customer_display_base(job), Decimal('1250.00'))
+        self.assertEqual(format_customer_price_plus_gst(job), '1,250 + GST')
+        params = build_booking_confirmation_params(job)
+        self.assertEqual(params[6], '1,250 + GST')
+
+    def test_exclusive_base_price_keeps_base_then_plus_gst_text(self):
+        """₹1,250 excl. GST stays ``1,250 + GST`` (do not peel again)."""
+        from core.pricing.gst import customer_display_base, format_customer_price_plus_gst
+
+        job = self._job(
+            service_type='Cockroach Standard',
+            price='1250',
+            total_amount=Decimal('1250.00'),
+            gst_mode='GST_EXCLUSIVE',
+            gst_rate=Decimal('18.00'),
+            taxable_amount=Decimal('1250.00'),
+            bhk_size='1 BHK',
+        )
+        job.refresh_from_db()
+        self.assertEqual(customer_display_base(job), Decimal('1250.00'))
+        self.assertEqual(format_customer_price_plus_gst(job), '1,250 + GST')
+        params = build_booking_confirmation_params(job)
+        self.assertEqual(params[6], '1,250 + GST')
 
     @patch('core.whatsflow_pc99.send_template_by_phone')
     def test_notify_sends_exact_template_name_and_body_params(self, send):
@@ -238,11 +322,26 @@ class WebsiteBookingConfirmationTests(TestCase):
             service_package='General Pest Control',
             plan_type='One Time Service',
             area_key='1 BHK',
-            defaults={'amount': Decimal('1000.00'), 'is_active': True},
+            defaults={
+                'amount': Decimal('1000.00'),
+                'gst_percent': Decimal('18.00'),
+                'price_includes_gst': False,
+                'is_active': True,
+            },
         )
         self.rate.amount = Decimal('1000.00')
+        self.rate.gst_percent = Decimal('18.00')
+        self.rate.price_includes_gst = False
         self.rate.is_active = True
-        self.rate.save(update_fields=['amount', 'is_active', 'updated_at'])
+        self.rate.save(
+            update_fields=[
+                'amount',
+                'gst_percent',
+                'price_includes_gst',
+                'is_active',
+                'updated_at',
+            ]
+        )
 
     def _website_otp_token(self, mobile='9111222333'):
         token, _ = issue_website_booking_verification_token(mobile)

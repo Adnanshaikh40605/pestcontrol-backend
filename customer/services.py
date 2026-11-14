@@ -27,12 +27,18 @@ class CustomerAppError(Exception):
 def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
     from customer.catalog_match import sanitize_home_booking_rate
 
-    def _catalog_total(priced_rate: PricingRate) -> Decimal:
-        return Decimal(str(gst_breakdown(
+    def _catalog_breakdown(priced_rate: PricingRate) -> dict:
+        return gst_breakdown(
             priced_rate.amount,
             gst_percent=priced_rate.gst_percent,
             price_includes_gst=priced_rate.price_includes_gst,
-        )['total_with_gst']))
+        )
+
+    def _catalog_total(priced_rate: PricingRate) -> Decimal:
+        return Decimal(str(_catalog_breakdown(priced_rate)['total_with_gst']))
+
+    def _catalog_base(priced_rate: PricingRate) -> Decimal:
+        return Decimal(str(_catalog_breakdown(priced_rate)['base_amount']))
 
     amount = data.get('amount')
     rate = None
@@ -54,6 +60,9 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
     package_tier_hint = data.get('package_tier') or JobCard.PackageTier.STANDARD
     bhk_size = data.get('bhk_size') or ''
     multi_rates: list[PricingRate] = []
+    catalog_taxable: Decimal | None = None
+    catalog_gst_amount: Decimal | None = None
+    catalog_gst_rate: Decimal | None = None
 
     if len(ordered_rate_ids) > 1:
         # One job, every selected pest. The first rate alone used to become
@@ -91,6 +100,9 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
             rate = multi_rates[0]
             rate_id = rate.id
             amount = sum((_catalog_total(line) for line in multi_rates), Decimal('0.00'))
+            catalog_taxable = sum((_catalog_base(line) for line in multi_rates), Decimal('0.00'))
+            catalog_gst_amount = amount - catalog_taxable
+            catalog_gst_rate = Decimal(str(rate.gst_percent or 18))
             plan_label = (
                 'AMC 3 Services'
                 if str(booking_type).lower() == 'amc'
@@ -102,12 +114,14 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
                 package_name = (line.service_package or '').strip() or 'General Pest'
                 if package_name not in packages:
                     packages.append(package_name)
-                line_total = _catalog_total(line)
+                line_bd = _catalog_breakdown(line)
+                line_total = Decimal(str(line_bd['total_with_gst']))
+                line_base = Decimal(str(line_bd['base_amount']))
                 service_items.append({
                     'service': package_name,
                     'plan': (line.plan_type or '').strip() or plan_label,
                     'area': bhk_size or (line.area_key or ''),
-                    'base_amount': float(line_total),
+                    'base_amount': float(line_base),
                     'discount': 0,
                     'amount': float(line_total),
                 })
@@ -144,11 +158,31 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
             data = {**data, 'pricing_rate_id': rate.id}
             # Bill what the catalog quoted the customer. Reading rate.amount charged the
             # base on any GST-exclusive rate, losing the tax on every such booking.
-            amount = _catalog_total(rate)
+            line_bd = _catalog_breakdown(rate)
+            amount = Decimal(str(line_bd['total_with_gst']))
+            catalog_taxable = Decimal(str(line_bd['base_amount']))
+            catalog_gst_amount = Decimal(str(line_bd['gst_amount']))
+            catalog_gst_rate = Decimal(str(line_bd['gst_percent']))
             # Always store the live Pricing Master package (e.g. Cockroach Standard /
             # Premium). Website used to send marketing copy "Cockroach Control, Ant
             # Control", which CRM split into two RETIRED checkboxes on Edit Job Card.
-            data = {**data, 'service_type': rate.service_package}
+            plan_label = (
+                'AMC 3 Services'
+                if str(booking_type).lower() == 'amc'
+                else (rate.plan_type or 'One Time Service')
+            )
+            data = {
+                **data,
+                'service_type': rate.service_package,
+                'service_items': [{
+                    'service': (rate.service_package or '').strip() or 'General Pest',
+                    'plan': plan_label,
+                    'area': bhk_size or (rate.area_key or ''),
+                    'base_amount': float(catalog_taxable),
+                    'discount': 0,
+                    'amount': float(amount),
+                }],
+            }
 
     if amount is None and not data.get('price_confirmation_pending'):
         raise CustomerAppError('amount or pricing_rate_id is required.', code='amount_required')
@@ -178,6 +212,30 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
     package_tier = data.get('package_tier') or JobCard.PackageTier.STANDARD
     if package_tier == JobCard.PackageTier.PREMIUM and amount > 0 and not price_confirmation_pending:
         amount = (amount * Decimal('1.15')).quantize(Decimal('0.01'))
+        if catalog_taxable is not None and catalog_taxable > 0:
+            catalog_taxable = (catalog_taxable * Decimal('1.15')).quantize(Decimal('0.01'))
+            catalog_gst_amount = (amount - catalog_taxable).quantize(Decimal('0.01'))
+            # Keep service_items bases aligned with the premium surcharge.
+            items = data.get('service_items') or []
+            if isinstance(items, list) and items:
+                scaled_items = []
+                for raw in items:
+                    item = dict(raw or {})
+                    try:
+                        item['base_amount'] = float(
+                            (Decimal(str(item.get('base_amount') or 0)) * Decimal('1.15')).quantize(
+                                Decimal('0.01')
+                            )
+                        )
+                        item['amount'] = float(
+                            (Decimal(str(item.get('amount') or 0)) * Decimal('1.15')).quantize(
+                                Decimal('0.01')
+                            )
+                        )
+                    except Exception:
+                        pass
+                    scaled_items.append(item)
+                data = {**data, 'service_items': scaled_items}
 
     booking_kind = (data.get('booking_type') or 'one_time').lower()
     service_category = (
@@ -278,6 +336,24 @@ def create_customer_booking(account: CustomerAccount, data: dict) -> JobCard:
         'job_type': job_type,
         'commercial_type': commercial_type,
     }
+    # Catalog amount is the customer payable (incl. GST). Persist the excl-GST
+    # base so WhatsApp shows ``1,250 + GST`` instead of ``1,475 + GST``.
+    if (
+        not price_confirmation_pending
+        and catalog_taxable is not None
+        and catalog_taxable > 0
+        and amount > 0
+    ):
+        payload['gst_mode'] = JobCard.GstPricingMode.INCLUSIVE
+        payload['gst_rate'] = catalog_gst_rate if catalog_gst_rate is not None else Decimal('18.00')
+        payload['taxable_amount'] = catalog_taxable
+        payload['gst_amount'] = (
+            catalog_gst_amount
+            if catalog_gst_amount is not None
+            else (amount - catalog_taxable)
+        )
+        payload['original_service_price'] = amount
+        payload['final_payable_amount'] = amount
     if price_confirmation_pending:
         note = (data.get('notes') or '').strip()
         pending_note = 'Price Confirmation Pending'
