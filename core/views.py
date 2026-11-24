@@ -1368,8 +1368,11 @@ class CRMInquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
     search_fields_list = ('name', 'mobile', 'email', 'location', 'pest_type')
 
     def get_queryset(self):
+        from core.inquiry_booking import annotate_inquiry_has_booking
+
         qs = CRMInquiry.objects.all()
         qs = qs.annotate(remark_count=Count('remarks', distinct=True))
+        qs = annotate_inquiry_has_booking(qs)
         qs = qs.prefetch_related(
             Prefetch(
                 'remarks',
@@ -1902,6 +1905,8 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
     search_fields_list = ('name', 'mobile', 'email', 'service_interest', 'city', 'state')
 
     def get_queryset(self):
+        from core.inquiry_booking import annotate_inquiry_has_booking
+
         qs = Inquiry.objects.all()
         qs = qs.annotate(
             remark_count=Count('remarks', distinct=True),
@@ -1915,6 +1920,7 @@ class InquiryViewSet(InquiryListCountsMixin, BaseModelViewSet):
                 output_field=BooleanField(),
             )
         )
+        qs = annotate_inquiry_has_booking(qs, linked_jobcard=True)
         qs = qs.prefetch_related(
             Prefetch(
                 'remarks',

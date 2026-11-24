@@ -493,6 +493,8 @@ class InquirySerializer(serializers.ModelSerializer):
     needs_comment_update = serializers.BooleanField(read_only=True, required=False)
     comment_status = serializers.SerializerMethodField()
     service_rate_info = serializers.SerializerMethodField()
+    has_booking = serializers.SerializerMethodField()
+    not_booked = serializers.SerializerMethodField()
 
     class Meta:
         model = Inquiry
@@ -503,6 +505,7 @@ class InquirySerializer(serializers.ModelSerializer):
             'estimated_price', 'is_inspection_required', 'service_frequency',
             'booking_session_id', 'page_url', 'utm_source', 'utm_medium', 'utm_campaign',
             'linked_jobcard',
+            'has_booking', 'not_booked',
             'remark', 'latest_remark', 'remark_count', 'needs_comment_update',
             'comment_status',
             'service_rate_info',
@@ -516,7 +519,26 @@ class InquirySerializer(serializers.ModelSerializer):
             'comment_status',
             'service_rate_info',
             'linked_jobcard',
+            'has_booking', 'not_booked',
         ]
+
+    def _resolve_has_booking(self, obj) -> bool:
+        annotated = getattr(obj, 'has_booking', None)
+        if annotated is not None:
+            return bool(annotated)
+        if getattr(obj, 'linked_jobcard_id', None):
+            return True
+        mobile = str(getattr(obj, 'mobile', '') or '').strip()
+        if not mobile:
+            return False
+        from core.models import JobCard
+        return JobCard.objects.filter(client__mobile=mobile).exists()
+
+    def get_has_booking(self, obj) -> bool:
+        return self._resolve_has_booking(obj)
+
+    def get_not_booked(self, obj) -> bool:
+        return not self._resolve_has_booking(obj)
 
     def get_comment_status(self, obj) -> str:
         """required = needs staff comment; added = latest comment is current."""
@@ -1536,6 +1558,8 @@ class CRMInquirySerializer(serializers.ModelSerializer):
     latest_remark = serializers.SerializerMethodField()
     remark_count = serializers.IntegerField(read_only=True, required=False)
     service_rate_info = serializers.SerializerMethodField()
+    has_booking = serializers.SerializerMethodField()
+    not_booked = serializers.SerializerMethodField()
 
     # Master Location Display Names
     master_country_name = serializers.CharField(source='master_country.name', read_only=True)
@@ -1550,6 +1574,7 @@ class CRMInquirySerializer(serializers.ModelSerializer):
             'master_country', 'master_country_name', 'master_state', 'master_state_name', 'master_city', 'master_city_name', 'master_location', 'master_location_name',
             'pest_type', 'remark', 'latest_remark', 'remark_count', 'service_rate_info', 'service_frequency',
             'inquiry_date', 'inquiry_time', 'status', 'is_read',
+            'has_booking', 'not_booked',
             'created_by', 'created_by_name',
             'converted_by', 'converted_by_name',
             'reminder_date', 'reminder_time', 'reminder_note', 'is_reminder_done',
@@ -1558,7 +1583,24 @@ class CRMInquirySerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'created_at', 'updated_at', 'created_by', 'converted_by',
             'remark', 'latest_remark', 'remark_count', 'service_rate_info',
+            'has_booking', 'not_booked',
         ]
+
+    def _resolve_has_booking(self, obj) -> bool:
+        annotated = getattr(obj, 'has_booking', None)
+        if annotated is not None:
+            return bool(annotated)
+        mobile = str(getattr(obj, 'mobile', '') or '').strip()
+        if not mobile:
+            return False
+        from core.models import JobCard
+        return JobCard.objects.filter(client__mobile=mobile).exists()
+
+    def get_has_booking(self, obj) -> bool:
+        return self._resolve_has_booking(obj)
+
+    def get_not_booked(self, obj) -> bool:
+        return not self._resolve_has_booking(obj)
 
     def get_created_by_name(self, obj):
         if obj.created_by:
