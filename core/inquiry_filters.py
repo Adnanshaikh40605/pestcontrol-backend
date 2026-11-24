@@ -75,6 +75,32 @@ def parse_is_read_param(value: str | None) -> bool | None:
     return None
 
 
+def parse_booking_param(value: str | None) -> bool | None:
+    """Parse ``booking`` query values.
+
+    Returns True for booked, False for not booked, None for all.
+    Accepts: booked | not_booked | true | false | 1 | 0
+    """
+    if value is None:
+        return None
+    raw = str(value).strip().lower()
+    if not raw:
+        return None
+    if raw in ('booked', '1', 'true', 'yes', 'has_booking'):
+        return True
+    if raw in ('not_booked', 'not-booked', 'unbooked', '0', 'false', 'no'):
+        return False
+    return None
+
+
+def apply_booking_filter(qs: QuerySet, request) -> QuerySet:
+    """Filter by JobCard booking presence (requires ``has_booking`` annotation)."""
+    booking = parse_booking_param(request.query_params.get('booking'))
+    if booking is None:
+        return qs
+    return qs.filter(has_booking=booking)
+
+
 def get_status_counts(qs: QuerySet) -> dict[str, int]:
     """Return status breakdown for tab badges (all filters except status)."""
     rows = qs.values('status').annotate(count=Count('id', distinct=True))
@@ -127,6 +153,7 @@ class InquiryListCountsMixin:
 
         qs = apply_inquiry_search(qs, self.request, fields=self.search_fields_list)
         qs = apply_date_range_filter(qs, self.request, date_field=self.date_filter_field)
+        qs = apply_booking_filter(qs, self.request)
 
         if self.extra_list_filters:
             qs = self.extra_list_filters(qs, self.request)

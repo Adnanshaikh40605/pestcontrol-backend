@@ -124,3 +124,53 @@ class InquiryNotBookedApiTests(APITestCase):
         row = next(r for r in res.data['results'] if r['mobile'] == self.mobile_booked)
         self.assertTrue(row['has_booking'])
         self.assertFalse(row['not_booked'])
+
+    def test_website_filter_not_booked(self):
+        self._create_booking(self.mobile_booked)
+        Inquiry.objects.create(
+            name='Open Lead',
+            mobile=self.mobile_open,
+            message='Need pest control',
+            service_interest='Cockroach',
+            status=Inquiry.InquiryStatus.NEW,
+        )
+        Inquiry.objects.create(
+            name='Booked Lead',
+            mobile=self.mobile_booked,
+            message='Already booked',
+            service_interest='Cockroach',
+            status=Inquiry.InquiryStatus.NEW,
+        )
+        res = self.api.get('/api/v1/inquiries/', {'booking': 'not_booked'})
+        self.assertEqual(res.status_code, 200, res.data)
+        mobiles = {r['mobile'] for r in res.data['results']}
+        self.assertIn(self.mobile_open, mobiles)
+        self.assertNotIn(self.mobile_booked, mobiles)
+        self.assertTrue(all(r['not_booked'] for r in res.data['results']))
+
+    def test_crm_filter_booked(self):
+        self._create_booking(self.mobile_booked)
+        CRMInquiry.objects.create(
+            name='CRM Open',
+            mobile=self.mobile_open,
+            pest_type='Cockroach',
+            inquiry_date=timezone.localdate(),
+            inquiry_time=timezone.localtime().time().replace(microsecond=0),
+            status=CRMInquiry.InquiryStatus.NEW,
+            created_by=self.user,
+        )
+        CRMInquiry.objects.create(
+            name='CRM Booked',
+            mobile=self.mobile_booked,
+            pest_type='Cockroach',
+            inquiry_date=timezone.localdate(),
+            inquiry_time=timezone.localtime().time().replace(microsecond=0),
+            status=CRMInquiry.InquiryStatus.NEW,
+            created_by=self.user,
+        )
+        res = self.api.get('/api/v1/crm-inquiries/', {'booking': 'booked'})
+        self.assertEqual(res.status_code, 200, res.data)
+        mobiles = {r['mobile'] for r in res.data['results']}
+        self.assertIn(self.mobile_booked, mobiles)
+        self.assertNotIn(self.mobile_open, mobiles)
+        self.assertTrue(all(r['has_booking'] for r in res.data['results']))
