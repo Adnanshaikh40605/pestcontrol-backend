@@ -161,20 +161,48 @@ def get_remark_call_activity_report(
         return row
 
     staff_rows = [_row(u) for u in staff_users]
+
+    def _board(
+        rows: list[dict[str, Any]],
+        *,
+        count_key: str,
+        crm_key: str,
+        website_key: str,
+    ) -> list[dict[str, Any]]:
+        return sorted(
+            [
+                {
+                    'staff_id': r['staff_id'],
+                    'staff_name': r['staff_name'],
+                    'count': int(r.get(count_key) or 0),
+                    'crm_count': int(r.get(crm_key) or 0),
+                    'website_count': int(r.get(website_key) or 0),
+                }
+                for r in rows
+            ],
+            key=lambda x: (-x['count'], x['staff_name'].lower()),
+        )
+
     # Today leaderboard: highest first, still include zeros for visibility
-    today_board = sorted(
-        [
-            {
-                'staff_id': r['staff_id'],
-                'staff_name': r['staff_name'],
-                'count': r['today'],
-                'crm_count': r['today_crm'],
-                'website_count': r['today_website'],
-            }
-            for r in staff_rows
-        ],
-        key=lambda x: (-x['count'], x['staff_name'].lower()),
+    today_board = _board(
+        staff_rows, count_key='today', crm_key='today_crm', website_key='today_website'
     )
+
+    # Active board for the UI date filter (custom range when from/to set).
+    if custom_map is not None:
+        selected_board = _board(
+            staff_rows, count_key='custom', crm_key='custom_crm', website_key='custom_website'
+        )
+        range_from = from_date or to_date
+        range_to = to_date or from_date or today
+        selected_label = (
+            range_from.isoformat()
+            if range_from == range_to
+            else f'{range_from.isoformat()} to {range_to.isoformat()}'
+        )
+    else:
+        selected_board = today_board
+        selected_label = 'today'
 
     return {
         'label': ACTIVITY_LABEL,
@@ -186,6 +214,8 @@ def get_remark_call_activity_report(
             'to': to_date.isoformat() if to_date else None,
         },
         'today': today_board,
+        'selected': selected_board,
+        'selected_label': selected_label,
         'staff': staff_rows,
     }
 

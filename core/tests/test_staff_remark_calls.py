@@ -1,5 +1,5 @@
 """Remark-Based Call Activities — CRM + Website remarks count per staff."""
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -117,6 +117,30 @@ class StaffRemarkCallActivityTests(APITestCase):
         self.assertEqual(len(res.data['staff']), 1)
         self.assertEqual(res.data['staff'][0]['staff_id'], self.staff_a.id)
         self.assertEqual(res.data['staff'][0]['custom'], 1)
+        self.assertEqual(res.data['selected_label'], today)
+        selected = next(r for r in res.data['selected'] if r['staff_id'] == self.staff_a.id)
+        self.assertEqual(selected['count'], 1)
+
+    def test_selected_board_uses_custom_range_not_today(self):
+        """From/to must drive selected board even when that day is not today."""
+        old = InquiryRemark.objects.create(
+            inquiry=self.crm, remark='Yesterday call', created_by=self.staff_a
+        )
+        yesterday = timezone.localdate() - timedelta(days=1)
+        InquiryRemark.objects.filter(pk=old.pk).update(
+            created_at=timezone.make_aware(datetime.combine(yesterday, time(12, 0)))
+        )
+        ymd = yesterday.isoformat()
+        res = self.api.get(
+            '/api/v1/dashboard/remark-call-activities/',
+            {'from': ymd, 'to': ymd},
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data['selected_label'], ymd)
+        selected = next(r for r in res.data['selected'] if r['staff_id'] == self.staff_a.id)
+        today_row = next(r for r in res.data['today'] if r['staff_id'] == self.staff_a.id)
+        self.assertEqual(selected['count'], 1)
+        self.assertEqual(today_row['count'], 0)
 
     def test_performance_endpoint_includes_remark_call_activities(self):
         InquiryRemark.objects.create(
