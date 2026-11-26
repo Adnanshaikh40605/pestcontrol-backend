@@ -2535,8 +2535,9 @@ class DashboardService:
         from django.contrib.auth.models import User
         from django.utils import timezone
         from django.db.models import Count, Q
-        from datetime import timedelta
+        from datetime import datetime, time, timedelta
         from .models import Inquiry, JobCard, CRMInquiry, Renewal
+        from core.staff_remark_calls import _counts_by_user as _remark_counts_by_user
 
         now = timezone.now()
         today = now.date()
@@ -2607,6 +2608,11 @@ class DashboardService:
         )
         reminders_by = _by_user(Renewal.objects.filter(date_filter_created), 'created_by')
 
+        # Remark-Based Call Activities (CRM + Website remarks created in period).
+        period_start = timezone.make_aware(datetime.combine(start_date, time.min))
+        period_end = timezone.make_aware(datetime.combine(end_date, time.min))
+        remark_calls_by = _remark_counts_by_user(start=period_start, end=period_end)
+
         performance_data = []
 
         for user in staff_users:
@@ -2620,6 +2626,8 @@ class DashboardService:
             done_updates = done_by.get(user.id, 0)
             complaint_calls_created = complaints_by.get(user.id, 0)
             reminders_created = reminders_by.get(user.id, 0)
+            remark_bucket = remark_calls_by.get(user.id, {})
+            remark_call_activities = remark_bucket.get('total', 0)
             
             # 7. Conversion Rate
             total_converted = website_converted + crm_converted
@@ -2638,6 +2646,9 @@ class DashboardService:
                 'total_done_updates': done_updates,
                 'total_complaint_calls_created': complaint_calls_created,
                 'total_reminders_created': reminders_created,
+                'remark_call_activities': remark_call_activities,
+                'remark_call_activities_crm': remark_bucket.get('crm', 0),
+                'remark_call_activities_website': remark_bucket.get('website', 0),
                 'conversion_rate': round(conversion_rate, 2)
             })
             

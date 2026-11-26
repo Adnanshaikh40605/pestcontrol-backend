@@ -4236,6 +4236,53 @@ class DashboardViewSet(viewsets.GenericViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=False, methods=['get'], url_path='remark-call-activities')
+    def remark_call_activities(self, request):
+        """
+        Remark-Based Call Activities for Staff Performance.
+
+        Counts each new CRM + Website inquiry remark once by staff ``created_by``
+        and ``created_at``. Query params: staff_id, from, to (YYYY-MM-DD).
+        """
+        try:
+            from core.staff_remark_calls import (
+                get_remark_call_activity_report,
+                parse_optional_date,
+                parse_optional_staff_id,
+            )
+
+            staff_id = parse_optional_staff_id(request.query_params.get('staff_id'))
+            from_date = parse_optional_date(request.query_params.get('from'))
+            to_date = parse_optional_date(request.query_params.get('to'))
+            if request.query_params.get('from') and from_date is None:
+                return response.Response(
+                    {'error': 'Invalid from date. Use YYYY-MM-DD.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if request.query_params.get('to') and to_date is None:
+                return response.Response(
+                    {'error': 'Invalid to date. Use YYYY-MM-DD.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if from_date and to_date and from_date > to_date:
+                return response.Response(
+                    {'error': 'from date must be on or before to date.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            payload = get_remark_call_activity_report(
+                staff_id=staff_id,
+                from_date=from_date,
+                to_date=to_date,
+            )
+            return response.Response(payload, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"Error retrieving remark call activities: {e}")
+            return response.Response(
+                {'error': 'Failed to retrieve remark-based call activities'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
 
 @extend_schema_view(
     list=extend_schema(
