@@ -131,3 +131,50 @@ class StaffRemarkCallActivityTests(APITestCase):
         self.assertEqual(a['remark_call_activities'], 2)
         self.assertEqual(a['remark_call_activities_crm'], 1)
         self.assertEqual(a['remark_call_activities_website'], 1)
+
+    def test_live_remark_create_apis_update_dashboard_counts(self):
+        """POST CRM + Website remarks → Staff Performance counts update immediately."""
+        before = self.api.get('/api/v1/dashboard/remark-call-activities/')
+        self.assertEqual(before.status_code, 200, before.data)
+        a_before = next(r for r in before.data['staff'] if r['staff_id'] == self.staff_a.id)['today']
+
+        crm_res = self.api.post(
+            f'/api/v1/crm-inquiries/{self.crm.id}/remarks/',
+            {'remark': 'Live CRM follow-up call'},
+            format='json',
+        )
+        self.assertEqual(crm_res.status_code, 201, crm_res.data)
+        self.assertEqual(crm_res.data.get('created_by'), self.staff_a.id)
+
+        web_res = self.api.post(
+            f'/api/v1/website-leads/{self.web.id}/remarks/',
+            {'remark': 'Live Website follow-up call'},
+            format='json',
+        )
+        self.assertEqual(web_res.status_code, 201, web_res.data)
+        self.assertEqual(web_res.data.get('created_by'), self.staff_a.id)
+
+        # Second CRM remark by same staff must add +1 more (not replace).
+        crm_res2 = self.api.post(
+            f'/api/v1/crm-inquiries/{self.crm.id}/remarks/',
+            {'remark': 'Second CRM call same day'},
+            format='json',
+        )
+        self.assertEqual(crm_res2.status_code, 201, crm_res2.data)
+
+        after = self.api.get('/api/v1/dashboard/remark-call-activities/')
+        self.assertEqual(after.status_code, 200, after.data)
+        a_after = next(r for r in after.data['staff'] if r['staff_id'] == self.staff_a.id)
+        self.assertEqual(a_after['today'], a_before + 3)
+        self.assertEqual(a_after['today_crm'], 2)
+        self.assertEqual(a_after['today_website'], 1)
+
+        board = next(r for r in after.data['today'] if r['staff_id'] == self.staff_a.id)
+        self.assertEqual(board['count'], a_before + 3)
+
+        # Editing existing remark text (same row / created_at) must not inflate count.
+        remark_id = crm_res.data['id']
+        InquiryRemark.objects.filter(pk=remark_id).update(remark='Edited live CRM follow-up')
+        after_edit = self.api.get('/api/v1/dashboard/remark-call-activities/')
+        a_edit = next(r for r in after_edit.data['staff'] if r['staff_id'] == self.staff_a.id)
+        self.assertEqual(a_edit['today'], a_before + 3)
